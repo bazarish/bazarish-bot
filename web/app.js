@@ -138,7 +138,7 @@ async function viewOverview() {
     }
 
     const account = await call("GET", "/ui/account");
-    const cards = node("div", "cards");
+    const cards = node("div", "cards is-stacked");
 
     const identity = node("article", "card");
     const head = node("div", "card-head");
@@ -214,21 +214,22 @@ function accountSetup() {
 
     const bundle = node("input", "field");
     bundle.type = "file";
+    bundle.accept = ".bazarish";
     const bundlePassword = node("input", "field");
     bundlePassword.type = "password";
 
     const footer = node("p", "form-footer");
     const create = node("button", "btn", "Create");
-    const importing = node("button", "btn btn-quiet", "Import a bundle");
+    const importing = node("button", "btn btn-quiet", "Restore a backup");
     footer.append(create, importing);
     card.append(footer);
 
     const importBlock = node("div", "block");
     importBlock.hidden = true;
     importBlock.append(node("p", "block-title", "Import"));
-    importBlock.append(node("label", "field-label", "Bundle file"));
+    importBlock.append(node("label", "field-label", "Backup file (.bazarish)"));
     importBlock.append(bundle);
-    importBlock.append(node("label", "field-label", "The bundle's password"));
+    importBlock.append(node("label", "field-label", "The backup's password"));
     importBlock.append(bundlePassword);
     const importFooter = node("p", "form-footer");
     const doImport = node("button", "btn", "Import");
@@ -703,14 +704,15 @@ async function viewSettings() {
     identity.append(keys);
 
     const move = node("div", "block");
-    move.append(node("p", "block-title", "Move this account"));
+    move.append(node("p", "block-title", "Back this account up"));
     move.append(node("p", "hint",
-        "An export moves the account to another daemon. It is not a second device: "
+        "The same .bazarish backup the desktop client writes, and the same file "
+        + "restores it in either. It moves an account; it does not share one - "
         + "only one daemon may serve an account, because the daemon is that "
         + "account's server."));
     const bundlePassword = node("input", "field");
     bundlePassword.type = "password";
-    move.append(node("label", "field-label", "Password for the bundle"), bundlePassword);
+    move.append(node("label", "field-label", "Password for the backup"), bundlePassword);
     const wrote = node("p", "hint");
     const exportFooter = node("p", "form-footer");
     const run = node("button", "btn", "Export");
@@ -729,7 +731,10 @@ async function viewSettings() {
             }
             const link = document.createElement("a");
             link.href = URL.createObjectURL(await answer.blob());
-            link.download = "bazarish-account.bundle";
+            // The daemon names the file; the browser is only asked to keep it.
+            const named = /filename="([^"]+)"/.exec(
+                answer.headers.get("Content-Disposition") || "");
+            link.download = named ? named[1] : "bazarish.bazarish";
             link.click();
             URL.revokeObjectURL(link.href);
             wrote.textContent = "Downloaded.";
@@ -745,17 +750,34 @@ async function viewSettings() {
     const password = node("article", "panel-box");
     password.style.marginTop = "1rem";
     password.append(node("p", "block-title", "Panel password"));
+    password.append(node("p", "hint",
+        "The current one is asked for so a page left open cannot be used to take "
+        + "the panel over, and the new one twice so a typo does not lock you out."));
+    const currently = node("input", "field");
+    currently.type = "password";
+    currently.autocomplete = "current-password";
     const next = node("input", "field");
     next.type = "password";
+    next.autocomplete = "new-password";
+    const again = node("input", "field");
+    again.type = "password";
+    again.autocomplete = "new-password";
+    password.append(node("label", "field-label", "Current password"), currently);
     password.append(node("label", "field-label", "New password"), next);
+    password.append(node("label", "field-label", "New password again"), again);
     const changed = node("p", "hint");
     const passwordFooter = node("p", "form-footer");
     const change = node("button", "btn", "Change");
     change.onclick = async () => {
         try {
-            await call("POST", "/ui/password", {password: next.value});
+            // Both are sent: the daemon compares them itself, because a check
+            // that only the page makes is a check that is not made.
+            await call("POST", "/ui/password",
+                {current: currently.value, password: next.value, repeat: again.value});
             changed.textContent = "Changed.";
+            currently.value = "";
             next.value = "";
+            again.value = "";
         } catch (error) {
             changed.textContent = error.message;
         }

@@ -44,7 +44,9 @@ build.
 
 - **Not multi-device.** One account, one process, one place. The desktop client
   synchronises devices; a service does not need to and paying for it here would
-  buy nothing.
+  buy nothing. An account is moved by the same password-protected `.bazarish`
+  backup the desktop client writes - the same file restores it in either - and
+  moving is not sharing: two daemons cannot serve one account.
 - **Not a second protocol.** Where the REST API names a thing, it names the
   thing the protocol already has.
 

@@ -53,6 +53,23 @@ http::Response json(const nlohmann::json& body, const int status = 200)
     return response;
 }
 
+// The account's backup, named as the desktop client names it: the display name
+// with everything a file name will not take replaced, and the extension both
+// ends read.
+std::string backupFileName(const std::string& displayName)
+{
+    std::string name;
+    for (const char c : displayName) {
+        const bool plain = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+            || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-';
+        name += plain ? c : '_';
+    }
+    if (name.empty()) {
+        name = "bazarish";
+    }
+    return name + ".bazarish";
+}
+
 http::Response failure(const int status, const std::string& message)
 {
     return json({{"error", message}}, status);
@@ -428,10 +445,17 @@ void HttpFace::routes()
                 return failure(400, "a password that is empty is not a password");
             }
             // The first one is set by whoever reaches the interface first, which
-            // on loopback is the operator. Changing it later needs the old one.
-            if (runtime_.settings().hasPassword() && !signedIn(request)) {
+            // on loopback is the operator. Every one after it is a change, and a
+            // change asks for the current password even from a signed-in page:
+            // otherwise a page left open is a way to take the panel over.
+            if (runtime_.settings().hasPassword()) {
                 if (!runtime_.settings().passwordMatches(body.value("current", std::string()))) {
                     return failure(401, "the current password does not match");
+                }
+                // Checked here rather than in the page: a check the page makes is
+                // one that is not made.
+                if (body.value("repeat", std::string()) != password) {
+                    return failure(400, "the two new passwords are not the same");
                 }
             }
             runtime_.settings().setPassword(password);
@@ -583,11 +607,13 @@ void HttpFace::routes()
             const Bytes bundle = runtime_.exportAccount(
                 body.value("bundlePassphrase", std::string()));
             // Handed back as a file the browser saves, so nothing is written on
-            // the machine the daemon runs on and left there.
+            // the machine the daemon runs on and left there. Named the way the
+            // desktop client names it - it is the same backup, and the same file
+            // restores it there.
             http::Response response;
             response.contentType = "application/octet-stream";
             response.headers["Content-Disposition"]
-                = "attachment; filename=\"bazarish-account.bundle\"";
+                = "attachment; filename=\"" + backupFileName(runtime_.displayName()) + "\"";
             response.body.assign(bundle.begin(), bundle.end());
             return response;
         });

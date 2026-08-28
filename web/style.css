@@ -781,13 +781,12 @@ textarea.field {
     white-space: nowrap;
 }
 
-/* The chat view fills what is left of the window: a conversation that scrolls
-   inside the page rather than lengthening it. */
+/* A conversation is read in a column, not across a wall: it scrolls inside its
+   own box and stops well short of the window's height. */
 .chat {
     display: flex;
     gap: 1rem;
-    height: calc(100vh - 7rem);
-    min-height: 20rem;
+    height: clamp(20rem, 56vh, 32rem);
 }
 
 .chat-list {
@@ -816,9 +815,12 @@ textarea.field {
     background: var(--bz-surface-2);
 }
 
+/* The conversation being read is marked in the near-white the brand keeps for
+   emphasis; the bright green is for the rare thing that must be unmistakable,
+   and a list of chats is not that. */
 .chat-item.is-current {
     background: var(--bz-surface-2);
-    border-left-color: var(--bz-green);
+    border-left-color: var(--bz-accent);
 }
 
 .chat-item .who {
@@ -890,9 +892,11 @@ textarea.field {
     overflow-wrap: anywhere;
 }
 
+/* One's own words carry a faint green-tinted surface - the desktop's bubbleOut,
+   not the accent. */
 .line.is-out .bubble {
-    background: var(--bz-ok-bg);
-    border-color: var(--bz-green-dim);
+    background: #13261a;
+    border-color: var(--bz-line-2);
 }
 
 /* A control message is not something anybody typed: it is drawn as a note, not
@@ -935,8 +939,8 @@ textarea.field {
 }
 
 .reaction.is-mine {
-    border-color: var(--bz-green-dim);
-    background: var(--bz-ok-bg);
+    border-color: var(--bz-accent);
+    background: var(--bz-surface-2);
 }
 
 /* The buttons a bot attached to its message. */
@@ -995,6 +999,7 @@ textarea.field {
 
 .composer {
     display: flex;
+    align-items: center;
     gap: 0.5rem;
     padding: 0.7rem;
     border-top: 1px solid var(--bz-line);
@@ -1004,10 +1009,23 @@ textarea.field {
     flex: 1 1 auto;
 }
 
+/* A button in a row of its own sits under what it acts on and carries a margin
+   for it; on this line it stands beside the field. */
+.composer .btn {
+    margin-top: 0;
+    flex: 0 0 auto;
+}
+
 .empty {
     margin: auto;
     color: var(--bz-ink-faint);
     font-size: 0.78rem;
+}
+
+/* Two cards one under the other rather than side by side: what they hold is a
+   fingerprint and an address, and a column half the width makes both wrap. */
+.cards.is-stacked {
+    grid-template-columns: 1fr;
 }
 
 /* The first-run sheet asks for one thing at a time; the steps that are not the
