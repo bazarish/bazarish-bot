@@ -138,6 +138,21 @@ Transcript::Transcript(const std::filesystem::path& file, const std::string& pas
     run(db_, "CREATE UNIQUE INDEX IF NOT EXISTS messages_e2e ON messages(e2eId)"
              " WHERE e2eId IS NOT NULL AND e2eId <> ''");
     run(db_, "CREATE INDEX IF NOT EXISTS messages_peer ON messages(peer, id)");
+    // A file written by an older daemon has a table of the same name and other
+    // columns, and CREATE TABLE IF NOT EXISTS leaves it exactly as it was. Said
+    // here rather than met later as a query that cannot be prepared - and the
+    // file is left alone, because deleting somebody's conversations to fix a
+    // schema is not this code's decision to make.
+    {
+        Statement columns(db_, "SELECT COUNT(*) FROM pragma_table_info('messages')"
+                               " WHERE name = 'edited'");
+        if (!columns.step() || columns.number(0) == 0) {
+            throw std::runtime_error("the transcript at " + file.string()
+                + " was written by an older daemon and cannot be read; remove it and its"
+                  " .key file to start a fresh one - the conversations kept in it will be"
+                  " lost, and nothing else will");
+        }
+    }
     // One reaction per reactor per message: a new emoji replaces the old one.
     run(db_,
         "CREATE TABLE IF NOT EXISTS reactions ("
