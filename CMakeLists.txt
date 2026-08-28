@@ -17,6 +17,8 @@ set(BAZARISH_SERVER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bazarish-server" CACHE PATH
 
 add_subdirectory(${BAZARISH_COMMON_DIR} bazarish-common)
 add_subdirectory(${BAZARISH_SERVER_DIR}/server-core bazarish-server-core)
+add_subdirectory(${BAZARISH_SERVER_DIR}/service-node bazarish-service-node)
+add_subdirectory(${BAZARISH_SERVER_DIR}/facade-http bazarish-facade-http)
 
 find_package(Threads REQUIRED)
 
@@ -31,7 +33,8 @@ add_library(bazarish_daemon_lib STATIC
 )
 target_include_directories(bazarish_daemon_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(bazarish_daemon_lib PUBLIC
-    Bazarish::Client bazarish_server_lib Threads::Threads)
+    Bazarish::Client bazarish_server_lib bazarish_service_lib bazarish_facade_lib
+    Threads::Threads)
 target_compile_options(bazarish_daemon_lib PRIVATE -Wall -Wextra -Werror)
 
 add_executable(bazarish-daemon src/Main.cpp)

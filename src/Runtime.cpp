@@ -185,23 +185,21 @@ void Runtime::bringUp(const std::string& passphrase)
     log::info("opening the account");
     auto session = std::make_unique<client::Session>(client::Session::open(accountFile(), passphrase));
 
-    // The account subscribes to the mailbox in this process, over loopback.
-    if (!session->isConnected()) {
-        client::ServerEndpoint endpoint;
-        endpoint.serverFingerprint = mailbox_->fingerprint();
-        endpoint.facades.push_back(client::Facade{false, mailbox_->host(), mailbox_->port(), {}});
-        log::info("subscribing to the mailbox at {}:{}", mailbox_->host(), mailbox_->port());
-        session->connectServer(endpoint);
-        session->registerAccount();
-        log::info("subscribed");
-    }
-
-    // The destination is this daemon's own, raised by the mailbox from a key it
+    // The destination is this daemon's own, raised by the server from a key it
     // keeps: there is nothing to delegate to a server that is this same process.
     const std::string destination = mailbox_->serveDestinationFor(session->fingerprint());
-    log::info("destination {}", destination.empty() ? "building" : destination);
-    session->refreshOwnCard();
-    log::info("card refreshed; the account is up");
+    log::info("destination {}", destination.empty() ? "still building" : destination);
+
+    // The account subscribes to the server in this process, over loopback. The
+    // ports are handed out at every start, so the endpoint is set every time
+    // rather than only when there is none.
+    client::ServerEndpoint endpoint;
+    endpoint.serverFingerprint = mailbox_->fingerprint();
+    endpoint.facades.push_back(client::Facade{false, mailbox_->host(), mailbox_->port(), {}});
+    log::info("subscribing to the server at {}:{}", mailbox_->host(), mailbox_->port());
+    session->connectServer(endpoint);
+    session->registerSelfHosted();
+    log::info("registered; the account is up");
 
     auto transcript = std::make_unique<Transcript>(
         config_.stateDir / kTranscriptFile, passphrase);

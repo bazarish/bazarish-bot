@@ -3,11 +3,17 @@
 
 #include <filesystem>
 
+#include <AccountApi.hpp>
 #include <DeliveryEngine.hpp>
 #include <DiskStorage.hpp>
 #include <EventGate.hpp>
+#include <Facade.hpp>
+#include <GrantStore.hpp>
 #include <HttpApi.hpp>
+#include <NodeSettings.hpp>
+#include <OperatorPush.hpp>
 #include <PerUserDestinations.hpp>
+#include <SubscriptionStore.hpp>
 
 #include <bazarish/Crypto.hpp>
 #include <bazarish/I2p.hpp>
@@ -18,8 +24,9 @@
 
 namespace bazarish::daemon {
 
-// The mailbox this daemon keeps for itself: the same server the desktop client
-// talks to over I2P, running in this process and answering on loopback.
+// The server this daemon keeps for itself: the same three components the desktop
+// client talks to over I2P - the mailbox, the account node and the facade in
+// front of them - running in this process and answering on loopback.
 //
 // It serves exactly one account, which is also the operator, so nothing here is
 // delegated. On a public server the account hands over a short-lived offline
@@ -39,9 +46,10 @@ public:
     void start();
     void stop();
 
-    // Where the account side reaches this mailbox.
+    // Where the account side reaches this server: the facade, as any client
+    // reaches any server, only without leaving the process.
     const std::string& host() const { return host_; }
-    int port() const { return port_; }
+    int port() const { return facadePort_; }
 
     // The server's own identity, which the account subscribes to.
     const std::string& fingerprint() const { return fingerprint_; }
@@ -59,7 +67,9 @@ private:
     i2p::Privacy privacy_ = i2p::Privacy::eMiddle;
     i2p::Router* router_ = nullptr;
     std::string host_;
-    int port_ = 0;
+    int mailboxPort_ = 0;
+    int nodePort_ = 0;
+    int facadePort_ = 0;
 
     Identity identity_;
     Key sealing_;
@@ -70,8 +80,18 @@ private:
     std::unique_ptr<server::DeliveryEngine> engine_;
     std::unique_ptr<server::PerUserDestinations> destinations_;
     std::unique_ptr<server::HttpApi> api_;
+
+    std::unique_ptr<service::SubscriptionStore> subscriptions_;
+    std::unique_ptr<service::GrantStore> grants_;
+    std::unique_ptr<service::OperatorPush> push_;
+    std::shared_ptr<service::NodeSettings> nodeSettings_;
+    std::unique_ptr<service::AccountApi> accounts_;
+    std::unique_ptr<facade::Facade> facade_;
+
     std::string account_;
-    std::thread serving_;
+    std::thread servingMailbox_;
+    std::thread servingAccounts_;
+    std::thread servingFacade_;
 };
 
 }  // namespace bazarish::daemon

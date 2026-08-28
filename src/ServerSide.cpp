@@ -28,6 +28,10 @@ constexpr std::int64_t kOwnDestLifetimeSeconds = 365 * 24 * 60 * 60;
 // The mailbox is this account's alone, so its destination carries one account's
 // traffic rather than a server's: a full pool would be tunnels built for nobody.
 constexpr int kOwnDestTunnelQuantity = 3;
+// What the account is allowed to keep in its own mailbox on its own disk. There
+// is nobody to ration here, so this is a backstop against a runaway, not a
+// tariff: 4 GiB.
+constexpr std::uint64_t kOwnQuotaBytes = 4ULL * 1024 * 1024 * 1024;
 
 std::int64_t nowSeconds()
 {
@@ -85,7 +89,6 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     , privacy_(privacy)
     , router_(router)
     , host_(kMailboxHost)
-    , port_(0)
     , identity_(loadOrCreateIdentity(stateDir_ / "server" / "identity.pem"))
     , sealing_(loadOrCreateSealingKey(stateDir_ / "server" / "sealing.pem"))
     , fingerprint_(identity_.fingerprint())
@@ -106,6 +109,13 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     server::HttpApiOptions options;
     options.version = kVersion;
     options.defaultQuotaBytes = engineOptions.defaultQuotaBytes;
+    // The account asks its server for the slice of netDb a router with no peers
+    // starts from. Here that is this same process's router, which bootstraps from
+    // the public hosts because there is no other server to ask.
+    if (router_ != nullptr) {
+        options.reseedSample
+            = [](const std::size_t count) { return i2p::sampleRouterInfos(count); };
+    }
     options.assignDestination
         = [this](const std::string& user) -> server::DestinationAssignment {
         const std::shared_ptr<Key> key = destinations_->servingKeyFor(user);
@@ -131,6 +141,30 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
             throw std::runtime_error("cannot write the server card");
         }
     }
+
+    // The account node: what issues this account's card, its quota and its
+    // tokens. On a public server it is a separate daemon run by an operator; here
+    // the operator is the account, so it registers openly and asks no captcha.
+    subscriptions_ = std::make_unique<service::SubscriptionStore>(serverDir / "node");
+    grants_ = std::make_unique<service::GrantStore>(serverDir / "node");
+    nodeSettings_ = std::make_shared<service::NodeSettings>(serverDir / "node" / "node.json",
+        service::NodeSettings::Values{.requireApproval = false,
+            .registrationMessage = {},
+            .portalMessage = {},
+            .requireCaptcha = false,
+            .facades = {},
+            .reseeds = {},
+            .defaultQuotaBytes = kOwnQuotaBytes,
+            .idleDeleteDays = 0});
+
+    service::AccountApiOptions accountOptions;
+    accountOptions.serverFingerprint = fingerprint_;
+    accountOptions.serverCardDer = card;
+    accountOptions.version = kVersion;
+    accountOptions.settings = nodeSettings_;
+    accountOptions.defaultQuotaBytes = kOwnQuotaBytes;
+    accountOptions.registration = service::AccountApiOptions::Registration::eOpen;
+    accounts_ = std::make_unique<service::AccountApi>(*subscriptions_, *grants_, accountOptions);
 }
 
 ServerSide::~ServerSide()
@@ -140,29 +174,69 @@ ServerSide::~ServerSide()
 
 void ServerSide::start()
 {
-    const int bound = api_->bindToAnyPort(host_, port_);
-    if (bound == 0) {
-        throw std::runtime_error(
-            "the mailbox cannot listen on " + host_ + ":" + std::to_string(port_));
+    // Each component takes a port the system hands out: they answer this process
+    // and nothing else, so there is no address for an operator to keep free.
+    mailboxPort_ = api_->bindToAnyPort(host_, 0);
+    if (mailboxPort_ == 0) {
+        throw std::runtime_error("the mailbox cannot take a port on " + host_);
     }
-    port_ = bound;
-    // The engine serves on threads of its own; this call is the one that parks a
-    // caller until stop(), so it is given a thread rather than this one.
-    serving_ = std::thread([this]() {
+    nodePort_ = accounts_->bindToAnyPort(host_);
+    if (nodePort_ == 0) {
+        throw std::runtime_error("the account node cannot take a port on " + host_);
+    }
+
+    // What the node owes the mailbox - the quota an account was granted - goes
+    // over the same private channel a deployed fleet uses.
+    push_ = std::make_unique<service::OperatorPush>(
+        "http://" + host_ + ":" + std::to_string(mailboxPort_), identity_);
+
+    facade::FacadeOptions facadeOptions;
+    facadeOptions.messagingHost = host_;
+    facadeOptions.messagingPort = mailboxPort_;
+    facadeOptions.accountHost = host_;
+    facadeOptions.accountPort = nodePort_;
+    facadeOptions.version = kVersion;
+    facade_ = std::make_unique<facade::Facade>(facadeOptions);
+    facadePort_ = facade_->bindToAnyPort(host_);
+    if (facadePort_ == 0) {
+        throw std::runtime_error("the facade cannot take a port on " + host_);
+    }
+
+    // Each serving call parks its caller until stop(), so each gets a thread.
+    servingMailbox_ = std::thread([this]() {
         if (!api_->listenAfterBind()) {
             log::error("the mailbox bound its port but will not serve");
         }
     });
-    log::info("mailbox listening on {}:{}", host_, port_);
+    servingAccounts_ = std::thread([this]() {
+        if (!accounts_->listenAfterBind()) {
+            log::error("the account node bound its port but will not serve");
+        }
+    });
+    servingFacade_ = std::thread([this]() {
+        if (!facade_->listenAfterBind()) {
+            log::error("the facade bound its port but will not serve");
+        }
+    });
+    log::info("server up on {}: mailbox {}, accounts {}, facade {}", host_, mailboxPort_,
+        nodePort_, facadePort_);
 }
 
 void ServerSide::stop()
 {
+    if (facade_) {
+        facade_->stop();
+    }
+    if (accounts_) {
+        accounts_->stop();
+    }
     if (api_) {
         api_->stop();
     }
-    if (serving_.joinable()) {
-        serving_.join();
+    for (std::thread* const serving : {&servingFacade_, &servingAccounts_, &servingMailbox_}) {
+        if (serving->joinable()) {
+            serving->join();
+        }
     }
 }
 
