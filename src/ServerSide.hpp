@@ -60,6 +60,9 @@ public:
     // it owns and keeps. Returns the routing host once it is up, empty while it
     // is still building.
     std::string serveDestinationFor(const std::string& accountFingerprint);
+    // Throws the destination key away and raises a fresh one: a new address for
+    // the same account. The old address stops answering at once.
+    std::string replaceDestinationFor(const std::string& accountFingerprint);
     std::string destination() const;
 
 private:

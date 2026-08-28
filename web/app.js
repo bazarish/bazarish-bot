@@ -1,92 +1,287 @@
 // Bazarish project (c) 2026
-// The interface: one page over the /ui routes. It holds a long poll open for
-// new lines rather than asking on a timer, the same way the API serves a bot.
+// The daemon's panel: one page, a view per menu entry, over the /ui routes.
 "use strict";
 
 const el = (id) => document.getElementById(id);
-const show = (node, visible) => node.classList.toggle("hidden", !visible);
+const content = () => el("content");
 
+// What the panel knows between renders: the chat it is looking at, the contact
+// names, and how far it has read the daemon's feed.
 let peer = null;
-let lastEventId = 0;
-let polling = false;
-// Fingerprint -> the name the account keeps for that contact.
 let names = {};
+let lastEventId = 0;
+let watching = false;
+let editing = null;
+
+// The reactions offered on a message. Kept short on purpose: a picker of two
+// hundred emoji is a picker nobody scrolls.
+const kReactions = ["\u{1F44D}", "❤️", "\u{1F602}", "\u{1F389}", "\u{1F440}", "✅"];
 
 async function call(method, path, body) {
-    const options = { method, headers: {} };
+    const options = {method, headers: {}};
     if (body !== undefined) {
         options.headers["Content-Type"] = "application/json";
         options.body = JSON.stringify(body);
     }
-    const response = await fetch(path, options);
-    const text = await response.text();
+    const answer = await fetch(path, options);
+    if (answer.status === 401) {
+        location.href = "/";
+        throw new Error("signed out");
+    }
+    const text = await answer.text();
     const parsed = text ? JSON.parse(text) : {};
-    if (!response.ok) {
-        throw new Error(parsed.error || response.statusText);
+    if (!answer.ok) {
+        throw new Error(parsed.error || answer.statusText);
     }
     return parsed;
 }
 
-function say(node, message, isError) {
-    node.textContent = message;
-    node.className = isError ? "error" : "ok";
+function node(tag, className, text) {
+    const made = document.createElement(tag);
+    if (className) {
+        made.className = className;
+    }
+    if (text !== undefined) {
+        made.textContent = text;
+    }
+    return made;
 }
 
-async function refresh() {
+function facts(pairs) {
+    const list = node("ul", "facts");
+    for (const [label, value] of pairs) {
+        const row = node("li");
+        row.append(node("span", "fact-label", label));
+        const held = node("b", null, value);
+        held.dataset.copy = value;
+        row.append(held);
+        list.append(row);
+    }
+    return list;
+}
+
+// A picked file as the base64 the daemon takes: the operator has a file in a
+// browser, and the daemon has no idea what is on their machine.
+function base64Of(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("that file could not be read"));
+        reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+        reader.readAsDataURL(file);
+    });
+}
+
+function nameOf(fingerprint) {
+    return names[fingerprint] || fingerprint.slice(0, 16) + "…";
+}
+
+function when(milliseconds) {
+    return milliseconds ? new Date(milliseconds).toLocaleString() : "";
+}
+
+// ---- the rail: what the daemon is doing, in the sidebar --------------------
+
+async function refreshRail() {
     const state = await call("GET", "/ui/state");
-    el("status").textContent = state.status;
-    show(el("setupPanel"), !state.hasPassword);
-    show(el("loginPanel"), state.hasPassword && !state.signedIn);
-    show(el("signOut"), state.signedIn);
-    show(el("accountPanel"), state.signedIn && !state.hasAccount);
-    show(el("unlockPanel"), state.signedIn && state.hasAccount && !state.running);
-    show(el("running"), state.signedIn && state.running);
-    if (state.signedIn && state.running) {
-        await loadRunning();
+    const running = state.running;
+    el("railDot").className = "dot " + (running ? "is-up" : "is-down");
+    if (!running) {
+        el("railName").textContent = state.status;
+        el("railAddr").textContent = state.hasAccount ? "account closed" : "no account yet";
+        el("railTransport").textContent = "";
+        return state;
     }
+    const [account, settings] = await Promise.all([
+        call("GET", "/ui/account"), call("GET", "/ui/settings")]);
+    el("railName").textContent = account.name || "unnamed account";
+    el("railAddr").textContent = account.destination || "address building…";
+    el("railTransport").textContent = settings.transport === "sam"
+        ? "sam " + settings.samHost + ":" + settings.samPort
+        : "own router";
+    return state;
 }
 
-async function loadRunning() {
+// ---- overview ---------------------------------------------------------------
+
+async function viewOverview() {
+    const state = await call("GET", "/ui/state");
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", "Overview"));
+
+    if (!state.hasAccount) {
+        view.append(accountSetup());
+        return view;
+    }
+    if (!state.running) {
+        view.append(unlockCard(state));
+        return view;
+    }
+
     const account = await call("GET", "/ui/account");
-    el("accName").textContent = account.name || "(unnamed)";
-    el("accFp").textContent = account.fingerprint;
-    el("accDest").textContent = account.destination || "building…";
-    el("accInvite").textContent = account.invite || "";
-    await loadContacts();
-    await Promise.all([loadChats(), loadSettings()]);
-    if (!polling) {
-        polling = true;
-        lastEventId = 0;
-        pollEvents();
-    }
+    const cards = node("div", "cards");
+
+    const identity = node("article", "card");
+    const head = node("div", "card-head");
+    head.append(node("span", "dot is-up"));
+    head.append(node("span", "card-name", account.name || "unnamed account"));
+    identity.append(head);
+    identity.append(facts([
+        ["Fingerprint", account.fingerprint],
+        ["Address", account.destination || "building…"],
+    ]));
+    cards.append(identity);
+
+    const invite = node("article", "card");
+    const inviteHead = node("div", "card-head");
+    inviteHead.append(node("span", "card-name", "Invite"));
+    invite.append(inviteHead);
+    invite.append(node("p", "hint", "Hand this to whoever should be able to write to this account."));
+    const line = node("pre", "copy", account.invite || "");
+    invite.append(line);
+    cards.append(invite);
+
+    view.append(cards);
+    return view;
 }
 
-async function loadChats() {
-    const chats = await call("GET", "/ui/chats");
+function unlockCard(state) {
+    const card = node("article", "panel-box");
+    card.append(node("p", "view-title", "The account is closed"));
+    card.append(node("p", "step-note",
+        "It is encrypted at rest, so it waits for its passphrase at every start. "
+        + "Status: " + state.status));
+    const field = node("input", "field");
+    field.type = "password";
+    field.id = "unlockPassphrase";
+    card.append(node("label", "field-label", "Passphrase"));
+    card.append(field);
+    const footer = node("p", "form-footer");
+    const open = node("button", "btn", "Open");
+    open.onclick = async () => {
+        try {
+            await call("POST", "/ui/account", {action: "open", passphrase: field.value});
+            await render();
+        } catch (error) {
+            footer.append(node("span", "hint", error.message));
+        }
+    };
+    footer.append(open);
+    card.append(footer);
+    return card;
+}
+
+function accountSetup() {
+    const card = node("article", "panel-box");
+    card.append(node("p", "view-title", "No account yet"));
+    card.append(node("p", "step-note",
+        "One account per daemon, and it is that account's own server. An account "
+        + "here does not synchronise with a second device: there is nowhere to "
+        + "synchronise from."));
+
+    const name = node("input", "field");
+    name.type = "text";
+    name.placeholder = "what this account calls itself";
+    card.append(node("label", "field-label", "Name"));
+    card.append(name);
+
+    const passphrase = node("input", "field");
+    passphrase.type = "password";
+    card.append(node("label", "field-label", "Passphrase for the account file (optional)"));
+    card.append(passphrase);
+    card.append(node("p", "hint",
+        "Empty, and the daemon opens the account by itself at every start. Set one, "
+        + "and it is encrypted at rest and unlocked here after every restart."));
+
+    const bundle = node("input", "field");
+    bundle.type = "file";
+    const bundlePassword = node("input", "field");
+    bundlePassword.type = "password";
+
+    const footer = node("p", "form-footer");
+    const create = node("button", "btn", "Create");
+    const importing = node("button", "btn btn-quiet", "Import a bundle");
+    footer.append(create, importing);
+    card.append(footer);
+
+    const importBlock = node("div", "block");
+    importBlock.hidden = true;
+    importBlock.append(node("p", "block-title", "Import"));
+    importBlock.append(node("label", "field-label", "Bundle file"));
+    importBlock.append(bundle);
+    importBlock.append(node("label", "field-label", "The bundle's password"));
+    importBlock.append(bundlePassword);
+    const importFooter = node("p", "form-footer");
+    const doImport = node("button", "btn", "Import");
+    importFooter.append(doImport);
+    importBlock.append(importFooter);
+    card.append(importBlock);
+
+    const failure = node("p", "hint");
+    card.append(failure);
+
+    const start = async (body) => {
+        try {
+            await call("POST", "/ui/account", body);
+            await render();
+        } catch (error) {
+            failure.textContent = error.message;
+        }
+    };
+    create.onclick = () => start({action: "create", name: name.value,
+        passphrase: passphrase.value});
+    importing.onclick = () => { importBlock.hidden = false; };
+    doImport.onclick = async () => {
+        const file = bundle.files && bundle.files[0];
+        if (!file) {
+            failure.textContent = "Pick the bundle file first.";
+            return;
+        }
+        await start({action: "import", bundle: await base64Of(file),
+            bundlePassphrase: bundlePassword.value, passphrase: passphrase.value});
+    };
+    return card;
+}
+
+// ---- chats -------------------------------------------------------------------
+
+async function viewChats() {
+    const view = node("section", "view");
+    view.style.maxWidth = "none";
+    view.append(node("h1", "view-title", "Chats"));
+
+    const chat = node("div", "chat");
+    const list = node("div", "chat-list");
+    list.id = "chatList";
+    const thread = node("div", "thread");
+    thread.id = "thread";
+    chat.append(list, thread);
+    view.append(chat);
+    return view;
+}
+
+async function drawChats() {
     const list = el("chatList");
-    list.innerHTML = "";
+    if (!list) {
+        return;
+    }
+    const chats = await call("GET", "/ui/chats");
+    list.textContent = "";
+    if (chats.length === 0) {
+        list.append(node("p", "empty", "No conversations yet."));
+    }
     for (const chat of chats) {
-        const item = document.createElement("div");
-        item.className = "item" + (chat.peer === peer ? " active" : "");
-        const name = document.createElement("div");
-        name.className = "name";
-        name.textContent = nameOf(chat.peer);
-        const preview = document.createElement("div");
-        preview.className = "preview";
-        preview.textContent = previewOf(chat);
-        item.append(name, preview);
-        item.onclick = () => openChat(chat.peer);
+        const item = node("button", "chat-item" + (chat.peer === peer ? " is-current" : ""));
+        item.type = "button";
+        item.append(node("span", "who", nameOf(chat.peer)));
+        item.append(node("span", "last", previewOf(chat)));
+        item.onclick = () => { peer = chat.peer; drawChats(); drawThread(); };
         list.append(item);
     }
     if (!peer && chats.length > 0) {
-        await openChat(chats[0].peer);
+        peer = chats[0].peer;
+        await drawChats();
+        await drawThread();
     }
-}
-
-// A contact by the name the account keeps for them, falling back to the head of
-// the fingerprint - which is what the desktop shows for a contact with no name.
-function nameOf(fingerprint) {
-    return names[fingerprint] || fingerprint.slice(0, 16);
 }
 
 function previewOf(line) {
@@ -96,197 +291,551 @@ function previewOf(line) {
     return "[" + line.type + "]";
 }
 
-async function openChat(which) {
-    peer = which;
-    const lines = await call("GET", "/ui/messages?peer=" + encodeURIComponent(which) + "&limit=100");
-    const box = el("lines");
-    box.innerHTML = "";
+async function drawThread() {
+    const thread = el("thread");
+    if (!thread) {
+        return;
+    }
+    thread.textContent = "";
+    if (!peer) {
+        thread.append(node("p", "empty", "Pick a conversation."));
+        return;
+    }
+
+    const head = node("div", "thread-head");
+    head.append(node("span", null, nameOf(peer)));
+    const fingerprint = node("span", "rail-addr", peer);
+    fingerprint.dataset.copy = peer;
+    head.append(fingerprint);
+    thread.append(head);
+
+    const log = node("div", "log");
+    const lines = await call("GET", "/ui/messages?peer=" + encodeURIComponent(peer) + "&limit=100");
     for (const line of lines.slice().reverse()) {
-        box.append(bubbleFor(line));
+        log.append(lineNode(line));
     }
-    box.scrollTop = box.scrollHeight;
-    await loadChats();
-}
+    thread.append(log);
 
-function bubbleFor(line) {
-    const bubble = document.createElement("div");
-    bubble.className = "bubble" + (line.outgoing ? " out" : "");
-    bubble.textContent = line.type === "text" ? line.text : "[" + line.type + "] " + (line.text || "");
-    const when = document.createElement("span");
-    when.className = "when";
-    when.textContent = line.sentAt ? new Date(line.sentAt).toLocaleString() : "";
-    bubble.append(when);
-    return bubble;
-}
-
-async function loadContacts() {
-    const contacts = await call("GET", "/ui/contacts");
-    names = {};
-    for (const contact of contacts) {
-        if (contact.name) {
-            names[contact.fingerprint] = contact.name;
+    const composer = node("form", "composer");
+    const field = node("input", "field");
+    field.type = "text";
+    field.placeholder = editing ? "Edit the message" : "Write a message";
+    field.autocomplete = "off";
+    if (editing) {
+        field.value = editing.text;
+    }
+    const send = node("button", "btn", editing ? "Save" : "Send");
+    send.type = "submit";
+    composer.append(field, send);
+    composer.onsubmit = async (event) => {
+        event.preventDefault();
+        const text = field.value;
+        if (!text) {
+            return;
         }
-    }
-    const table = el("contacts");
-    table.innerHTML = "<tr><th>Name</th><th>Fingerprint</th><th></th></tr>";
-    for (const contact of contacts) {
-        const row = table.insertRow();
-        row.insertCell().textContent = contact.name || "(unnamed)";
-        const fingerprint = row.insertCell();
-        fingerprint.textContent = contact.fingerprint;
-        fingerprint.className = "mono-break";
-        row.insertCell().textContent = contact.pending ? "pending" : "";
-    }
+        field.value = "";
+        if (editing) {
+            const target = editing;
+            editing = null;
+            await call("POST", "/ui/messages/" + target.messageId, {peer, text});
+        } else {
+            await call("POST", "/ui/messages", {peer, text});
+        }
+        await drawThread();
+        await drawChats();
+    };
+    thread.append(composer);
+    log.scrollTop = log.scrollHeight;
+    field.focus();
 }
 
-async function loadSettings() {
+function lineNode(line) {
+    const isNote = line.type !== "text";
+    const held = node("div", "line" + (line.outgoing ? " is-out" : "")
+        + (isNote ? " is-note" : ""));
+
+    const bubble = node("div", "bubble");
+    bubble.textContent = isNote ? "[" + line.type + "] " + (line.text || "") : line.text;
+    if (line.keyboard) {
+        const keys = node("div", "keys");
+        for (const row of line.keyboard) {
+            for (const button of row) {
+                keys.append(node("span", "key", button.text));
+            }
+        }
+        bubble.append(keys);
+    }
+    held.append(bubble);
+
+    // The reactions this message carries, on its edge.
+    if (line.reactions && line.reactions.length > 0) {
+        const reactions = node("div", "reactions");
+        for (const reaction of line.reactions) {
+            const chip = node("span", "reaction" + (reaction.reactor === "me" ? " is-mine" : ""),
+                reaction.emoji);
+            chip.title = reaction.reactor === "me" ? "you" : nameOf(reaction.reactor);
+            reactions.append(chip);
+        }
+        held.append(reactions);
+    }
+
+    const meta = node("div", "line-meta");
+    meta.textContent = when(line.sentAt);
+    if (line.edited) {
+        meta.append(node("span", "edited", " · edited"));
+    }
+    held.append(meta);
+
+    if (line.messageId) {
+        held.append(toolsFor(line));
+    }
+    return held;
+}
+
+function toolsFor(line) {
+    const tools = node("div", "line-tools");
+    for (const emoji of kReactions) {
+        const mine = (line.reactions || []).some(
+            (reaction) => reaction.reactor === "me" && reaction.emoji === emoji);
+        const button = node("button", "line-tool", emoji);
+        button.type = "button";
+        button.title = mine ? "take it back" : "react";
+        button.onclick = async () => {
+            // The same button puts a reaction on and takes it off: an empty
+            // emoji is how the protocol says "no longer".
+            await call("POST", "/ui/reactions",
+                {peer, messageId: line.messageId, emoji: mine ? "" : emoji});
+            await drawThread();
+        };
+        tools.append(button);
+    }
+    if (line.outgoing && line.type === "text") {
+        const edit = node("button", "line-tool", "edit");
+        edit.type = "button";
+        edit.onclick = () => { editing = line; drawThread(); };
+        const drop = node("button", "line-tool", "delete");
+        drop.type = "button";
+        drop.onclick = async () => {
+            await call("DELETE", "/ui/messages/" + line.messageId
+                + "?peer=" + encodeURIComponent(peer));
+            await drawThread();
+            await drawChats();
+        };
+        tools.append(edit, drop);
+    }
+    return tools;
+}
+
+// ---- contacts ----------------------------------------------------------------
+
+async function viewContacts() {
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", "Contacts"));
+
+    const rows = node("div", "rows");
+    const contacts = await call("GET", "/ui/contacts");
+    if (contacts.length === 0) {
+        rows.append(node("p", "empty", "Nobody yet."));
+    }
+    for (const contact of contacts) {
+        const row = node("button", "row");
+        row.type = "button";
+        const keys = node("span", "row-keys");
+        keys.append(node("span", "row-key", contact.name || "unnamed"));
+        keys.append(node("span", "row-dest", contact.fingerprint));
+        row.append(keys);
+        const tags = node("span", "row-tags");
+        if (contact.pending) {
+            tags.append(node("span", "tag is-pending", "pending"));
+        }
+        row.append(tags);
+        row.append(node("span", "row-quota", contact.pending ? "accept" : "open"));
+        row.onclick = async () => {
+            if (contact.pending) {
+                await call("POST", "/ui/contacts", {accept: contact.fingerprint});
+                await render();
+                return;
+            }
+            peer = contact.fingerprint;
+            location.hash = "#/chats";
+        };
+        rows.append(row);
+    }
+    view.append(rows);
+
+    const add = node("article", "panel-box");
+    add.style.marginTop = "1rem";
+    add.append(node("p", "block-title", "Add by invite"));
+    const invite = node("input", "field");
+    invite.type = "text";
+    invite.placeholder = "bazarish://invite?…";
+    const intro = node("input", "field");
+    intro.type = "text";
+    intro.placeholder = "a line to introduce yourself";
+    add.append(node("label", "field-label", "Invite"), invite);
+    add.append(node("label", "field-label", "Message"), intro);
+    const failure = node("p", "hint");
+    const footer = node("p", "form-footer");
+    const send = node("button", "btn", "Send request");
+    send.onclick = async () => {
+        try {
+            await call("POST", "/ui/contacts", {invite: invite.value, text: intro.value});
+            await render();
+        } catch (error) {
+            failure.textContent = error.message;
+        }
+    };
+    footer.append(send);
+    add.append(footer, failure);
+    view.append(add);
+    return view;
+}
+
+// ---- api ---------------------------------------------------------------------
+
+async function viewApi() {
     const settings = await call("GET", "/ui/settings");
-    el("transport").value = settings.transport;
-    el("samHost").value = settings.samHost;
-    el("samPort").value = settings.samPort;
-    el("privacy").value = settings.privacy;
-    show(el("samFields"), settings.transport === "sam");
-    const table = el("tokens");
-    table.innerHTML = "<tr><th>Name</th><th>Issued</th><th></th></tr>";
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", "API"));
+    view.append(node("p", "hint",
+        "Automation opens the API with a token in the Authorization header. A token "
+        + "is shown once, when it is issued: it is not kept anywhere it could be "
+        + "shown again."));
+
+    const rows = node("div", "rows");
+    if (settings.tokens.length === 0) {
+        rows.append(node("p", "empty", "No tokens issued."));
+    }
     for (const token of settings.tokens) {
-        const row = table.insertRow();
-        row.insertCell().textContent = token.name;
-        row.insertCell().textContent = new Date(token.createdAt * 1000).toLocaleDateString();
-        const actions = row.insertCell();
-        const revoke = document.createElement("button");
-        revoke.textContent = "Revoke";
+        const row = node("div", "row");
+        const keys = node("span", "row-keys");
+        keys.append(node("span", "row-key", token.name));
+        keys.append(node("span", "row-dest",
+            "issued " + new Date(token.createdAt * 1000).toLocaleDateString()));
+        row.append(keys, node("span", "row-tags"));
+        const revoke = node("button", "btn btn-danger btn-copy", "Revoke");
         revoke.onclick = async () => {
             await call("DELETE", "/ui/tokens/" + encodeURIComponent(token.name));
-            await loadSettings();
+            await render();
         };
-        actions.append(revoke);
+        row.append(revoke);
+        rows.append(row);
+    }
+    view.append(rows);
+
+    const issue = node("article", "panel-box");
+    issue.style.marginTop = "1rem";
+    issue.append(node("p", "block-title", "Issue a token"));
+    const name = node("input", "field");
+    name.type = "text";
+    name.placeholder = "what this token is for";
+    issue.append(node("label", "field-label", "Name"), name);
+    const shown = node("pre", "copy");
+    shown.hidden = true;
+    const footer = node("p", "form-footer");
+    const make = node("button", "btn", "Issue");
+    make.onclick = async () => {
+        const token = await call("POST", "/ui/tokens", {name: name.value});
+        shown.hidden = false;
+        shown.textContent = token.token;
+        if (window.bazarishCopy) {
+            window.bazarishCopy.decorate(issue);
+        }
+        await drawRailAndNav();
+    };
+    footer.append(make);
+    issue.append(footer, shown);
+    view.append(issue);
+
+    const how = node("article", "panel-box");
+    how.style.marginTop = "1rem";
+    how.append(node("p", "block-title", "How a bot uses it"));
+    how.append(node("pre", "copy",
+        "curl -s http://" + location.host + "/v1/events?since=0\\&wait=60 \\\n"
+        + "  -H \"Authorization: Bearer $TOKEN\""));
+    view.append(how);
+    return view;
+}
+
+// ---- settings ----------------------------------------------------------------
+
+async function viewSettings() {
+    const settings = await call("GET", "/ui/settings");
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", "Settings"));
+
+    const transport = node("article", "panel-box");
+    transport.append(node("p", "block-title", "Transport"));
+    transport.append(node("p", "hint",
+        "A router in this process is one thing to install; a router that is already "
+        + "running is what makes several daemons on one host cheap. Either takes "
+        + "effect at the next start."));
+    const which = node("select", "field");
+    for (const [value, label] of [["embedded", "A router in this process"],
+        ["sam", "A router already running, over SAM"]]) {
+        const option = node("option", null, label);
+        option.value = value;
+        which.append(option);
+    }
+    which.value = settings.transport;
+    transport.append(node("label", "field-label", "I2P"), which);
+
+    const samBlock = node("div", "block");
+    samBlock.hidden = settings.transport !== "sam";
+    const samHost = node("input", "field");
+    samHost.type = "text";
+    samHost.value = settings.samHost;
+    const samPort = node("input", "field");
+    samPort.type = "number";
+    samPort.value = settings.samPort;
+    samBlock.append(node("label", "field-label", "SAM host"), samHost);
+    samBlock.append(node("label", "field-label", "SAM port"), samPort);
+    transport.append(samBlock);
+    which.onchange = () => { samBlock.hidden = which.value !== "sam"; };
+
+    const privacy = node("select", "field");
+    for (const [value, label] of [["minimal", "Minimal"], ["middle", "Middle"], ["max", "Max"]]) {
+        const option = node("option", null, label);
+        option.value = value;
+        privacy.append(option);
+    }
+    privacy.value = settings.privacy;
+    transport.append(node("label", "field-label", "Tunnel length"), privacy);
+
+    const saved = node("p", "hint");
+    const footer = node("p", "form-footer");
+    const save = node("button", "btn", "Save");
+    save.onclick = async () => {
+        try {
+            await call("POST", "/ui/settings", {
+                transport: which.value,
+                samHost: samHost.value,
+                samPort: Number(samPort.value),
+                privacy: privacy.value,
+            });
+            saved.textContent = "Saved. It takes effect at the next start.";
+            await drawRailAndNav();
+        } catch (error) {
+            saved.textContent = error.message;
+        }
+    };
+    footer.append(save);
+    transport.append(footer, saved);
+    view.append(transport);
+
+    const identity = node("article", "panel-box");
+    identity.style.marginTop = "1rem";
+    identity.append(node("p", "block-title", "This account"));
+    const who = await call("GET", "/ui/account");
+    const name = node("input", "field");
+    name.type = "text";
+    name.value = who.name || "";
+    identity.append(node("label", "field-label", "Name"), name);
+    identity.append(node("p", "hint",
+        "What this account calls itself, in its invite and in this panel. A contact "
+        + "keeps their own name for it, so this is not sent to anybody."));
+    const renamed = node("p", "hint");
+    const nameFooter = node("p", "form-footer");
+    const saveName = node("button", "btn", "Save");
+    saveName.onclick = async () => {
+        try {
+            await call("POST", "/ui/account", {action: "rename", name: name.value});
+            renamed.textContent = "Saved.";
+            await drawRailAndNav();
+        } catch (error) {
+            renamed.textContent = error.message;
+        }
+    };
+    nameFooter.append(saveName);
+    identity.append(nameFooter, renamed);
+
+    const keys = node("div", "block");
+    keys.append(node("p", "block-title", "Keys"));
+    keys.append(node("p", "hint",
+        "The serving key is what this account's own server seals with; rotating it "
+        + "keeps the address and tells the contacts. A new address throws the "
+        + "destination key away and raises another - the old address stops "
+        + "answering, and a contact who has not seen the new card has to be written "
+        + "to first."));
+    const keyResult = node("p", "hint");
+    const keyFooter = node("p", "form-footer");
+    const rotate = node("button", "btn btn-quiet", "Rotate the serving key");
+    rotate.onclick = async () => {
+        keyResult.textContent = "Rotating…";
+        try {
+            await call("POST", "/ui/account", {action: "rotate-serving-key"});
+            keyResult.textContent = "Rotated, and the contacts have been told.";
+        } catch (error) {
+            keyResult.textContent = error.message;
+        }
+    };
+    const fresh = node("button", "btn btn-danger", "New address");
+    fresh.onclick = async () => {
+        if (!window.confirm("The old address stops answering. Continue?")) {
+            return;
+        }
+        keyResult.textContent = "Raising a new address…";
+        try {
+            await call("POST", "/ui/account", {action: "new-address"});
+            keyResult.textContent = "Raised. It is published as soon as its tunnels are up.";
+            await drawRailAndNav();
+        } catch (error) {
+            keyResult.textContent = error.message;
+        }
+    };
+    keyFooter.append(rotate, fresh);
+    keys.append(keyFooter, keyResult);
+    identity.append(keys);
+
+    const move = node("div", "block");
+    move.append(node("p", "block-title", "Move this account"));
+    move.append(node("p", "hint",
+        "An export moves the account to another daemon. It is not a second device: "
+        + "only one daemon may serve an account, because the daemon is that "
+        + "account's server."));
+    const bundlePassword = node("input", "field");
+    bundlePassword.type = "password";
+    move.append(node("label", "field-label", "Password for the bundle"), bundlePassword);
+    const wrote = node("p", "hint");
+    const exportFooter = node("p", "form-footer");
+    const run = node("button", "btn", "Export");
+    run.onclick = async () => {
+        wrote.textContent = "";
+        try {
+            // Handed to the browser as a download: nothing is left on the machine
+            // the daemon runs on.
+            const answer = await fetch("/ui/account/export", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({bundlePassphrase: bundlePassword.value}),
+            });
+            if (!answer.ok) {
+                throw new Error((await answer.json()).error || answer.statusText);
+            }
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(await answer.blob());
+            link.download = "bazarish-account.bundle";
+            link.click();
+            URL.revokeObjectURL(link.href);
+            wrote.textContent = "Downloaded.";
+        } catch (error) {
+            wrote.textContent = error.message;
+        }
+    };
+    exportFooter.append(run);
+    move.append(exportFooter, wrote);
+    identity.append(move);
+    view.append(identity);
+
+    const password = node("article", "panel-box");
+    password.style.marginTop = "1rem";
+    password.append(node("p", "block-title", "Panel password"));
+    const next = node("input", "field");
+    next.type = "password";
+    password.append(node("label", "field-label", "New password"), next);
+    const changed = node("p", "hint");
+    const passwordFooter = node("p", "form-footer");
+    const change = node("button", "btn", "Change");
+    change.onclick = async () => {
+        try {
+            await call("POST", "/ui/password", {password: next.value});
+            changed.textContent = "Changed.";
+            next.value = "";
+        } catch (error) {
+            changed.textContent = error.message;
+        }
+    };
+    passwordFooter.append(change);
+    password.append(passwordFooter, changed);
+    view.append(password);
+    return view;
+}
+
+// ---- the shell ---------------------------------------------------------------
+
+const views = {
+    overview: viewOverview,
+    chats: viewChats,
+    contacts: viewContacts,
+    api: viewApi,
+    settings: viewSettings,
+};
+
+function current() {
+    const name = (location.hash || "#/overview").replace("#/", "");
+    return views[name] ? name : "overview";
+}
+
+async function drawRailAndNav() {
+    const state = await refreshRail();
+    for (const link of document.querySelectorAll(".nav a")) {
+        link.classList.toggle("is-current", link.dataset.view === current());
+    }
+    return state;
+}
+
+async function render() {
+    const state = await drawRailAndNav();
+    const name = current();
+    try {
+        if (name !== "overview" && !state.running) {
+            const waiting = node("section", "view");
+            waiting.append(node("h1", "view-title", name));
+            waiting.append(node("p", "empty",
+                "The account is not open yet (" + state.status + "). Overview says what to do."));
+            content().replaceChildren(waiting);
+            return;
+        }
+        if (state.running) {
+            const contacts = await call("GET", "/ui/contacts");
+            names = {};
+            for (const contact of contacts) {
+                if (contact.name) {
+                    names[contact.fingerprint] = contact.name;
+                }
+            }
+        }
+        content().replaceChildren(await views[name]());
+        if (name === "chats") {
+            await drawChats();
+            await drawThread();
+        }
+        if (window.bazarishCopy) {
+            window.bazarishCopy.decorate(content());
+        }
+        if (state.running && !watching) {
+            watching = true;
+            watch();
+        }
+    } catch (error) {
+        const failed = node("section", "view");
+        failed.append(node("h1", "view-title", "Something went wrong"));
+        failed.append(node("p", "hint", error.message));
+        content().replaceChildren(failed);
     }
 }
 
-// New lines arrive on a request the daemon holds open, so an idle page is idle.
-async function pollEvents() {
-    while (polling) {
+// New lines, edits and reactions arrive on a request the daemon holds open, so
+// an idle panel is idle.
+async function watch() {
+    while (watching) {
         try {
-            const answer = await call("GET", "/ui/events?wait=30&since=" + lastEventId);
+            const answer = await call("GET", "/ui/events?since=" + lastEventId + "&wait=45");
             lastEventId = answer.lastEventId || lastEventId;
-            if (answer.events.length > 0) {
-                await loadChats();
-                if (peer) {
-                    await openChat(peer);
-                }
+            if (answer.events.length > 0 && current() === "chats") {
+                await drawChats();
+                await drawThread();
             }
         } catch (error) {
-            // A daemon that is restarting answers nothing for a moment; try again
-            // rather than leaving the page silently stale.
             await new Promise((resume) => setTimeout(resume, 3000));
         }
     }
 }
 
-el("setupSubmit").onclick = async () => {
-    try {
-        await call("POST", "/ui/password", { password: el("setupPassword").value });
-        await call("POST", "/ui/login", { password: el("setupPassword").value });
-        await refresh();
-    } catch (error) {
-        say(el("setupError"), error.message, true);
-    }
-};
-
-el("loginSubmit").onclick = async () => {
-    try {
-        await call("POST", "/ui/login", { password: el("loginPassword").value });
-        el("loginPassword").value = "";
-        await refresh();
-    } catch (error) {
-        say(el("loginError"), error.message, true);
-    }
-};
-
 el("signOut").onclick = async () => {
     await call("POST", "/ui/logout");
-    location.reload();
+    location.href = "/";
 };
 
-el("accountImportToggle").onclick = () => show(el("importFields"), true);
-
-el("accountCreate").onclick = async () => {
-    try {
-        await call("POST", "/ui/account", { action: "create", name: el("accountName").value,
-            passphrase: el("accountPassphrase").value });
-        await refresh();
-    } catch (error) {
-        say(el("accountError"), error.message, true);
-    }
-};
-
-el("accountImport").onclick = async () => {
-    try {
-        await call("POST", "/ui/account", { action: "import", bundle: el("importBundle").value,
-            bundlePassphrase: el("importPassword").value,
-            passphrase: el("accountPassphrase").value });
-        await refresh();
-    } catch (error) {
-        say(el("accountError"), error.message, true);
-    }
-};
-
-el("unlockSubmit").onclick = async () => {
-    try {
-        await call("POST", "/ui/account", { action: "open",
-            passphrase: el("unlockPassphrase").value });
-        el("unlockPassphrase").value = "";
-        await refresh();
-    } catch (error) {
-        say(el("unlockError"), error.message, true);
-    }
-};
-
-el("exportRun").onclick = async () => {
-    try {
-        const done = await call("POST", "/ui/account", { action: "export",
-            bundle: el("exportPath").value, bundlePassphrase: el("exportPassword").value });
-        say(el("exportResult"), "written to " + done.written, false);
-    } catch (error) {
-        say(el("exportResult"), error.message, true);
-    }
-};
-
-el("composer").onsubmit = async (event) => {
-    event.preventDefault();
-    const text = el("composerText").value;
-    if (!text || !peer) {
-        return;
-    }
-    el("composerText").value = "";
-    await call("POST", "/ui/messages", { peer, text });
-    await openChat(peer);
-};
-
-el("inviteAdd").onclick = async () => {
-    try {
-        await call("POST", "/ui/contacts", { invite: el("inviteUri").value,
-            text: el("inviteText").value });
-        await loadContacts();
-    } catch (error) {
-        say(el("contactError"), error.message, true);
-    }
-};
-
-el("transport").onchange = () => show(el("samFields"), el("transport").value === "sam");
-
-el("settingsSave").onclick = async () => {
-    try {
-        await call("POST", "/ui/settings", {
-            transport: el("transport").value,
-            samHost: el("samHost").value,
-            samPort: Number(el("samPort").value),
-            privacy: el("privacy").value,
-        });
-        say(el("settingsError"), "saved; it takes effect at the next start", false);
-    } catch (error) {
-        say(el("settingsError"), error.message, true);
-    }
-};
-
-refresh().catch((error) => say(el("status"), error.message, true));
+window.addEventListener("hashchange", render);
+render();

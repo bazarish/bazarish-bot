@@ -1,150 +1,1038 @@
-/* Bazarish project (c) 2026
-   The desktop client's surfaces, in a browser: the same dark ground, the same
-   neon that means "this is live", the same monospace throughout. */
-:root {
-    --bg: #16191c;
-    --surface: #1b2026;
-    --surface-alt: #232a31;
-    --border: #2b333c;
-    --text: #d7dbd8;
-    --text-dim: #8b948c;
-    --green: #1f7a14;
-    --neon: #39ff14;
-    --ink: #11151a;
-    --radius: 8px;
+/* The Bazarish daemon's panel. It is the operator panel's design, because it is
+   the same operator looking at the same fleet - only here the fleet is one
+   account that carries its own server. Colours and type follow the Bazarish
+   brand kit (CC0); edit this file and restart the daemon to make it yours. */
+
+@font-face {
+    font-family: "Roboto Mono";
+    src: url("RobotoMono-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Roboto Mono";
+    src: url("RobotoMono-Bold.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
 }
 
-* { box-sizing: border-box; }
+:root {
+    color-scheme: dark;
+
+    --bz-bg: #16191c;
+    --bz-deep: #0d0f11;
+    --bz-surface: #1b2026;
+    --bz-surface-2: #232a31;
+    --bz-line: #262b2f;
+    --bz-line-2: #333a40;
+
+    --bz-ink: #d7dbd8;
+    --bz-ink-dim: #8b948c;
+    --bz-ink-faint: #5e676a;
+
+    --bz-green-dim: #1f7a14;
+    --bz-green: #39ff14;
+
+    --bz-accent: #f2f4f2;
+    --bz-on-accent: #11151a;
+
+    --bz-ok-bg: #0f2410;
+    --bz-warn: #ffb454;
+    --bz-warn-bg: #2a1e0a;
+    --bz-warn-line: #6b4e16;
+    --bz-err: #ff5b54;
+    --bz-err-bg: #2a1112;
+    --bz-err-line: #7a2b2b;
+
+    --bz-radius: 10px;
+    --bz-radius-sm: 6px;
+    --bz-font: "Roboto Mono", ui-monospace, "DejaVu Sans Mono", SFMono-Regular, Menlo, monospace;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
 
 body {
     margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: "Roboto Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 14px;
-    line-height: 1.5;
+    min-height: 100vh;
+    background: var(--bz-bg);
+    color: var(--bz-ink);
+    font: 400 15px/1.6 var(--bz-font);
 }
 
-a { color: var(--neon); }
+/* --- sign-in --- */
 
-header {
+body.centred {
     display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
+    justify-content: center;
+    align-items: flex-start;
+    padding: clamp(1.5rem, 6vw, 4rem) 1rem;
 }
 
-header .mark { color: var(--neon); font-weight: 700; letter-spacing: 1px; }
-header .spacer { flex: 1; }
-header .status { color: var(--text-dim); }
-
-main { padding: 16px; max-width: 1100px; margin: 0 auto; }
-
-.panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 16px;
-    margin-bottom: 16px;
-}
-
-.panel h2 {
-    margin: 0 0 12px;
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--neon);
-    text-transform: lowercase;
-}
-
-label { display: block; margin: 10px 0 4px; color: var(--text-dim); }
-
-input[type=text], input[type=password], input[type=number], select, textarea {
+.sheet {
     width: 100%;
-    padding: 8px 10px;
-    background: var(--surface-alt);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text);
-    font: inherit;
+    max-width: 34rem;
 }
 
-input:focus, select:focus, textarea:focus { outline: none; border-color: var(--neon); }
-
-button {
-    padding: 8px 14px;
-    background: var(--surface-alt);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text);
-    font: inherit;
-    cursor: pointer;
+.sheet-note {
+    margin: 0.75rem 0 1.75rem;
+    color: var(--bz-ink-dim);
+    font-size: 0.8rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
 }
 
-button:hover { border-color: var(--neon); }
-button.primary { background: var(--green); border-color: var(--green); color: #eafff0; }
-button.primary:hover { background: var(--neon); border-color: var(--neon); color: var(--ink); }
+/* --- shell --- */
 
-.row { display: flex; gap: 8px; align-items: center; }
-.row > * { flex: 1; }
-.row > button { flex: 0 0 auto; }
-
-.muted { color: var(--text-dim); }
-.mono-break { word-break: break-all; }
-.error { color: #ff6b5e; }
-.ok { color: var(--neon); }
-
-/* The chat view: the desktop's two panes, side by side. */
-.chat { display: flex; gap: 16px; height: calc(100vh - 190px); min-height: 320px; }
-
-.chat-list {
-    flex: 0 0 260px;
-    overflow-y: auto;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
+.shell {
+    display: flex;
+    min-height: 100vh;
 }
 
-.chat-list .item {
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border);
-    cursor: pointer;
-}
-.chat-list .item:hover { background: var(--surface-alt); }
-.chat-list .item.active { background: var(--surface-alt); border-left: 2px solid var(--neon); }
-.chat-list .item .name { color: var(--text); }
-.chat-list .item .preview { color: var(--text-dim); font-size: 12px; }
-
-.thread {
-    flex: 1;
+.sidebar {
     display: flex;
     flex-direction: column;
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    background: var(--surface);
+    flex: 0 0 15rem;
+    padding: 1.5rem 1.25rem;
+    background: var(--bz-deep);
+    border-right: 1px solid var(--bz-line);
+}
+
+.wordmark {
+    display: block;
+    height: 1.75rem;
+    width: auto;
+}
+
+.sidebar-note {
+    margin: 0.6rem 0 2rem;
+    color: var(--bz-ink-faint);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+}
+
+.fleets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    margin-bottom: 1.25rem;
+}
+
+.fleets .sidebar-note {
+    flex: 1 1 100%;
+    margin: 0 0 0.25rem;
+}
+
+.nav {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    flex: 1 1 auto;
+}
+
+.nav a {
+    display: block;
+    padding: 0.55rem 0.7rem;
+    margin-bottom: 0.25rem;
+    border-radius: var(--bz-radius-sm);
+    color: var(--bz-ink-dim);
+    text-decoration: none;
+    font-size: 0.8rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.nav a::before {
+    content: "/";
+    color: var(--bz-ink-faint);
+    margin-right: 0.5rem;
+}
+
+.nav a:hover {
+    background: var(--bz-surface);
+    color: var(--bz-ink);
+}
+
+.nav a.is-current {
+    background: var(--bz-surface);
+    color: var(--bz-ink);
+}
+
+.nav a.is-current::before {
+    color: var(--bz-green);
+}
+
+.sidebar-foot {
+    margin: 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--bz-line);
+}
+
+.content {
+    flex: 1 1 auto;
+    padding: clamp(1.25rem, 3vw, 2.5rem);
+    min-width: 0;
+}
+
+/* A column an eye can track: a fingerprint is 52 characters and a wide row
+   makes the operator scan across half a screen of empty space to read it. */
+.view {
+    max-width: 46rem;
+}
+
+.view-title {
+    margin: 0 0 1.5rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--bz-green-dim);
+}
+
+/* --- cards & tables --- */
+
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    gap: 0.75rem;
+}
+
+.card {
+    padding: 1rem 1.1rem;
+    background: var(--bz-surface);
+    border: 1px solid var(--bz-line);
+    border-radius: var(--bz-radius);
+}
+
+.card-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.card-name {
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--bz-ink-faint);
+    flex: 0 0 auto;
+}
+
+.dot.is-up {
+    background: var(--bz-green);
+}
+
+.dot.is-down {
+    background: var(--bz-err);
+}
+
+.facts {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 0.78rem;
+}
+
+.facts li {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.25rem 1rem;
+    padding: 0.3rem 0;
+    border-bottom: 1px dashed var(--bz-line);
+}
+
+.facts li:last-child {
+    border-bottom: 0;
+}
+
+/* The label is the small capitals; the value beside it is left alone - it is a
+   fingerprint or an address, and shouting it does not help anyone read it. */
+.facts .fact-label {
+    color: var(--bz-ink-faint);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    font-size: 0.68rem;
+    align-self: center;
+}
+
+.facts b {
+    font-weight: 400;
+    overflow-wrap: anywhere;
+    text-align: right;
+}
+
+/* --- users --- */
+
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+}
+
+.search {
+    flex: 1 1 16rem;
+}
+
+.chip {
+    padding: 0.4rem 0.8rem;
+    background: transparent;
+    border: 1px solid var(--bz-line-2);
+    border-radius: var(--bz-radius-sm);
+    color: var(--bz-ink-dim);
+    font: inherit;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.chip.is-on {
+    border-color: var(--bz-green-dim);
+    color: var(--bz-ink);
+    background: var(--bz-ok-bg);
+}
+
+.flash-slot:empty {
+    display: none;
+}
+
+.more {
+    margin: 0.75rem 0 0;
+    font-size: 0.72rem;
+}
+
+.rows {
+    border: 1px solid var(--bz-line);
+    border-radius: var(--bz-radius);
     overflow: hidden;
 }
 
-.lines { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+/* Fixed columns: the key on the left, what it is on the right, always in the
+   same place, so a list of fifty reads as a list and not as a paragraph. */
+.row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.6rem 0.9rem;
+    background: var(--bz-surface);
+    border: 0;
+    border-bottom: 1px solid var(--bz-line);
+    color: var(--bz-ink);
+    font: inherit;
+    font-size: 0.78rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.row:last-child {
+    border-bottom: 0;
+}
+
+.row:hover,
+.row.is-open {
+    background: var(--bz-surface-2);
+}
+
+.row-keys {
+    min-width: 0;
+}
+
+.row-key,
+.row-dest {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.row-dest {
+    color: var(--bz-ink-faint);
+    font-size: 0.68rem;
+}
+
+.row-tags {
+    display: flex;
+    gap: 0.35rem;
+}
+
+.row-quota {
+    color: var(--bz-ink-dim);
+    font-size: 0.72rem;
+    white-space: nowrap;
+}
+
+.tag {
+    padding: 0.15rem 0.5rem;
+    border: 1px solid var(--bz-line-2);
+    border-radius: var(--bz-radius-sm);
+    color: var(--bz-ink-faint);
+    font-size: 0.62rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.tag.is-pending {
+    border-color: var(--bz-warn-line);
+    background: var(--bz-warn-bg);
+    color: var(--bz-warn);
+}
+
+.tag.is-approved {
+    border-color: var(--bz-green-dim);
+    background: var(--bz-ok-bg);
+    color: var(--bz-ink);
+}
+
+.tag.is-live {
+    border-color: var(--bz-green-dim);
+    color: var(--bz-green);
+}
+
+.tag.is-banned {
+    border-color: var(--bz-err-line);
+    background: var(--bz-err-bg);
+    color: var(--bz-err);
+}
+
+.detail,
+.panel-box {
+    padding: 1rem 1.1rem;
+    background: var(--bz-surface);
+    border: 1px solid var(--bz-line-2);
+    border-radius: var(--bz-radius);
+}
+
+.detail {
+    margin: 0.5rem 0 0.75rem;
+}
+
+.detail-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 0.75rem;
+}
+
+/* The fingerprint and the mark that copies it stand together. The key used to
+   stretch across the card, which pushed the mark to the far end and left it
+   beside nothing. */
+.detail-key {
+    flex: 0 1 auto;
+    margin: 0;
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+}
+
+/* A copy mark beside the value it copies. Added by copy.js; a browser without
+   scripts never sees it. */
+.fact-value {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+    justify-content: flex-end;
+    text-align: right;
+}
+
+.icon-copy {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    padding: 0;
+    background: transparent;
+    border: 1px solid var(--bz-line-2);
+    border-radius: var(--bz-radius-sm);
+    color: var(--bz-ink-dim);
+    cursor: pointer;
+}
+
+.icon-copy svg {
+    width: 0.8rem;
+    height: 0.8rem;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.icon-copy:hover {
+    color: var(--bz-ink);
+    border-color: var(--bz-ink-faint);
+}
+
+.icon-copy.is-done {
+    color: var(--bz-green);
+    border-color: var(--bz-green-dim);
+}
+
+.icon-copy.is-failed {
+    color: var(--bz-err);
+    border-color: var(--bz-err-line);
+}
+
+.detail-head .icon-copy {
+    margin: 0;
+}
+
+.btn-copy {
+    margin: 0;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.62rem;
+}
+
+/* One subject per block, separated so a card of many controls reads as a few
+   decisions. */
+.block {
+    margin-top: 1.1rem;
+    padding-top: 0.9rem;
+    border-top: 1px solid var(--bz-line);
+}
+
+.block-title {
+    margin: 0;
+    font-size: 0.66rem;
+    font-weight: 400;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--bz-ink-faint);
+}
+
+/* The controls of one block on a line: whatever is typed grows, the button that
+   acts on it keeps its size. */
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.6rem;
+}
+
+.controls .field {
+    flex: 1 1 12rem;
+    width: auto;
+}
+
+.controls .quota-input {
+    flex: 0 0 auto;
+    width: 6rem;
+    text-align: right;
+}
+
+.controls textarea.field {
+    flex: 1 1 100%;
+    min-height: 4.5rem;
+}
+
+.controls .btn,
+.controls .btn-copy {
+    margin: 0;
+    flex: 0 0 auto;
+}
+
+.control-label {
+    flex: 0 0 8rem;
+    color: var(--bz-ink-dim);
+    font-size: 0.75rem;
+}
+
+.unit {
+    color: var(--bz-ink-faint);
+    font-size: 0.72rem;
+}
+
+.hint {
+    margin: 0.45rem 0 0;
+    color: var(--bz-ink-faint);
+    font-size: 0.7rem;
+}
+
+/* The form's own action, on a line of its own at the end: nothing above it
+   takes effect until it is pressed. */
+.form-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--bz-line-2);
+}
+
+.form-footer .btn {
+    margin: 0;
+}
+
+.form-footer .hint {
+    flex: 1 1 14rem;
+    margin: 0;
+}
+
+/* --- fields, buttons, notices --- */
+
+.field-label {
+    display: block;
+    margin: 1rem 0 0.35rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--bz-ink-faint);
+}
+
+.field {
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    background: var(--bz-deep);
+    color: var(--bz-ink);
+    border: 1px solid var(--bz-line-2);
+    border-radius: var(--bz-radius-sm);
+    font: inherit;
+    font-size: 0.8rem;
+}
+
+textarea.field {
+    min-height: 6rem;
+    resize: vertical;
+    word-break: break-all;
+}
+
+.field:focus-visible,
+.btn:focus-visible,
+.chip:focus-visible,
+.row:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bz-bg), 0 0 0 4px var(--bz-green);
+}
+
+.copy {
+    margin: 0;
+    padding: 0.7rem 0.85rem;
+    background: var(--bz-deep);
+    border: 1px solid var(--bz-line);
+    border-radius: var(--bz-radius-sm);
+    font-size: 0.72rem;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-all;
+    user-select: all;
+}
+
+.btn {
+    margin-top: 1rem;
+    padding: 0.55rem 1.1rem;
+    background: var(--bz-accent);
+    color: var(--bz-on-accent);
+    border: 1px solid var(--bz-accent);
+    border-radius: var(--bz-radius-sm);
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.btn:hover {
+    background: #ffffff;
+    border-color: #ffffff;
+}
+
+.btn[disabled] {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.btn-quiet {
+    background: transparent;
+    border-color: var(--bz-line-2);
+    color: var(--bz-ink-dim);
+}
+
+.btn-quiet:hover {
+    background: transparent;
+    border-color: var(--bz-ink-faint);
+    color: var(--bz-ink);
+}
+
+/* What cannot be undone does not look like what can. */
+.btn-danger {
+    background: transparent;
+    border-color: var(--bz-err-line);
+    color: var(--bz-err);
+}
+
+.btn-danger:hover {
+    background: var(--bz-err-bg);
+    border-color: var(--bz-err);
+    color: var(--bz-err);
+}
+
+.panel-note,
+.muted {
+    color: var(--bz-ink-dim);
+    font-size: 0.8rem;
+}
+
+.notice {
+    margin: 1rem 0 0;
+    padding: 0.6rem 0.8rem;
+    border: 1px solid var(--bz-green-dim);
+    border-radius: var(--bz-radius-sm);
+    background: var(--bz-ok-bg);
+    font-size: 0.8rem;
+}
+
+.notice.is-error {
+    background: var(--bz-err-bg);
+    border-color: var(--bz-err-line);
+    color: var(--bz-err);
+}
+
+@media (max-width: 46rem) {
+    .shell {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        flex: 0 0 auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--bz-line);
+    }
+
+    .nav {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .sidebar-foot {
+        border-top: 0;
+        padding-top: 0.75rem;
+    }
+}
+
+/* A list the operator types line by line (the facade URLs). */
+.field-tall {
+    min-height: 5.5rem;
+}
+
+/* --- what a panel for an account has that a panel for a fleet does not ---
+
+   The conversation. It is the desktop client's, in a browser: the same bubbles,
+   the same green for one's own words, and reactions sitting on the edge of the
+   message they belong to rather than in a column of their own. */
+
+/* The sidebar rail: what this daemon is, live, above the menu. A fleet panel
+   lists servers here; there is one account here, so it says how that account is
+   doing instead. */
+.rail {
+    margin-bottom: 1.5rem;
+    padding: 0.7rem 0.8rem;
+    background: var(--bz-surface);
+    border: 1px solid var(--bz-line);
+    border-radius: var(--bz-radius-sm);
+    font-size: 0.7rem;
+}
+
+.rail-line {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: var(--bz-ink-dim);
+}
+
+.rail-line + .rail-line {
+    margin-top: 0.4rem;
+}
+
+.rail-name {
+    color: var(--bz-ink);
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rail-addr {
+    color: var(--bz-ink-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The chat view fills what is left of the window: a conversation that scrolls
+   inside the page rather than lengthening it. */
+.chat {
+    display: flex;
+    gap: 1rem;
+    height: calc(100vh - 7rem);
+    min-height: 20rem;
+}
+
+.chat-list {
+    flex: 0 0 15rem;
+    overflow-y: auto;
+    background: var(--bz-surface);
+    border: 1px solid var(--bz-line);
+    border-radius: var(--bz-radius);
+}
+
+.chat-item {
+    display: block;
+    width: 100%;
+    padding: 0.6rem 0.8rem;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--bz-line);
+    border-left: 2px solid transparent;
+    color: var(--bz-ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.chat-item:hover {
+    background: var(--bz-surface-2);
+}
+
+.chat-item.is-current {
+    background: var(--bz-surface-2);
+    border-left-color: var(--bz-green);
+}
+
+.chat-item .who {
+    display: block;
+    font-size: 0.78rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chat-item .last {
+    display: block;
+    margin-top: 0.15rem;
+    color: var(--bz-ink-faint);
+    font-size: 0.68rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.thread {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--bz-surface);
+    border: 1px solid var(--bz-line);
+    border-radius: var(--bz-radius);
+    overflow: hidden;
+}
+
+.thread-head {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.6rem 0.9rem;
+    border-bottom: 1px solid var(--bz-line);
+    font-size: 0.72rem;
+    color: var(--bz-ink-dim);
+}
+
+.log {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 1rem 0.9rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.line {
+    display: flex;
+    flex-direction: column;
+    max-width: 34rem;
+}
+
+.line.is-out {
+    align-self: flex-end;
+    align-items: flex-end;
+}
 
 .bubble {
-    max-width: 70%;
-    padding: 8px 10px;
-    border-radius: var(--radius);
-    background: var(--surface-alt);
+    padding: 0.5rem 0.7rem;
+    background: var(--bz-surface-2);
+    border: 1px solid var(--bz-line-2);
+    border-radius: var(--bz-radius);
+    font-size: 0.82rem;
     white-space: pre-wrap;
-    word-break: break-word;
+    overflow-wrap: anywhere;
 }
-.bubble.out { align-self: flex-end; background: var(--green); color: #eafff0; }
-.bubble .when { display: block; font-size: 11px; color: var(--text-dim); margin-top: 4px; }
-.bubble.out .when { color: #cfe9d4; }
 
-.composer { display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--border); }
-.composer input { flex: 1; }
+.line.is-out .bubble {
+    background: var(--bz-ok-bg);
+    border-color: var(--bz-green-dim);
+}
 
-table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
-th { color: var(--text-dim); font-weight: 400; }
+/* A control message is not something anybody typed: it is drawn as a note, not
+   as speech. */
+.line.is-note .bubble {
+    background: transparent;
+    border-style: dashed;
+    color: var(--bz-ink-dim);
+    font-size: 0.74rem;
+}
 
-.hidden { display: none; }
+.line-meta {
+    margin-top: 0.25rem;
+    color: var(--bz-ink-faint);
+    font-size: 0.62rem;
+    letter-spacing: 0.08em;
+}
+
+.line-meta .edited {
+    color: var(--bz-ink-dim);
+}
+
+/* Reactions sit on the message they are about, half over its edge, which is
+   where the desktop puts them and where the eye already looks. */
+.reactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin-top: -0.4rem;
+    padding: 0 0.2rem;
+}
+
+.reaction {
+    padding: 0.1rem 0.4rem;
+    background: var(--bz-surface);
+    border: 1px solid var(--bz-line-2);
+    border-radius: 999px;
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.reaction.is-mine {
+    border-color: var(--bz-green-dim);
+    background: var(--bz-ok-bg);
+}
+
+/* The buttons a bot attached to its message. */
+.keys {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.4rem;
+}
+
+.key {
+    padding: 0.25rem 0.6rem;
+    background: var(--bz-surface);
+    border: 1px dashed var(--bz-line-2);
+    border-radius: var(--bz-radius-sm);
+    color: var(--bz-ink-dim);
+    font-size: 0.7rem;
+}
+
+/* The row of things one can do to a message, revealed by pointing at it: a
+   toolbar over every line would be a page of toolbars. */
+.line-tools {
+    display: flex;
+    gap: 0.25rem;
+    margin-top: 0.3rem;
+    opacity: 0;
+    transition: opacity 120ms ease-in;
+}
+
+.line:hover .line-tools,
+.line-tools:focus-within {
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .line-tools {
+        transition: none;
+    }
+}
+
+.line-tool {
+    padding: 0.1rem 0.4rem;
+    background: transparent;
+    border: 1px solid var(--bz-line);
+    border-radius: var(--bz-radius-sm);
+    color: var(--bz-ink-faint);
+    font: inherit;
+    font-size: 0.7rem;
+    cursor: pointer;
+}
+
+.line-tool:hover {
+    color: var(--bz-ink);
+    border-color: var(--bz-line-2);
+}
+
+.composer {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.7rem;
+    border-top: 1px solid var(--bz-line);
+}
+
+.composer .field {
+    flex: 1 1 auto;
+}
+
+.empty {
+    margin: auto;
+    color: var(--bz-ink-faint);
+    font-size: 0.78rem;
+}
+
+/* The first-run sheet asks for one thing at a time; the steps that are not the
+   current one are not drawn at all. */
+.step-note {
+    margin: 0 0 1.25rem;
+    color: var(--bz-ink-dim);
+    font-size: 0.78rem;
+}
+
+@media (max-width: 60rem) {
+    .shell {
+        flex-direction: column;
+    }
+    .sidebar {
+        flex: 0 0 auto;
+    }
+    .chat {
+        flex-direction: column;
+        height: auto;
+    }
+    .chat-list {
+        flex: 0 0 12rem;
+    }
+    .log {
+        min-height: 18rem;
+    }
+}

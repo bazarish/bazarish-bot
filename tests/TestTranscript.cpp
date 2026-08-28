@@ -44,8 +44,8 @@ int main()
 
     {
         Transcript transcript(file, "pw");
-        CHECK(transcript.lastId() == 0);
-        CHECK(transcript.peers().empty());
+        CHECK(transcript.lastEventId() == 0);
+        CHECK(transcript.latestPerPeer().empty());
 
         const std::int64_t first = transcript.append(lineFor("alice", "hello", "m1", false, 10));
         CHECK(first > 0);
@@ -68,24 +68,54 @@ int main()
         CHECK(older.size() == 1);
         CHECK(older.front().text == "hello");
 
-        const std::vector<std::string> peers = transcript.peers();
-        CHECK(peers.size() == 2);
-        CHECK(peers.front() == "bob");  // most recent first
-
         const std::vector<Line> chats = transcript.latestPerPeer();
         CHECK(chats.size() == 2);
         CHECK(chats.front().peer == "bob");
 
-        const std::vector<Line> after = transcript.since(first, 50);
+        // Every message is an event, in the order it happened.
+        const std::vector<bazarish::daemon::Event> after = transcript.since(1, 50);
         CHECK(after.size() == 2);
-        CHECK(after.front().e2eId == "m2");  // oldest first
-        CHECK(transcript.lastId() == after.back().id);
+        CHECK(after.front().messageId == "m2");  // oldest first
+        CHECK(after.front().kind == "message");
+        CHECK(transcript.lastEventId() == after.back().id);
+
+        // An edit revises the line and says so; a reaction rides on it.
+        CHECK(transcript.applyEdit("alice", "m2", "hi there", {}, true));
+        CHECK(!transcript.applyEdit("alice", "m2", "wrong side", {}, false));
+        CHECK(!transcript.applyEdit("alice", "no-such-id", "nothing", {}, true));
+        transcript.applyReaction("alice", "m2", "alice", "\xF0\x9F\x91\x8D");
+        transcript.applyReaction("alice", "m2", "me", "\xE2\x9D\xA4");
+
+        const std::vector<Line> edited = transcript.conversation("alice", 0, 50);
+        CHECK(edited.front().text == "hi there");
+        CHECK(edited.front().edited);
+        CHECK(edited.front().reactions.size() == 2);
+
+        // A reaction is one per reactor: a second one replaces the first.
+        transcript.applyReaction("alice", "m2", "alice", "\xF0\x9F\x8E\x89");
+        CHECK(transcript.conversation("alice", 0, 50).front().reactions.size() == 2);
+        // And an empty emoji takes it back.
+        transcript.applyReaction("alice", "m2", "alice", "");
+        CHECK(transcript.conversation("alice", 0, 50).front().reactions.size() == 1);
+
+        // A delete takes the line and its reactions with it.
+        CHECK(transcript.applyDelete("alice", "m2", true));
+        CHECK(!transcript.applyDelete("alice", "m2", true));
+        CHECK(transcript.conversation("alice", 0, 50).size() == 1);
+
+        // All of it shows up in the feed a bot watches.
+        const std::vector<bazarish::daemon::Event> feed = transcript.since(0, 100);
+        std::string kinds;
+        for (const bazarish::daemon::Event& event : feed) {
+            kinds += event.kind + " ";
+        }
+        CHECK(kinds == "message message message edit reaction reaction reaction reaction delete ");
     }
 
     // What was written is there on the next open, and only with the passphrase.
     {
         Transcript transcript(file, "pw");
-        CHECK(transcript.peers().size() == 2);
+        CHECK(transcript.latestPerPeer().size() == 2);
         CHECK(transcript.conversation("bob", 0, 10).size() == 1);
     }
 

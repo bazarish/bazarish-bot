@@ -34,7 +34,11 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `GET /v1/chats` | the last line of every conversation |
 | `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first |
 | `POST /v1/messages` | `{"peer": "...", "text": "...", "keyboard": [...]}` |
-| `GET /v1/events?since=&wait=` | everything written after `since`, waiting up to `wait` seconds |
+| `POST /v1/messages/{id}` | `{"peer": "...", "text": "..."}` revises a message this account sent |
+| `DELETE /v1/messages/{id}?peer=` | takes a message this account sent back, on both sides |
+| `POST /v1/reactions` | `{"peer": "...", "messageId": "...", "emoji": "👍"}`; an empty emoji takes it back |
+| `POST /v1/receipts` | `{"peer": "...", "messageId": "..."}` tells the peer their message arrived |
+| `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds |
 
 ### Sending
 
@@ -78,15 +82,29 @@ wait is up, so a loop over this neither spins nor lags. Pass the `lastEventId`
 you were given as the next `since`; start at `0` to be handed everything the
 daemon remembers.
 
-An event is a line of a conversation:
+An event says what happened, and to which message:
 
 ```json
-{"id": 42, "peer": "<fingerprint>", "outgoing": false, "type": "text",
- "text": "hello", "messageId": "4054cd273aa34b4b", "sentAt": 1787932486147}
+{"id": 42, "kind": "message", "peer": "<fingerprint>",
+ "messageId": "4054cd273aa34b4b", "text": "hello", "sentAt": 1787932486147}
 ```
 
-`type` is the end-to-end content type - `text`, `contact.request`, `bot.command`,
-`bot.callback`, `file`, `picture`, `voice`. A bot answering commands watches for
+`kind` is one of `message`, `edit`, `delete`, `reaction` or `receipt`. Only a
+`message` is a new line; the other four are about a line that is already there,
+so a bot that keeps its own copy applies them to it. Read the conversation back
+with `GET /v1/messages` and each line carries its reactions and whether it has
+been edited:
+
+```json
+{"id": 5, "messageId": "b69ccb66654dd3fb", "outgoing": false, "type": "text",
+ "text": "123", "edited": false, "reactions": [{"reactor": "me", "emoji": "👍"}]}
+```
+
+A reaction's `reactor` is `me` for this account's own, and the peer's
+fingerprint for theirs.
+
+A line's `type` is the end-to-end content type - `text`, `contact.request`,
+`bot.command`, `bot.callback`. A bot answering commands watches for
 `bot.command` and for text beginning with a slash, which the protocol says are
 two spellings of one thing.
 

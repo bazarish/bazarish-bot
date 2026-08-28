@@ -67,12 +67,10 @@ nlohmann::json lineJson(const Line& line)
         {"type", line.type},
         {"text", line.text},
         {"sentAt", line.sentAt},
+        {"edited", line.edited},
     };
     if (!line.e2eId.empty()) {
         item["messageId"] = line.e2eId;
-    }
-    if (!line.attachmentName.empty()) {
-        item["attachment"] = line.attachmentName;
     }
     if (!line.replyTo.empty()) {
         item["replyTo"] = line.replyTo;
@@ -80,7 +78,45 @@ nlohmann::json lineJson(const Line& line)
     if (!line.keyboard.empty()) {
         item["keyboard"] = nlohmann::json::parse(line.keyboard, nullptr, false);
     }
+    if (!line.reactions.empty()) {
+        nlohmann::json reactions = nlohmann::json::array();
+        for (const Reaction& reaction : line.reactions) {
+            reactions.push_back({{"reactor", reaction.reactor}, {"emoji", reaction.emoji}});
+        }
+        item["reactions"] = reactions;
+    }
     return item;
+}
+
+nlohmann::json eventJson(const Event& event)
+{
+    nlohmann::json item = {
+        {"id", event.id},
+        {"kind", event.kind},
+        {"peer", event.peer},
+    };
+    if (!event.messageId.empty()) {
+        item["messageId"] = event.messageId;
+    }
+    if (!event.text.empty()) {
+        item["text"] = event.text;
+    }
+    if (!event.actor.empty()) {
+        item["actor"] = event.actor;
+    }
+    if (event.at != 0) {
+        item["sentAt"] = event.at;
+    }
+    return item;
+}
+
+nlohmann::json eventsJson(const std::vector<Event>& events)
+{
+    nlohmann::json array = nlohmann::json::array();
+    for (const Event& event : events) {
+        array.push_back(eventJson(event));
+    }
+    return array;
 }
 
 nlohmann::json linesJson(const std::vector<Line>& lines)
@@ -210,7 +246,7 @@ void HttpFace::routes()
                 {"name", runtime_.displayName()},
                 {"destination", runtime_.destination()},
                 {"status", runtime_.status()},
-                {"lastEventId", runtime_.lastLineId()},
+                {"lastEventId", runtime_.lastEventId()},
             });
         });
     });
@@ -280,6 +316,56 @@ void HttpFace::routes()
         });
     });
 
+    server_->post("/v1/messages/([0-9a-f]+)", [this, guarded](const http::Request& request) {
+        return guarded(request, [this](const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string peer = body.value("peer", std::string());
+            if (peer.empty()) {
+                return failure(400, "\"peer\" names whose conversation the message is in");
+            }
+            runtime_.editMessage(peer, call.captures.at(0), body.value("text", std::string()));
+            return json({{"edited", call.captures.at(0)}});
+        });
+    });
+
+    server_->del("/v1/messages/([0-9a-f]+)", [this, guarded](const http::Request& request) {
+        return guarded(request, [this](const http::Request& call) {
+            const std::string peer = call.query("peer");
+            if (peer.empty()) {
+                return failure(400, "\"peer\" names whose conversation the message is in");
+            }
+            runtime_.deleteMessage(peer, call.captures.at(0));
+            return json({{"deleted", call.captures.at(0)}});
+        });
+    });
+
+    server_->post("/v1/reactions", [this, guarded](const http::Request& request) {
+        return guarded(request, [this](const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string peer = body.value("peer", std::string());
+            const std::string messageId = body.value("messageId", std::string());
+            if (peer.empty() || messageId.empty()) {
+                return failure(400, "a reaction is a \"peer\", a \"messageId\" and an \"emoji\"");
+            }
+            // An empty emoji is how a reaction is taken back, so it is allowed.
+            runtime_.react(peer, messageId, body.value("emoji", std::string()));
+            return json({{"ok", true}});
+        });
+    });
+
+    server_->post("/v1/receipts", [this, guarded](const http::Request& request) {
+        return guarded(request, [this](const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string peer = body.value("peer", std::string());
+            const std::string messageId = body.value("messageId", std::string());
+            if (peer.empty() || messageId.empty()) {
+                return failure(400, "a receipt is a \"peer\" and a \"messageId\"");
+            }
+            runtime_.confirmReceipt(peer, messageId);
+            return json({{"ok", true}});
+        });
+    });
+
     // The one route that waits: it answers when there is something after
     // "since", or with nothing when the wait is up. A bot loops on it and
     // neither spins nor lags.
@@ -297,9 +383,9 @@ void HttpFace::routes()
             // The wait is spent on a thread of its own so the loop keeps serving.
             std::thread([this, since, wait, respond = std::move(respond)]() {
                 try {
-                    const std::vector<Line> lines = runtime_.await(since, wait);
-                    respond(json({{"events", linesJson(lines)},
-                        {"lastEventId", lines.empty() ? since : lines.back().id}}));
+                    const std::vector<Event> events = runtime_.await(since, wait);
+                    respond(json({{"events", eventsJson(events)},
+                        {"lastEventId", events.empty() ? since : events.back().id}}));
                 } catch (const std::exception& error) {
                     respond(failure(503, error.what()));
                 }
@@ -462,23 +548,48 @@ void HttpFace::routes()
                 return json({{"status", runtime_.status()}});
             }
             if (action == "import") {
-                runtime_.importAccount(body.value("bundle", std::string()),
-                    body.value("bundlePassphrase", std::string()), passphrase);
-                return json({{"status", runtime_.status()}});
+                // The bundle arrives as bytes in the request: an operator with a
+                // browser has a file, not a path on the daemon's machine.
+                return json({{"status", [&]() {
+                    runtime_.importAccount(fromBase64(body.value("bundle", std::string())),
+                        body.value("bundlePassphrase", std::string()), passphrase);
+                    return runtime_.status();
+                }()}});
+            }
+            if (action == "rename") {
+                runtime_.rename(body.value("name", std::string()));
+                return json({{"name", body.value("name", std::string())}});
+            }
+            if (action == "rotate-serving-key") {
+                runtime_.rotateServingKey();
+                return json({{"ok", true}});
+            }
+            if (action == "new-address") {
+                runtime_.newAddress();
+                return json({{"address", runtime_.destination()}});
             }
             if (action == "open") {
                 runtime_.start(passphrase);
                 return json({{"status", runtime_.status()}});
             }
-            if (action == "export") {
-                const std::string bundle = body.value("bundle", std::string());
-                if (bundle.empty()) {
-                    return failure(400, "\"bundle\" is where to write it");
-                }
-                runtime_.exportAccount(bundle, body.value("bundlePassphrase", std::string()));
-                return json({{"written", bundle}});
-            }
-            return failure(400, "the action is create, import, open or export");
+            return failure(400,
+                "the action is create, import, open, rename, rotate-serving-key or new-address");
+        });
+    });
+
+    server_->post("/ui/account/export", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const Bytes bundle = runtime_.exportAccount(
+                body.value("bundlePassphrase", std::string()));
+            // Handed back as a file the browser saves, so nothing is written on
+            // the machine the daemon runs on and left there.
+            http::Response response;
+            response.contentType = "application/octet-stream";
+            response.headers["Content-Disposition"]
+                = "attachment; filename=\"bazarish-account.bundle\"";
+            response.body.assign(bundle.begin(), bundle.end());
+            return response;
         });
     });
 
@@ -551,6 +662,31 @@ void HttpFace::routes()
         });
     });
 
+    server_->post("/ui/messages/([0-9a-f]+)", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            runtime_.editMessage(body.value("peer", std::string()), call.captures.at(0),
+                body.value("text", std::string()));
+            return json({{"edited", call.captures.at(0)}});
+        });
+    });
+
+    server_->del("/ui/messages/([0-9a-f]+)", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request& call) {
+            runtime_.deleteMessage(call.query("peer"), call.captures.at(0));
+            return json({{"deleted", call.captures.at(0)}});
+        });
+    });
+
+    server_->post("/ui/reactions", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            runtime_.react(body.value("peer", std::string()),
+                body.value("messageId", std::string()), body.value("emoji", std::string()));
+            return json({{"ok", true}});
+        });
+    });
+
     // The interface waits for new lines the same way a bot does.
     server_->getAsync("/ui/events",
         [this](const http::Request& request, http::Responder respond)
@@ -565,9 +701,9 @@ void HttpFace::routes()
             const int wait = intParam(request, "wait", kDefaultWaitSeconds);
             std::thread([this, since, wait, respond = std::move(respond)]() {
                 try {
-                    const std::vector<Line> lines = runtime_.await(since, wait);
-                    respond(json({{"events", linesJson(lines)},
-                        {"lastEventId", lines.empty() ? since : lines.back().id}}));
+                    const std::vector<Event> events = runtime_.await(since, wait);
+                    respond(json({{"events", eventsJson(events)},
+                        {"lastEventId", events.empty() ? since : events.back().id}}));
                 } catch (const std::exception& error) {
                     respond(failure(503, error.what()));
                 }
@@ -576,10 +712,13 @@ void HttpFace::routes()
         });
 
     // ---- the interface -----------------------------------------------------
-    server_->get("/", [this](const http::Request&) {
+    // One address for the panel: the sign-in page until there is a session, the
+    // panel itself afterwards. A page that draws its own empty shell and then
+    // finds out it is not signed in is a page that flickers.
+    server_->get("/", [this](const http::Request& request) {
         http::Response response;
         response.contentType = "text/html; charset=utf-8";
-        response.body = assets_.file("index.html").body;
+        response.body = assets_.file(signedIn(request) ? "index.html" : "login.html").body;
         return response;
     });
     server_->get("/assets/([A-Za-z0-9._-]+)", [this](const http::Request& request) {

@@ -134,6 +134,13 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
         return {destinations_->destinationFor(user), key,
             destinations_->stateFor(user, nowSeconds())};
     };
+    // Rotating the key this account is served under is the account's own to ask
+    // for, and the destinations hold it: without these the server answers that it
+    // cannot, which is true of a server that was never given them.
+    options.prepareServingKey
+        = [this](const std::string& user) { return destinations_->prepareServingKey(user); };
+    options.commitServingKey
+        = [this](const std::string& user) { return destinations_->commitServingKey(user); };
     api_ = std::make_unique<server::HttpApi>(*storage_, *engine_, options);
     api_->setEventGate(gate_.get());
 
@@ -173,6 +180,23 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     accountOptions.settings = nodeSettings_;
     accountOptions.defaultQuotaBytes = kOwnQuotaBytes;
     accountOptions.registration = service::AccountApiOptions::Registration::eOpen;
+    // The node prepares a new serving key and the mailbox puts it in force. In a
+    // deployment those are two daemons and a private channel between them; here
+    // they are two objects, so the call goes straight across.
+    accountOptions.prepareServingKey
+        = [this](const std::string& user) -> std::optional<std::string> {
+        const std::string prepared = destinations_->prepareServingKey(user);
+        if (prepared.empty()) {
+            return std::nullopt;
+        }
+        return prepared;
+    };
+    accountOptions.commitServingKey
+        = [this](const std::string& user) { return destinations_->commitServingKey(user); };
+    accountOptions.forgetMailbox = [this](const std::string& user) {
+        destinations_->revoke(user);
+        return true;
+    };
     accounts_ = std::make_unique<service::AccountApi>(*subscriptions_, *grants_, accountOptions);
 }
 
@@ -305,6 +329,13 @@ std::string ServerSide::serveDestinationFor(const std::string& accountFingerprin
     }
     destinations_->provision(account_, blob, nowSeconds() + kOwnDestLifetimeSeconds);
     return destinations_->destinationFor(account_);
+}
+
+std::string ServerSide::replaceDestinationFor(const std::string& accountFingerprint)
+{
+    std::error_code ignored;
+    fs::remove(stateDir_ / "server" / "destination.key", ignored);
+    return serveDestinationFor(accountFingerprint);
 }
 
 std::string ServerSide::destination() const

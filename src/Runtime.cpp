@@ -15,6 +15,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <stdexcept>
 #include <utility>
 
@@ -111,24 +112,76 @@ void Runtime::createAccount(const std::string& name, const std::string& passphra
     bringUpAsync(passphrase);
 }
 
-void Runtime::importAccount(const fs::path& bundle, const std::string& bundlePassphrase,
+void Runtime::importAccount(const Bytes& bundle, const std::string& bundlePassphrase,
     const std::string& passphrase)
 {
     if (hasAccount()) {
         throw std::runtime_error("this daemon already has an account");
     }
     allowOwnLoopbackFacade();
-    client::Session::importAccount(bundle, accountFile(), bundlePassphrase, passphrase);
+    // The core takes a bundle as a file, and the operator hands one over through a
+    // browser: it is written down beside the account, used, and removed.
+    const fs::path scratch = config_.stateDir / "import.bundle";
+    {
+        std::ofstream out(scratch, std::ios::binary | std::ios::trunc);
+        out.write(reinterpret_cast<const char*>(bundle.data()),
+            static_cast<std::streamsize>(bundle.size()));
+        out.close();
+        if (!out) {
+            throw std::runtime_error("cannot write the bundle down to read it");
+        }
+    }
+    try {
+        client::Session::importAccount(scratch, accountFile(), bundlePassphrase, passphrase);
+    } catch (...) {
+        std::error_code ignored;
+        fs::remove(scratch, ignored);
+        throw;
+    }
+    std::error_code ignored;
+    fs::remove(scratch, ignored);
     bringUpAsync(passphrase);
 }
 
-void Runtime::exportAccount(const fs::path& bundle, const std::string& bundlePassphrase)
+Bytes Runtime::exportAccount(const std::string& bundlePassphrase)
+{
+    const fs::path scratch = config_.stateDir / "export.bundle";
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        openSession().exportAccount(scratch, bundlePassphrase);
+    }
+    std::ifstream in(scratch, std::ios::binary);
+    const std::string text((std::istreambuf_iterator<char>(in)),
+        std::istreambuf_iterator<char>());
+    in.close();
+    std::error_code ignored;
+    fs::remove(scratch, ignored);
+    if (text.empty()) {
+        throw std::runtime_error("the export produced nothing");
+    }
+    return Bytes(text.begin(), text.end());
+}
+
+void Runtime::rename(const std::string& name)
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
-    if (session_ == nullptr) {
-        throw std::runtime_error("the account is not open");
-    }
-    session_->exportAccount(bundle, bundlePassphrase);
+    openSession().setDisplayName(name);
+}
+
+void Runtime::rotateServingKey()
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    openSession().rotateServingKey(
+        [](const std::string& stage) { log::info("serving key: {}", stage); });
+}
+
+void Runtime::newAddress()
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    client::Session& session = openSession();
+    const std::string address = mailbox_->replaceDestinationFor(session.fingerprint());
+    cardCarriesDestination_ = false;
+    log::info("address replaced: {}", address.empty() ? "building" : address);
 }
 
 void Runtime::start(const std::string& passphrase)
@@ -272,32 +325,61 @@ void Runtime::poll()
 
         bool wrote = false;
         for (const client::IncomingMessage& item : arrived) {
-            // Control traffic is the core's business, not a conversation's: what
-            // is written down is what somebody said.
-            if (item.contentType != "text" && item.contentType != "file"
-                && item.contentType != "picture" && item.contentType != "voice"
-                && item.contentType != "bot.command" && item.contentType != "bot.callback"
-                && item.contentType != "contact.request") {
-                continue;
-            }
-            Line line;
-            line.peer = item.fromFingerprint;
-            line.outgoing = item.sentByUs;
-            line.type = item.contentType;
-            line.e2eId = item.e2eId;
-            line.text = item.text;
-            line.keyboard = item.keyboardJson;
-            line.replyTo = item.replyTo;
-            line.sentAt = item.sentAt;
             try {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
-                if (transcript_ != nullptr && transcript_->append(line) != 0) {
+                if (transcript_ == nullptr) {
+                    continue;
+                }
+                // An edit, a delete, a reaction and a receipt are about a message
+                // that is already here; only the rest are lines of their own.
+                if (item.contentType == "edit") {
+                    wrote = transcript_->applyEdit(item.fromFingerprint, item.refId, item.text,
+                                item.keyboardJson, item.sentByUs)
+                        || wrote;
+                    continue;
+                }
+                if (item.contentType == "delete") {
+                    wrote = transcript_->applyDelete(
+                                item.fromFingerprint, item.refId, item.sentByUs)
+                        || wrote;
+                    continue;
+                }
+                if (item.contentType == "reaction") {
+                    transcript_->applyReaction(item.fromFingerprint, item.refId,
+                        item.sentByUs ? std::string("me") : item.fromFingerprint, item.text);
+                    wrote = true;
+                    continue;
+                }
+                if (item.contentType == "receipt") {
+                    transcript_->applyReceipt(item.fromFingerprint, item.refId);
+                    wrote = true;
+                    continue;
+                }
+                // Control traffic is the core's business, not a conversation's:
+                // what is written down is what somebody said.
+                if (item.contentType != "text" && item.contentType != "file"
+                    && item.contentType != "picture" && item.contentType != "voice"
+                    && item.contentType != "bot.command" && item.contentType != "bot.callback"
+                    && item.contentType != "contact.request") {
+                    continue;
+                }
+                Line line;
+                line.peer = item.fromFingerprint;
+                line.outgoing = item.sentByUs;
+                line.type = item.contentType;
+                line.e2eId = item.e2eId;
+                line.text = item.contentType == "bot.callback" ? item.callbackData : item.text;
+                line.keyboard = item.keyboardJson;
+                line.replyTo = item.contentType == "bot.callback" ? item.refId : item.replyTo;
+                line.sentAt = item.sentAt;
+                if (transcript_->append(line) != 0) {
                     wrote = true;
                 }
             } catch (const std::exception& error) {
                 log::warn("transcript: {}", error.what());
             }
         }
+
         if (wrote) {
             waiters_.notify_all();
         }
@@ -460,17 +542,62 @@ std::string Runtime::addByInvite(const std::string& invite, const std::string& t
     return openSession().addByInvite(invite, text);
 }
 
-std::int64_t Runtime::lastLineId() const
+void Runtime::editMessage(
+    const std::string& peer, const std::string& messageId, const std::string& text)
 {
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    return transcript_ == nullptr ? 0 : transcript_->lastId();
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        client::Session& session = openSession();
+        if (!transcript_->applyEdit(peer, messageId, text, {}, true)) {
+            throw std::runtime_error("no message of ours by that id in this conversation");
+        }
+        (void)session.sendEdit(peer, messageId, text);
+    }
+    waiters_.notify_all();
 }
 
-std::vector<Line> Runtime::await(const std::int64_t sinceId, const int seconds) const
+void Runtime::deleteMessage(const std::string& peer, const std::string& messageId)
+{
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        client::Session& session = openSession();
+        if (!transcript_->applyDelete(peer, messageId, true)) {
+            throw std::runtime_error("no message of ours by that id in this conversation");
+        }
+        session.sendDelete(peer, messageId);
+    }
+    waiters_.notify_all();
+}
+
+void Runtime::react(
+    const std::string& peer, const std::string& messageId, const std::string& emoji)
+{
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        client::Session& session = openSession();
+        session.sendReaction(peer, messageId, emoji);
+        transcript_->applyReaction(peer, messageId, "me", emoji);
+    }
+    waiters_.notify_all();
+}
+
+void Runtime::confirmReceipt(const std::string& peer, const std::string& messageId)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    openSession().sendReceipt(peer, messageId);
+}
+
+std::int64_t Runtime::lastEventId() const
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    return transcript_ == nullptr ? 0 : transcript_->lastEventId();
+}
+
+std::vector<Event> Runtime::await(const std::int64_t sinceId, const int seconds) const
 {
     const auto ready = [this, sinceId]() {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
-        return transcript_ != nullptr && transcript_->lastId() > sinceId;
+        return transcript_ != nullptr && transcript_->lastEventId() > sinceId;
     };
     if (!ready()) {
         const int wait = seconds > kMaxWaitSeconds ? kMaxWaitSeconds : seconds;
