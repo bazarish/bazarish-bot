@@ -47,13 +47,35 @@ function node(tag, className, text) {
     return made;
 }
 
+// The shared helper hands out copy marks; it does its own pass at load, and
+// every view here is drawn after that, so freshly drawn blocks get one here.
+function decorateCopies(root) {
+    const marks = window.bazarishCopy;
+    if (!marks) {
+        return;
+    }
+    for (const block of root.querySelectorAll("pre.copy:not([data-copyable])")) {
+        block.dataset.copyable = "yes";
+        block.parentNode.insertBefore(
+            marks.button("Copy", () => block.textContent), block.nextSibling);
+    }
+    for (const value of root.querySelectorAll("[data-copy]:not([data-copyable])")) {
+        value.dataset.copyable = "yes";
+        value.append(marks.icon(() => value.dataset.copy, "Copy"));
+    }
+}
+
 function facts(pairs) {
     const list = node("ul", "facts");
     for (const [label, value] of pairs) {
         const row = node("li");
         row.append(node("span", "fact-label", label));
-        const held = node("b", null, value);
-        held.dataset.copy = value;
+        // The value and the mark that copies it stand together, the way the
+        // operator panel sets them.
+        const held = node("b");
+        const inner = node("span", "fact-value", value);
+        inner.dataset.copy = value;
+        held.append(inner);
         row.append(held);
         list.append(row);
     }
@@ -86,15 +108,13 @@ async function refreshRail() {
     const running = state.running;
     el("railDot").className = "dot " + (running ? "is-up" : "is-down");
     if (!running) {
-        el("railName").textContent = state.status;
-        el("railAddr").textContent = state.hasAccount ? "account closed" : "no account yet";
-        el("railTransport").textContent = "";
+        el("railName").textContent = state.hasAccount ? "account closed" : "no account yet";
+        el("railTransport").textContent = state.status;
         return state;
     }
     const [account, settings] = await Promise.all([
         call("GET", "/ui/account"), call("GET", "/ui/settings")]);
     el("railName").textContent = account.name || "unnamed account";
-    el("railAddr").textContent = account.destination || "address building…";
     el("railTransport").textContent = settings.transport === "sam"
         ? "sam " + settings.samHost + ":" + settings.samPort
         : "own router";
@@ -304,9 +324,6 @@ async function drawThread() {
 
     const head = node("div", "thread-head");
     head.append(node("span", null, nameOf(peer)));
-    const fingerprint = node("span", "rail-addr", peer);
-    fingerprint.dataset.copy = peer;
-    head.append(fingerprint);
     thread.append(head);
 
     const log = node("div", "log");
@@ -538,9 +555,7 @@ async function viewApi() {
         const token = await call("POST", "/ui/tokens", {name: name.value});
         shown.hidden = false;
         shown.textContent = token.token;
-        if (window.bazarishCopy) {
-            window.bazarishCopy.decorate(issue);
-        }
+        decorateCopies(issue);
         await drawRailAndNav();
     };
     footer.append(make);
@@ -800,9 +815,7 @@ async function render() {
             await drawChats();
             await drawThread();
         }
-        if (window.bazarishCopy) {
-            window.bazarishCopy.decorate(content());
-        }
+        decorateCopies(content());
         if (state.running && !watching) {
             watching = true;
             watch();
