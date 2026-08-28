@@ -273,11 +273,10 @@ void HttpFace::routes()
             if (peer.empty() || text.empty()) {
                 return failure(400, "a message is a \"peer\" and a \"text\"");
             }
-            if (body.contains("keyboard")) {
-                return json({{"sent", runtime_.sendKeyboard(peer, text,
-                    body.at("keyboard").dump())}});
-            }
-            return json({{"sent", runtime_.sendText(peer, text)}});
+            const Runtime::Sent sent = body.contains("keyboard")
+                ? runtime_.sendKeyboard(peer, text, body.at("keyboard").dump())
+                : runtime_.sendText(peer, text);
+            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
         });
     });
 
@@ -455,18 +454,21 @@ void HttpFace::routes()
             const nlohmann::json body = nlohmann::json::parse(call.body);
             const std::string action = body.value("action", std::string());
             const std::string passphrase = body.value("passphrase", std::string());
+            // The three of these start the account coming up and return at once:
+            // a router that is finding the network takes minutes. What came of it
+            // is read from the status, not waited for here.
             if (action == "create") {
                 runtime_.createAccount(body.value("name", std::string()), passphrase);
-                return json({{"fingerprint", runtime_.fingerprint()}});
+                return json({{"status", runtime_.status()}});
             }
             if (action == "import") {
                 runtime_.importAccount(body.value("bundle", std::string()),
                     body.value("bundlePassphrase", std::string()), passphrase);
-                return json({{"fingerprint", runtime_.fingerprint()}});
+                return json({{"status", runtime_.status()}});
             }
             if (action == "open") {
                 runtime_.start(passphrase);
-                return json({{"fingerprint", runtime_.fingerprint()}});
+                return json({{"status", runtime_.status()}});
             }
             if (action == "export") {
                 const std::string bundle = body.value("bundle", std::string());
@@ -528,7 +530,8 @@ void HttpFace::routes()
             if (peer.empty() || text.empty()) {
                 return failure(400, "a message is a \"peer\" and a \"text\"");
             }
-            return json({{"sent", runtime_.sendText(peer, text)}});
+            const Runtime::Sent sent = runtime_.sendText(peer, text);
+            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
         });
     });
 

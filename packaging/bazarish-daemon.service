@@ -1,0 +1,24 @@
+[Unit]
+Description=Bazarish client daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bazarish
+Group=bazarish
+ExecStart=/opt/bazarish/client-daemon/bazarish-daemon --config /etc/bazarish/daemon.json
+Restart=on-failure
+RestartSec=5
+
+# The daemon needs its state directory and nothing else on this machine.
+StateDirectory=bazarish
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+ReadWritePaths=/var/lib/bazarish
+
+[Install]
+WantedBy=multi-user.target

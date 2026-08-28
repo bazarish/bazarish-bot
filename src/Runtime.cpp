@@ -3,8 +3,12 @@
 
 #include <AccountKey.hpp>
 #include <ApiClient.hpp>
+#include <I2pRouter.hpp>
+
+#include <bazarish/Bytes.hpp>
 
 #include <nlohmann/json.hpp>
+#include <openssl/rand.h>
 
 #include <bazarish/Log.hpp>
 #include <bazarish/ServerDescriptor.hpp>
@@ -31,6 +35,18 @@ constexpr int kPollSeconds = 5;
 // an idle bot makes one request a minute, short enough that a proxy in front of
 // the daemon does not time the request out itself.
 constexpr int kMaxWaitSeconds = 60;
+// A protocol message id: eight random bytes, as hex, which is the shape every
+// other client on this protocol writes.
+constexpr std::size_t kMessageIdBytes = 8;
+
+std::string freshMessageId()
+{
+    Bytes id(kMessageIdBytes);
+    if (RAND_bytes(id.data(), static_cast<int>(id.size())) != 1) {
+        throw std::runtime_error("no randomness for a message id");
+    }
+    return toHex(id);
+}
 
 // The mailbox this daemon serves is reached by the account in this same process.
 // It is not a client of the network and never leaves the machine, which is what
@@ -162,24 +178,24 @@ void Runtime::bringUp(const std::string& passphrase)
         status_ = "starting";
     }
 
+    // The client core reaches the transport through one router per process, and
+    // the server half of this daemon is handed the same one: two routers here
+    // would be two netDbs, two sets of tunnels and two addresses for one account.
+    client::setI2pEnabled(true);
     if (settings_.transport() == Settings::Transport::eSam) {
-        i2p::RouterConfig routerConfig;
-        routerConfig.dataDir = config_.stateDir / "i2p";
-        routerConfig.backend = i2p::Backend::eSam;
-        routerConfig.samHost = settings_.samHost();
-        routerConfig.samControlPort = settings_.samPort();
-        log::info("transport: SAM at {}:{}", routerConfig.samHost, routerConfig.samControlPort);
-        router_ = std::make_unique<i2p::Router>(routerConfig);
+        client::setSamTransport(settings_.samHost(), settings_.samPort());
+        log::info("transport: SAM at {}:{}", settings_.samHost(), settings_.samPort());
     } else {
-        i2p::RouterConfig routerConfig;
-        routerConfig.dataDir = config_.stateDir / "i2p";
-        routerConfig.role = i2p::Role::eClient;
-        log::info("transport: a router of our own under {}", routerConfig.dataDir.string());
-        router_ = std::make_unique<i2p::Router>(routerConfig);
+        // Nobody to ask for a netDb: this daemon is the server it would have
+        // asked, so it bootstraps the way a server does.
+        client::setPublicReseedAllowed(true);
+        log::info("transport: a router of our own under {}",
+            (config_.stateDir / "i2p").string());
     }
+    i2p::Router& router = client::sharedI2pRouter(config_.stateDir / "i2p");
 
-    log::info("transport up; starting the mailbox");
-    mailbox_ = std::make_unique<ServerSide>(config_.stateDir, settings_.privacy(), router_.get());
+    log::info("transport up; starting the server");
+    mailbox_ = std::make_unique<ServerSide>(config_.stateDir, settings_.privacy(), &router);
     mailbox_->start();
 
     log::info("opening the account");
@@ -211,6 +227,8 @@ void Runtime::bringUp(const std::string& passphrase)
         status_ = "running";
     }
     stopping_ = false;
+    cardCarriesDestination_ = !mailbox_->destination().empty() && session_ != nullptr
+        && false;  // proven only by a successful re-issue below
     poller_ = std::thread([this]() { poll(); });
 }
 
@@ -234,6 +252,22 @@ void Runtime::poll()
             arrived = session_->sync();
         } catch (const std::exception& error) {
             log::warn("mailbox: {}", error.what());
+        }
+
+        // The card is published at registration, when the destination may still
+        // be building - and a card with no address in it is one a contact cannot
+        // reach. It is re-issued once, as soon as there is an address to put in.
+        if (!cardCarriesDestination_ && !mailbox_->destination().empty()) {
+            try {
+                const std::lock_guard<std::mutex> lock(sessionMutex_);
+                if (session_ != nullptr) {
+                    session_->refreshOwnCard();
+                    cardCarriesDestination_ = true;
+                    log::info("card re-issued with the destination {}", mailbox_->destination());
+                }
+            } catch (const std::exception& error) {
+                log::warn("card not re-issued yet: {}", error.what());
+            }
         }
 
         bool wrote = false;
@@ -296,7 +330,6 @@ void Runtime::stop()
         mailbox_->stop();
         mailbox_.reset();
     }
-    router_.reset();
 }
 
 std::string Runtime::destination() const
@@ -354,15 +387,18 @@ std::vector<Line> Runtime::chats() const
     return transcript_->latestPerPeer();
 }
 
-std::string Runtime::sendText(const std::string& peer, const std::string& text)
+Runtime::Sent Runtime::sendText(const std::string& peer, const std::string& text)
 {
     Line line;
+    line.e2eId = freshMessageId();
+    bool confirmed = false;
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        if (!session.sendMessage(peer, text)) {
-            throw std::runtime_error("the message was not accepted for delivery");
-        }
+        // False is not a refusal: the mailbox took it and federates it in the
+        // background with retries. It says only that the far side had not
+        // confirmed storage before the wait was up.
+        confirmed = session.sendMessage(peer, text, line.e2eId);
         line.peer = peer;
         line.outgoing = true;
         line.type = "text";
@@ -374,10 +410,10 @@ std::string Runtime::sendText(const std::string& peer, const std::string& text)
         transcript_->append(line);
     }
     waiters_.notify_all();
-    return line.e2eId;
+    return {line.e2eId, confirmed};
 }
 
-std::string Runtime::sendKeyboard(
+Runtime::Sent Runtime::sendKeyboard(
     const std::string& peer, const std::string& text, const std::string& keyboardJson)
 {
     client::InlineKeyboard keyboard;
@@ -390,10 +426,11 @@ std::string Runtime::sendKeyboard(
         keyboard.push_back(std::move(buttons));
     }
     Line line;
+    line.e2eId = freshMessageId();
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        session.sendInteractive(peer, text, keyboard);
+        session.sendInteractive(peer, text, keyboard, line.e2eId);
         line.peer = peer;
         line.outgoing = true;
         line.type = "text";
@@ -406,7 +443,9 @@ std::string Runtime::sendKeyboard(
         transcript_->append(line);
     }
     waiters_.notify_all();
-    return line.e2eId;
+    // An interactive message is handed to the courier the same way; there is no
+    // confirmation to report because the call does not wait for one.
+    return {line.e2eId, false};
 }
 
 void Runtime::acceptContact(const std::string& peer)

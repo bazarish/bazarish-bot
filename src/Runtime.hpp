@@ -78,10 +78,18 @@ public:
     std::vector<Line> conversation(const std::string& peer, std::int64_t before, int limit) const;
     std::vector<Line> chats() const;
 
+    // What a send comes back with: the id it was sent under, and whether the
+    // far side confirmed storage before the wait was up. Unconfirmed is not
+    // failed - the mailbox took it and keeps trying.
+    struct Sent {
+        std::string messageId;
+        bool confirmed = false;
+    };
+
     // Sends and records in one step: what the transcript holds is what was said,
     // whichever face said it.
-    std::string sendText(const std::string& peer, const std::string& text);
-    std::string sendKeyboard(
+    Sent sendText(const std::string& peer, const std::string& text);
+    Sent sendKeyboard(
         const std::string& peer, const std::string& text, const std::string& keyboardJson);
     void acceptContact(const std::string& peer);
     std::string addByInvite(const std::string& inviteUri, const std::string& text);
@@ -106,7 +114,6 @@ private:
     Settings settings_;
 
     mutable std::mutex sessionMutex_;
-    std::unique_ptr<i2p::Router> router_;
     std::unique_ptr<ServerSide> mailbox_;
     std::unique_ptr<client::Session> session_;
     std::unique_ptr<Transcript> transcript_;
@@ -115,6 +122,8 @@ private:
     std::thread starter_;
     std::thread poller_;
     std::atomic<bool> stopping_{false};
+    // Whether the card a contact fetches names the destination yet.
+    std::atomic<bool> cardCarriesDestination_{false};
     mutable std::mutex waitMutex_;
     mutable std::condition_variable waiters_;
 };

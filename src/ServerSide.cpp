@@ -3,7 +3,13 @@
 
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Certificates.hpp>
+#include <bazarish/HttpClient.hpp>
 #include <bazarish/Log.hpp>
+
+#include <nlohmann/json.hpp>
+
+#include <chrono>
+#include <optional>
 
 #include <ctime>
 #include <filesystem>
@@ -32,6 +38,9 @@ constexpr int kOwnDestTunnelQuantity = 3;
 // is nobody to ration here, so this is a backstop against a runaway, not a
 // tariff: 4 GiB.
 constexpr std::uint64_t kOwnQuotaBytes = 4ULL * 1024 * 1024 * 1024;
+// The account node is in this process; a lookup that takes longer than this is
+// not a slow node, it is a broken one.
+constexpr int kNodeTimeoutSeconds = 5;
 
 std::int64_t nowSeconds()
 {
@@ -201,6 +210,34 @@ void ServerSide::start()
     if (facadePort_ == 0) {
         throw std::runtime_error("the facade cannot take a port on " + host_);
     }
+
+    // First contact: a peer dials this account's destination and asks for its
+    // card. The destination does not hold cards - the account node does - so the
+    // question is passed to it, exactly as a deployed server passes it to the
+    // service node it belongs to.
+    const std::string nodeHost = host_;
+    const int nodePort = nodePort_;
+    destinations_->setGetCard(
+        [nodeHost, nodePort](const std::string& fingerprint,
+            const std::string& view) -> std::optional<Bytes> {
+            http::ClientRequest lookup;
+            lookup.method = "GET";
+            lookup.target = "/v1/account/card?user=" + fingerprint + "&view=" + view;
+            http::ClientOptions options;
+            options.connectTimeout = std::chrono::seconds(kNodeTimeoutSeconds);
+            options.readTimeout = std::chrono::seconds(kNodeTimeoutSeconds);
+            const http::ClientResponse answer
+                = http::request(nodeHost, nodePort, lookup, options);
+            if (answer.status != 200) {
+                return std::nullopt;
+            }
+            try {
+                const nlohmann::json body = nlohmann::json::parse(answer.body);
+                return fromBase64(body.at("card").get<std::string>());
+            } catch (const std::exception&) {
+                return std::nullopt;
+            }
+        });
 
     // Each serving call parks its caller until stop(), so each gets a thread.
     servingMailbox_ = std::thread([this]() {
