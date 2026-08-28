@@ -9,6 +9,8 @@ const show = (node, visible) => node.classList.toggle("hidden", !visible);
 let peer = null;
 let lastEventId = 0;
 let polling = false;
+// Fingerprint -> the name the account keeps for that contact.
+let names = {};
 
 async function call(method, path, body) {
     const options = { method, headers: {} };
@@ -50,7 +52,8 @@ async function loadRunning() {
     el("accFp").textContent = account.fingerprint;
     el("accDest").textContent = account.destination || "building…";
     el("accInvite").textContent = account.invite || "";
-    await Promise.all([loadChats(), loadContacts(), loadSettings()]);
+    await loadContacts();
+    await Promise.all([loadChats(), loadSettings()]);
     if (!polling) {
         polling = true;
         lastEventId = 0;
@@ -67,7 +70,7 @@ async function loadChats() {
         item.className = "item" + (chat.peer === peer ? " active" : "");
         const name = document.createElement("div");
         name.className = "name";
-        name.textContent = chat.peer.slice(0, 16);
+        name.textContent = nameOf(chat.peer);
         const preview = document.createElement("div");
         preview.className = "preview";
         preview.textContent = previewOf(chat);
@@ -78,6 +81,12 @@ async function loadChats() {
     if (!peer && chats.length > 0) {
         await openChat(chats[0].peer);
     }
+}
+
+// A contact by the name the account keeps for them, falling back to the head of
+// the fingerprint - which is what the desktop shows for a contact with no name.
+function nameOf(fingerprint) {
+    return names[fingerprint] || fingerprint.slice(0, 16);
 }
 
 function previewOf(line) {
@@ -112,6 +121,12 @@ function bubbleFor(line) {
 
 async function loadContacts() {
     const contacts = await call("GET", "/ui/contacts");
+    names = {};
+    for (const contact of contacts) {
+        if (contact.name) {
+            names[contact.fingerprint] = contact.name;
+        }
+    }
     const table = el("contacts");
     table.innerHTML = "<tr><th>Name</th><th>Fingerprint</th><th></th></tr>";
     for (const contact of contacts) {
