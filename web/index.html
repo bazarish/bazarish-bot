@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bazarish daemon</title>
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<header>
+    <span class="mark">/bazarish</span>
+    <span class="muted">daemon</span>
+    <span class="spacer"></span>
+    <span class="status" id="status">…</span>
+    <button id="signOut" class="hidden">Sign out</button>
+</header>
+
+<main>
+    <!-- First run: nothing is served until the operator sets a password. -->
+    <section class="panel hidden" id="setupPanel">
+        <h2>set a password</h2>
+        <p class="muted">This password opens everything else: the account, the chats and
+        the tokens that open the API. Nothing here is served until it is set.</p>
+        <label for="setupPassword">Password</label>
+        <input type="password" id="setupPassword" autocomplete="new-password">
+        <p><button class="primary" id="setupSubmit">Set password</button></p>
+        <p class="error" id="setupError"></p>
+    </section>
+
+    <section class="panel hidden" id="loginPanel">
+        <h2>sign in</h2>
+        <label for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" autocomplete="current-password">
+        <p><button class="primary" id="loginSubmit">Sign in</button></p>
+        <p class="error" id="loginError"></p>
+    </section>
+
+    <!-- No account yet: create one or bring one in. -->
+    <section class="panel hidden" id="accountPanel">
+        <h2>account</h2>
+        <p class="muted">One account per daemon, and it is its own server. An account
+        here does not synchronise with another device: there is nowhere to
+        synchronise from.</p>
+        <label for="accountName">Name</label>
+        <input type="text" id="accountName" placeholder="what this account calls itself">
+        <label for="accountPassphrase">Passphrase for the account file (optional)</label>
+        <input type="password" id="accountPassphrase" autocomplete="new-password">
+        <p class="muted">Leave it empty and the daemon opens the account by itself at
+        every start. Set one and the account is encrypted at rest, and you unlock
+        it here after every restart.</p>
+        <p class="row">
+            <button class="primary" id="accountCreate">Create</button>
+            <button id="accountImportToggle">Import a bundle…</button>
+        </p>
+        <div class="hidden" id="importFields">
+            <label for="importBundle">Bundle file on this machine</label>
+            <input type="text" id="importBundle" placeholder="/path/to/account.bundle">
+            <label for="importPassword">The bundle's password</label>
+            <input type="password" id="importPassword">
+            <p><button class="primary" id="accountImport">Import</button></p>
+        </div>
+        <p class="error" id="accountError"></p>
+    </section>
+
+    <!-- The account exists but is locked. -->
+    <section class="panel hidden" id="unlockPanel">
+        <h2>unlock the account</h2>
+        <label for="unlockPassphrase">Passphrase</label>
+        <input type="password" id="unlockPassphrase">
+        <p><button class="primary" id="unlockSubmit">Open</button></p>
+        <p class="error" id="unlockError"></p>
+    </section>
+
+    <div class="hidden" id="running">
+        <section class="panel">
+            <h2>this account</h2>
+            <table>
+                <tr><th>Name</th><td id="accName"></td></tr>
+                <tr><th>Fingerprint</th><td class="mono-break" id="accFp"></td></tr>
+                <tr><th>Destination</th><td class="mono-break" id="accDest"></td></tr>
+                <tr><th>Invite</th><td class="mono-break" id="accInvite"></td></tr>
+            </table>
+            <p class="row">
+                <input type="text" id="exportPath" placeholder="/path/to/account.bundle">
+                <input type="password" id="exportPassword" placeholder="bundle password">
+                <button id="exportRun">Export</button>
+            </p>
+            <p class="muted">An export moves this account to another daemon. It is not a
+            second device: only one daemon may serve an account, because the daemon
+            is the account's server.</p>
+            <p id="exportResult"></p>
+        </section>
+
+        <section class="panel">
+            <h2>chats</h2>
+            <div class="chat">
+                <div class="chat-list" id="chatList"></div>
+                <div class="thread">
+                    <div class="lines" id="lines"></div>
+                    <form class="composer" id="composer">
+                        <input type="text" id="composerText" placeholder="Write a message" autocomplete="off">
+                        <button class="primary" type="submit">Send</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <h2>contacts</h2>
+            <table id="contacts"></table>
+            <p class="row">
+                <input type="text" id="inviteUri" placeholder="bazarish://contact?...">
+                <input type="text" id="inviteText" placeholder="a line to introduce yourself">
+                <button id="inviteAdd">Add</button>
+            </p>
+            <p class="error" id="contactError"></p>
+        </section>
+
+        <section class="panel">
+            <h2>api tokens</h2>
+            <p class="muted">Automation opens the API with one of these, sent as
+            <code>Authorization: Bearer &lt;token&gt;</code>. A token is shown once,
+            when it is issued.</p>
+            <table id="tokens"></table>
+            <p class="row">
+                <input type="text" id="tokenName" placeholder="what this token is for">
+                <button class="primary" id="tokenIssue">Issue</button>
+            </p>
+            <p class="ok mono-break" id="tokenSecret"></p>
+        </section>
+
+        <section class="panel">
+            <h2>transport</h2>
+            <label for="transport">I2P</label>
+            <select id="transport">
+                <option value="embedded">A router in this process</option>
+                <option value="sam">A router already running, over SAM</option>
+            </select>
+            <div id="samFields" class="hidden">
+                <label for="samHost">SAM host</label>
+                <input type="text" id="samHost" value="127.0.0.1">
+                <label for="samPort">SAM port</label>
+                <input type="number" id="samPort" value="7656">
+            </div>
+            <label for="privacy">Tunnel length</label>
+            <select id="privacy">
+                <option value="minimal">Minimal</option>
+                <option value="middle">Middle</option>
+                <option value="max">Max</option>
+            </select>
+            <p><button class="primary" id="settingsSave">Save</button>
+               <span class="muted">Takes effect at the next start.</span></p>
+            <p class="error" id="settingsError"></p>
+        </section>
+    </div>
+</main>
+
+<script src="/assets/app.js"></script>
+</body>
+</html>

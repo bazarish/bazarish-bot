@@ -22,6 +22,12 @@ find_package(Threads REQUIRED)
 
 add_library(bazarish_daemon_lib STATIC
     src/Config.cpp
+    src/HttpFace.cpp
+    src/Password.cpp
+    src/Runtime.cpp
+    src/Transcript.cpp
+    src/ServerSide.cpp
+    src/Settings.cpp
 )
 target_include_directories(bazarish_daemon_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(bazarish_daemon_lib PUBLIC
@@ -42,3 +48,5 @@ function(bazarish_daemon_add_test name)
 endfunction()
 
 bazarish_daemon_add_test(TestConfig)
+bazarish_daemon_add_test(TestSettings)
+bazarish_daemon_add_test(TestTranscript)

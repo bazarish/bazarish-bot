@@ -54,60 +54,44 @@ int main()
         const fs::path path = write("bz-daemon-full.json", R"({
             // where everything lives
             "state": "/var/lib/bazarish/daemon",
-            "api": {"listen": {"host": "127.0.0.1", "port": 8440}, "token": "s3cret"},
-            "i2p": {"sam": {"host": "127.0.0.1", "port": 7656}, "privacy": "minimal"},
+            "listen": {"host": "0.0.0.0", "port": 9000},
             "logLevel": "debug"
         })");
         const auto config = readConfig(path);
         CHECK(config.stateDir == "/var/lib/bazarish/daemon");
-        CHECK(config.apiHost == "127.0.0.1");
-        CHECK(config.apiPort == 8440);
-        CHECK(config.apiToken == "s3cret");
-        CHECK(config.useSam);
-        CHECK(config.samPort == 7656);
-        CHECK(config.privacy == bazarish::i2p::Privacy::eMinimal);
+        CHECK(config.listenHost == "0.0.0.0");
+        CHECK(config.listenPort == 9000);
         CHECK(config.logLevel == "debug");
         fs::remove(path);
     }
 
-    // Without a SAM address the daemon runs its own router, and the listener
-    // defaults to loopback.
+    // What a document that says only where the state lives falls back to.
     {
-        const fs::path path = write("bz-daemon-own.json", R"({
-            "state": "/tmp/bz",
-            "api": {"token": "t"}
+        const fs::path path = write("bz-daemon-min.json", R"({
+            "state": "/tmp/bz"
         })");
         const auto config = readConfig(path);
-        CHECK(!config.useSam);
-        CHECK(config.apiHost == "127.0.0.1");
-        CHECK(config.apiPort == 8440);
-        CHECK(config.privacy == bazarish::i2p::Privacy::eMiddle);
+        CHECK(config.listenHost == "127.0.0.1");
+        CHECK(config.listenPort == 8440);
         CHECK(config.logLevel == "info");
         fs::remove(path);
     }
 
     // What the daemon refuses to start without: somewhere to keep its account,
-    // and something that closes the API.
+    // and a port to answer on.
     {
         const fs::path noState = write("bz-daemon-nostate.json", R"({
-            "api": {"token": "t"}
+            "listen": {"host": "127.0.0.1", "port": 8440}
         })");
         CHECK_THROWS(readConfig(noState));
         fs::remove(noState);
 
-        const fs::path noToken = write("bz-daemon-notoken.json", R"({
-            "state": "/tmp/bz"
-        })");
-        CHECK_THROWS(readConfig(noToken));
-        fs::remove(noToken);
-
-        const fs::path badPrivacy = write("bz-daemon-badprivacy.json", R"({
+        const fs::path noPort = write("bz-daemon-noport.json", R"({
             "state": "/tmp/bz",
-            "api": {"token": "t"},
-            "i2p": {"privacy": "paranoid"}
+            "listen": {"host": "127.0.0.1", "port": 0}
         })");
-        CHECK_THROWS(readConfig(badPrivacy));
-        fs::remove(badPrivacy);
+        CHECK_THROWS(readConfig(noPort));
+        fs::remove(noPort);
     }
 
     // A file that is not there is not an empty config.
