@@ -204,3 +204,29 @@ They arrive as events of kind `reaction`, with `messageId` naming the message,
 
 Reading the conversation back gives the same thing settled, on the line it
 belongs to: each message carries a `reactions` array of `{reactor, emoji}`.
+
+## What the desktop client draws in a message
+
+A body is plain text on the wire, and the daemon sends it exactly as given. The
+desktop client (`client-qt6`) reads a few markers in it when it draws the bubble,
+and a bot writing for that audience can use them:
+
+| Written in the body | Drawn there |
+|---|---|
+| `*text*`, `**text**`, `~~text~~` | italic, bold, struck through |
+| `!!text!!` | a pressable word; pressing it sends `text` back as an ordinary message |
+| `!name` | a pressable name that opens their add-a-contact form, filled in |
+| `http://...`, `https://...` | an address, opened only after a warning about what following it discloses |
+
+`!!/help!!` is therefore a command offered inside a sentence: the press arrives
+here as an ordinary incoming message whose text is `/help`, indistinguishable
+from the user having typed it. An inline keyboard is the other way of offering
+one - it arrives as `bot.callback` carrying a reference to the message the button
+was attached to, and the press leaves nothing in the conversation.
+
+Nothing between `!!` and `!!` is read as markup, so what is written there is what
+comes back. A body meant to be shown as typed should avoid `*`, `~~` and `!!`;
+single markers that do not pair off are drawn as themselves.
+
+`client-qt6/docs/Formatting.md` specifies the whole of it. The daemon's own web
+interface does not draw any of it yet.

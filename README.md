@@ -66,3 +66,11 @@ everything else - the transport, the account, the tokens - is set there.
   so where it offers the export.
 - **It is not a desktop client.** No calls, no file picker. What a bot and its
   operator need, and no more.
+
+## Documents
+
+| Document | Subject |
+|---|---|
+| [docs/Api.md](docs/Api.md) | The REST API a bot is written against |
+| [docs/Design.md](docs/Design.md) | How the daemon is put together and why |
+| [TODO.md](TODO.md) | Known gaps, worth reading before the next change |
