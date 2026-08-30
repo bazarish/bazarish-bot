@@ -86,6 +86,9 @@ nlohmann::json lineJson(const Line& line)
         {"sentAt", line.sentAt},
         {"edited", line.edited},
     };
+    if (!line.status.empty()) {
+        item["status"] = line.status;
+    }
     if (!line.e2eId.empty()) {
         item["messageId"] = line.e2eId;
     }
@@ -279,7 +282,7 @@ void HttpFace::routes()
             nlohmann::json array = nlohmann::json::array();
             for (const Runtime::Peer& peer : runtime_.contacts()) {
                 array.push_back({{"fingerprint", peer.fingerprint}, {"name", peer.name},
-                    {"pending", peer.pending}});
+                    {"pending", peer.pending}, {"tokens", peer.tokens}});
             }
             return json(array);
         });
@@ -636,7 +639,7 @@ void HttpFace::routes()
             nlohmann::json array = nlohmann::json::array();
             for (const Runtime::Peer& peer : runtime_.contacts()) {
                 array.push_back({{"fingerprint", peer.fingerprint}, {"name", peer.name},
-                    {"pending", peer.pending}});
+                    {"pending", peer.pending}, {"tokens", peer.tokens}});
             }
             return json(array);
         });

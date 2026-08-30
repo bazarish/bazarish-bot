@@ -85,11 +85,15 @@ public:
     // The invite an operator hands out to be added as a contact.
     std::string inviteUri() const;
 
-    // A contact as the two faces show it.
+    // A contact as the two faces show it. `tokens` is how many one-time delivery
+    // tokens this account still holds for them: at zero nothing can be sent
+    // until they refill, which is the one failure a bot sending in bulk has to
+    // watch for.
     struct Peer {
         std::string fingerprint;
         std::string name;
         bool pending = false;
+        std::size_t tokens = 0;
     };
     std::vector<Peer> contacts() const;
     std::vector<Line> conversation(const std::string& peer, std::int64_t before, int limit) const;

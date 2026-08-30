@@ -20,7 +20,7 @@ constexpr int kBusyTimeoutMs = 5000;
 constexpr int kMaxPage = 500;
 
 constexpr const char* kLineColumns
-    = "id, peer, outgoing, type, e2eId, text, keyboard, replyTo, sentAt, edited";
+    = "id, peer, outgoing, type, e2eId, text, keyboard, replyTo, sentAt, edited, status";
 
 // A raw key is given to SQLCipher as hex in a blob literal.
 std::string rawKeyLiteral(const Bytes& key)
@@ -107,6 +107,7 @@ Line readLine(const Statement& statement)
     line.replyTo = statement.text(7);
     line.sentAt = statement.number(8);
     line.edited = statement.number(9) != 0;
+    line.status = statement.text(10);
     return line;
 }
 
@@ -132,7 +133,7 @@ Transcript::Transcript(const std::filesystem::path& file, const std::string& pas
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "peer TEXT NOT NULL, outgoing INTEGER NOT NULL, type TEXT, e2eId TEXT,"
         "text TEXT, keyboard TEXT, replyTo TEXT, sentAt INTEGER,"
-        "edited INTEGER NOT NULL DEFAULT 0)");
+        "edited INTEGER NOT NULL DEFAULT 0, status TEXT)");
     // The mailbox may hand the same item over twice; the second one is not a
     // second message.
     run(db_, "CREATE UNIQUE INDEX IF NOT EXISTS messages_e2e ON messages(e2eId)"
@@ -145,7 +146,7 @@ Transcript::Transcript(const std::filesystem::path& file, const std::string& pas
     // schema is not this code's decision to make.
     {
         Statement columns(db_, "SELECT COUNT(*) FROM pragma_table_info('messages')"
-                               " WHERE name = 'edited'");
+                               " WHERE name = 'status'");
         if (!columns.step() || columns.number(0) == 0) {
             throw std::runtime_error("the transcript at " + file.string()
                 + " was written by an older daemon and cannot be read; remove it and its"
@@ -194,8 +195,8 @@ std::int64_t Transcript::append(const Line& line)
     const std::lock_guard<std::mutex> lock(mutex_);
     Statement insert(db_,
         "INSERT OR IGNORE INTO messages"
-        " (peer, outgoing, type, e2eId, text, keyboard, replyTo, sentAt)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        " (peer, outgoing, type, e2eId, text, keyboard, replyTo, sentAt, status)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     insert.bind(1, line.peer);
     insert.bind(2, static_cast<std::int64_t>(line.outgoing ? 1 : 0));
     insert.bind(3, line.type);
@@ -204,6 +205,7 @@ std::int64_t Transcript::append(const Line& line)
     insert.bind(6, line.keyboard);
     insert.bind(7, line.replyTo);
     insert.bind(8, line.sentAt);
+    insert.bind(9, line.status);
     (void)insert.step();
     if (sqlite3_changes(db_) == 0) {
         return 0;
@@ -277,6 +279,22 @@ void Transcript::applyReaction(const std::string& peer, const std::string& messa
         (void)put.step();
     }
     (void)noteLocked("reaction", peer, messageId, emoji, reactor, 0);
+}
+
+void Transcript::setStatus(
+    const std::string& peer, const std::string& messageId, const std::string& status)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    Statement update(db_,
+        "UPDATE messages SET status = ? WHERE peer = ? AND e2eId = ? AND outgoing = 1");
+    update.bind(1, status);
+    update.bind(2, peer);
+    update.bind(3, messageId);
+    (void)update.step();
+    if (sqlite3_changes(db_) == 0) {
+        return;
+    }
+    (void)noteLocked("status", peer, messageId, status, {}, 0);
 }
 
 void Transcript::applyReceipt(const std::string& peer, const std::string& messageId)

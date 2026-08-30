@@ -103,19 +103,31 @@ int main()
         CHECK(!transcript.applyDelete("alice", "m2", true));
         CHECK(transcript.conversation("alice", 0, 50).size() == 1);
 
+        // What a send came to is the line's own field and an event of its own:
+        // a bot sending in bulk watches this to know it has stopped arriving.
+        transcript.append(lineFor("carol", "notice", "n1", true, 50));
+        transcript.setStatus("carol", "n1", "delivered");
+        CHECK(transcript.conversation("carol", 0, 10).front().status == "delivered");
+        transcript.setStatus("carol", "n1", "failed: no tokens");
+        CHECK(transcript.conversation("carol", 0, 10).front().status == "failed: no tokens");
+        // A status for something nobody sent is not recorded at all.
+        transcript.setStatus("carol", "no-such-id", "delivered");
+
         // All of it shows up in the feed a bot watches.
         const std::vector<bazarish::daemon::Event> feed = transcript.since(0, 100);
         std::string kinds;
         for (const bazarish::daemon::Event& event : feed) {
             kinds += event.kind + " ";
         }
-        CHECK(kinds == "message message message edit reaction reaction reaction reaction delete ");
+        CHECK(kinds
+            == "message message message edit reaction reaction reaction reaction delete "
+               "message status status ");
     }
 
     // What was written is there on the next open, and only with the passphrase.
     {
         Transcript transcript(file, "pw");
-        CHECK(transcript.latestPerPeer().size() == 2);
+        CHECK(transcript.latestPerPeer().size() == 3);
         CHECK(transcript.conversation("bob", 0, 10).size() == 1);
     }
 

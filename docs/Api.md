@@ -29,7 +29,7 @@ the status in it: `{"error": "the account is not open: starting"}`.
 |---|---|
 | `GET /v1/status` | the account's fingerprint, name, address and the id of the last event |
 | `GET /v1/invite` | the invite URI to hand out to be added as a contact |
-| `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted |
+| `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted and `tokens` for how many more messages can be sent to them |
 | `POST /v1/contacts` | `{"invite": "...", "text": "..."}` adds one; `{"accept": "<fingerprint>"}` accepts a request |
 | `GET /v1/chats` | the last line of every conversation |
 | `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first |
@@ -89,7 +89,7 @@ An event says what happened, and to which message:
  "messageId": "4054cd273aa34b4b", "text": "hello", "sentAt": 1787932486147}
 ```
 
-`kind` is one of `message`, `edit`, `delete`, `reaction` or `receipt`. Only a
+`kind` is one of `message`, `edit`, `delete`, `reaction`, `receipt` or `status`. Only a
 `message` is a new line; the other four are about a line that is already there,
 so a bot that keeps its own copy applies them to it. Read the conversation back
 with `GET /v1/messages` and each line carries its reactions and whether it has
@@ -125,3 +125,51 @@ while :; do
   done
 done
 ```
+
+## Sending in bulk
+
+A bot that sends notices rather than answers has two failure modes worth
+watching, and both are visible here.
+
+**Capacity.** Every message spends a one-time token the recipient issued. `GET
+/v1/contacts` reports what is left:
+
+```json
+[{"fingerprint": "...", "name": "alice", "pending": false, "tokens": 41}]
+```
+
+The stash refills itself: below a threshold the next message asks the recipient
+for a fresh batch and prepays the reply, so a conversation does not run dry
+while both sides are about. What it cannot do is refill against a recipient who
+is not there - their client is what mints the tokens. **At zero, sends fail and
+keep failing until they come back.** A bot that queues thousands of notices
+should read `tokens` and stop, rather than turn every one of them into a
+failure.
+
+**Delivery.** `POST /v1/messages` answers as soon as the mailbox takes the
+message, and `confirmed` says only whether the far side signed for it inside the
+send's own wait. What became of it afterwards is on the line and in the feed:
+
+```json
+{"id": 12, "messageId": "5373671a07d8b517", "outgoing": true, "text": "notice",
+ "status": "delivered"}
+```
+
+`status` is `sending` while the courier is working, `delivered` once the
+recipient's server has signed for it, or `failed: <reason>`. Every change is an
+event of kind `status` carrying the same text, so a long poll sees it without
+re-reading the conversation.
+
+## Reactions the other side puts on a message
+
+They arrive as events of kind `reaction`, with `messageId` naming the message,
+`actor` naming who reacted (`me` for this account) and `text` carrying the emoji
+- an empty `text` means the reaction was taken back:
+
+```json
+{"id": 22, "kind": "reaction", "peer": "...", "messageId": "d148fadc4a9c",
+ "actor": "...", "text": "😂"}
+```
+
+Reading the conversation back gives the same thing settled, on the line it
+belongs to: each message carries a `reactions` array of `{reactor, emoji}`.

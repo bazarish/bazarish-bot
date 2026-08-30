@@ -37,6 +37,10 @@ struct Line {
     // Whether the sender has since revised it, and the reactions it carries.
     bool edited = false;
     std::vector<Reaction> reactions;
+    // For a message this account sent: how far it got. "sending" while the
+    // courier is working, "delivered" once the far side's server signed for it,
+    // or "failed: <reason>". Empty on anything received.
+    std::string status;
 };
 
 // Something that happened, in the order it happened. A new message appends a
@@ -87,6 +91,10 @@ public:
         const std::string& reactor, const std::string& emoji);
     // Records that the far side has the message: an event and nothing else.
     void applyReceipt(const std::string& peer, const std::string& messageId);
+    // How a send ended. A bot that sends in bulk has to be able to see this, so
+    // it is a line's own field and an event of its own.
+    void setStatus(
+        const std::string& peer, const std::string& messageId, const std::string& status);
 
     // Newest first, at most `limit`, older than `before` when that is non-zero.
     std::vector<Line> conversation(

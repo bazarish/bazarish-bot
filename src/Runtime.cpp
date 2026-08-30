@@ -445,7 +445,7 @@ std::vector<Runtime::Peer> Runtime::contacts() const
     std::vector<Peer> peers;
     for (const std::string& fingerprint : session.contactFingerprints()) {
         peers.push_back({fingerprint, session.contactDisplayName(fingerprint),
-            session.contactIsPending(fingerprint)});
+            session.contactIsPending(fingerprint), session.sendCapacity(fingerprint)});
     }
     return peers;
 }
@@ -480,7 +480,28 @@ Runtime::Sent Runtime::sendText(const std::string& peer, const std::string& text
         // False is not a refusal: the mailbox took it and federates it in the
         // background with retries. It says only that the far side had not
         // confirmed storage before the wait was up.
-        confirmed = session.sendMessage(peer, text, line.e2eId);
+        // The courier answers later and on its own thread; what it says is
+        // written onto the line, because a bot sending in bulk has no other way
+        // to learn that its messages stopped arriving.
+        client::DeliveryWatch watch;
+        const std::string messageId = line.e2eId;
+        watch.onOutcome = [this, peer, messageId](const client::OutboundCourier::Outcome& outcome) {
+            const std::string status = outcome.stored
+                ? std::string("delivered")
+                : "failed: "
+                    + (outcome.errorMessage.empty() ? outcome.errorCode : outcome.errorMessage);
+            try {
+                const std::lock_guard<std::mutex> held(sessionMutex_);
+                if (transcript_ != nullptr) {
+                    transcript_->setStatus(peer, messageId, status);
+                }
+            } catch (const std::exception& error) {
+                log::warn("transcript: {}", error.what());
+            }
+            waiters_.notify_all();
+        };
+        confirmed = session.sendMessage(peer, text, line.e2eId, watch);
+        line.status = "sending";
         line.peer = peer;
         line.outgoing = true;
         line.type = "text";
@@ -513,6 +534,7 @@ Runtime::Sent Runtime::sendKeyboard(
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
         session.sendInteractive(peer, text, keyboard, line.e2eId);
+        line.status = "sending";
         line.peer = peer;
         line.outgoing = true;
         line.type = "text";
