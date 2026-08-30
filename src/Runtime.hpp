@@ -125,6 +125,13 @@ public:
     // from delivered into read.
     void confirmReceipt(const std::string& peer, const std::string& messageId);
 
+    // Asks a contact for more of their one-time tokens, `batches` times over -
+    // each ask costs one token and brings back a batch. What a service that
+    // sends far more than it receives does while the other side is about.
+    void topUpTokens(const std::string& peer, int batches);
+    // Asks the peer to drop the whole conversation, and drops this side of it.
+    void clearChat(const std::string& peer);
+
     void acceptContact(const std::string& peer);
     std::string addByInvite(const std::string& inviteUri, const std::string& text);
 

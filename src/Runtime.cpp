@@ -355,6 +355,13 @@ void Runtime::poll()
                     wrote = true;
                     continue;
                 }
+                if (item.contentType == "chat.clear") {
+                    // Their wish for the conversation, honoured the way every
+                    // other client honours it.
+                    transcript_->clearPeer(item.fromFingerprint);
+                    wrote = true;
+                    continue;
+                }
                 // Control traffic is the core's business, not a conversation's:
                 // what is written down is what somebody said.
                 if (item.contentType != "text" && item.contentType != "file"
@@ -550,6 +557,32 @@ Runtime::Sent Runtime::sendKeyboard(
     // An interactive message is handed to the courier the same way; there is no
     // confirmation to report because the call does not wait for one.
     return {line.e2eId, false};
+}
+
+void Runtime::topUpTokens(const std::string& peer, const int batches)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    client::Session& session = openSession();
+    for (int asked = 0; asked < batches; ++asked) {
+        // Each ask is itself a delivery and spends a token, so an account with
+        // nothing left cannot ask at all - it waits for the other side.
+        if (session.sendCapacity(peer) == 0) {
+            throw std::runtime_error(
+                "no tokens left for that contact: they refill it when they next write");
+        }
+        session.requestTokens(peer);
+    }
+}
+
+void Runtime::clearChat(const std::string& peer)
+{
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        client::Session& session = openSession();
+        session.sendChatClear(peer);
+        transcript_->clearPeer(peer);
+    }
+    waiters_.notify_all();
 }
 
 void Runtime::acceptContact(const std::string& peer)

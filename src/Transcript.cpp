@@ -281,6 +281,20 @@ void Transcript::applyReaction(const std::string& peer, const std::string& messa
     (void)noteLocked("reaction", peer, messageId, emoji, reactor, 0);
 }
 
+int Transcript::clearPeer(const std::string& peer)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    Statement lines(db_, "DELETE FROM messages WHERE peer = ?");
+    lines.bind(1, peer);
+    (void)lines.step();
+    const int gone = sqlite3_changes(db_);
+    Statement marks(db_, "DELETE FROM reactions WHERE peer = ?");
+    marks.bind(1, peer);
+    (void)marks.step();
+    (void)noteLocked("chat-cleared", peer, {}, {}, {}, 0);
+    return gone;
+}
+
 void Transcript::setStatus(
     const std::string& peer, const std::string& messageId, const std::string& status)
 {

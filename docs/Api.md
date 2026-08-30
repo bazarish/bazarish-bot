@@ -38,6 +38,8 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `DELETE /v1/messages/{id}?peer=` | takes a message this account sent back, on both sides |
 | `POST /v1/reactions` | `{"peer": "...", "messageId": "...", "emoji": "👍"}`; an empty emoji takes it back |
 | `POST /v1/receipts` | `{"peer": "...", "messageId": "..."}` tells the peer their message arrived |
+| `POST /v1/tokens` | `{"peer": "...", "batches": 2}` asks that contact for more of their tokens |
+| `POST /v1/chats/{fingerprint}/clear` | asks the peer to drop the conversation, and drops this side of it |
 | `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds |
 
 ### Sending
@@ -146,6 +148,23 @@ keep failing until they come back.** A bot that queues thousands of notices
 should read `tokens` and stop, rather than turn every one of them into a
 failure.
 
+**Building a stash.** A conversation refills on its own traffic, which suits two
+people talking and not a service that sends far more than it receives. Ask for
+more while the other side is about:
+
+```bash
+curl -s -X POST http://127.0.0.1:8440/v1/tokens \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"peer": "<fingerprint>", "batches": 4}'
+```
+
+Each ask is a delivery of its own - nothing is shown to the person on the other
+end - and each brings back a batch of 64. It spends one token to gain sixty-four,
+and up to 8 asks are allowed per call. The batches arrive when the other side's
+client next syncs, so read `tokens` afterwards rather than assuming: an ask to
+somebody who is not running answers nothing until they are. With no tokens at
+all there is nothing to ask with, and the call says so.
+
 **Delivery.** `POST /v1/messages` answers as soon as the mailbox takes the
 message, and `confirmed` says only whether the far side signed for it inside the
 send's own wait. What became of it afterwards is on the line and in the feed:
@@ -159,6 +178,18 @@ send's own wait. What became of it afterwards is on the line and in the feed:
 recipient's server has signed for it, or `failed: <reason>`. Every change is an
 event of kind `status` carrying the same text, so a long poll sees it without
 re-reading the conversation.
+
+## Taking things back
+
+`DELETE /v1/messages/{id}?peer=<fingerprint>` removes a message this account
+sent, on both sides, leaving no tombstone. When the *peer* takes one of theirs
+back, it arrives as an event of kind `delete` naming the `messageId`, and the
+line is gone from the conversation.
+
+`POST /v1/chats/{fingerprint}/clear` asks the peer to drop the whole
+conversation and drops this side of it at once; the far side honours it the way
+every client does. When the peer asks the same of this account, the conversation
+here is dropped and an event of kind `chat-cleared` says so.
 
 ## Reactions the other side puts on a message
 

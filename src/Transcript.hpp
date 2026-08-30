@@ -91,6 +91,9 @@ public:
         const std::string& reactor, const std::string& emoji);
     // Records that the far side has the message: an event and nothing else.
     void applyReceipt(const std::string& peer, const std::string& messageId);
+    // Drops a whole conversation: what a chat-clear leaves behind, on either
+    // side of it. Returns how many lines went.
+    int clearPeer(const std::string& peer);
     // How a send ended. A bot that sends in bulk has to be able to see this, so
     // it is a line's own field and an event of its own.
     void setStatus(
