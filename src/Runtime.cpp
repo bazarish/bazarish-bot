@@ -240,8 +240,8 @@ void Runtime::bringUp(const std::string& passphrase)
         log::info("transport: SAM at {}:{}", settings_.samHost(), settings_.samPort());
     } else {
         // Nobody to ask for a netDb: this daemon is the server it would have
-        // asked, so it bootstraps the way a server does.
-        client::setPublicReseedAllowed(true);
+        // asked, so it names no reseed of its own and the engine falls back to
+        // its built-in public hosts, the way a server does.
         log::info("transport: a router of our own under {}",
             (config_.stateDir / "i2p").string());
     }
@@ -452,7 +452,7 @@ std::vector<Runtime::Peer> Runtime::contacts() const
     std::vector<Peer> peers;
     for (const std::string& fingerprint : session.contactFingerprints()) {
         peers.push_back({fingerprint, session.contactDisplayName(fingerprint),
-            session.contactIsPending(fingerprint), session.sendCapacity(fingerprint)});
+            session.contactIsPending(fingerprint), session.canWriteTo(fingerprint)});
     }
     return peers;
 }
@@ -557,21 +557,6 @@ Runtime::Sent Runtime::sendKeyboard(
     // An interactive message is handed to the courier the same way; there is no
     // confirmation to report because the call does not wait for one.
     return {line.e2eId, false};
-}
-
-void Runtime::topUpTokens(const std::string& peer, const int batches)
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    client::Session& session = openSession();
-    for (int asked = 0; asked < batches; ++asked) {
-        // Each ask is itself a delivery and spends a token, so an account with
-        // nothing left cannot ask at all - it waits for the other side.
-        if (session.sendCapacity(peer) == 0) {
-            throw std::runtime_error(
-                "no tokens left for that contact: they refill it when they next write");
-        }
-        session.requestTokens(peer);
-    }
 }
 
 void Runtime::clearChat(const std::string& peer)

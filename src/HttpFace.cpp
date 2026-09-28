@@ -29,9 +29,6 @@ constexpr const char* kSessionCookie = "bazarish_daemon";
 constexpr int kDefaultWaitSeconds = 30;
 // A page of history when the caller names no size.
 constexpr int kDefaultPage = 50;
-// How many batches one top-up call may ask for. Each ask is a delivery into
-// somebody's mailbox, so this is a courtesy limit rather than a protocol one.
-constexpr int kMaxTopUpBatches = 8;
 
 std::string sessionSecret()
 {
@@ -285,7 +282,7 @@ void HttpFace::routes()
             nlohmann::json array = nlohmann::json::array();
             for (const Runtime::Peer& peer : runtime_.contacts()) {
                 array.push_back({{"fingerprint", peer.fingerprint}, {"name", peer.name},
-                    {"pending", peer.pending}, {"tokens", peer.tokens}});
+                    {"pending", peer.pending}, {"writable", peer.writable}});
             }
             return json(array);
         });
@@ -373,27 +370,6 @@ void HttpFace::routes()
             // An empty emoji is how a reaction is taken back, so it is allowed.
             runtime_.react(peer, messageId, body.value("emoji", std::string()));
             return json({{"ok", true}});
-        });
-    });
-
-    server_->post("/v1/tokens", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            const std::string peer = body.value("peer", std::string());
-            if (peer.empty()) {
-                return failure(400, "\"peer\" names whose tokens to ask for");
-            }
-            const int batches = body.value("batches", 1);
-            if (batches < 1 || batches > kMaxTopUpBatches) {
-                return failure(400, "\"batches\" is between 1 and "
-                        + std::to_string(kMaxTopUpBatches)
-                        + ": each one is an ask the other side answers, and each ask"
-                          " spends a token");
-            }
-            runtime_.topUpTokens(peer, batches);
-            // What came back is not here yet - the answer is a delivery, and it
-            // lands when it lands. The count in /v1/contacts is what to watch.
-            return json({{"asked", batches}});
         });
     });
 
@@ -670,7 +646,7 @@ void HttpFace::routes()
             nlohmann::json array = nlohmann::json::array();
             for (const Runtime::Peer& peer : runtime_.contacts()) {
                 array.push_back({{"fingerprint", peer.fingerprint}, {"name", peer.name},
-                    {"pending", peer.pending}, {"tokens", peer.tokens}});
+                    {"pending", peer.pending}, {"writable", peer.writable}});
             }
             return json(array);
         });

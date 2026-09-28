@@ -85,15 +85,14 @@ public:
     // The invite an operator hands out to be added as a contact.
     std::string inviteUri() const;
 
-    // A contact as the two faces show it. `tokens` is how many one-time delivery
-    // tokens this account still holds for them: at zero nothing can be sent
-    // until they refill, which is the one failure a bot sending in bulk has to
-    // watch for.
+    // A contact as the two faces show it. `writable` is whether this account
+    // holds the pass that admits it to their mailbox: nothing runs a pass down,
+    // so it is a yes or no and not a count.
     struct Peer {
         std::string fingerprint;
         std::string name;
         bool pending = false;
-        std::size_t tokens = 0;
+        bool writable = false;
     };
     std::vector<Peer> contacts() const;
     std::vector<Line> conversation(const std::string& peer, std::int64_t before, int limit) const;
@@ -125,10 +124,6 @@ public:
     // from delivered into read.
     void confirmReceipt(const std::string& peer, const std::string& messageId);
 
-    // Asks a contact for more of their one-time tokens, `batches` times over -
-    // each ask costs one token and brings back a batch. What a service that
-    // sends far more than it receives does while the other side is about.
-    void topUpTokens(const std::string& peer, int batches);
     // Asks the peer to drop the whole conversation, and drops this side of it.
     void clearChat(const std::string& peer);
 

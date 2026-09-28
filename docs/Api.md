@@ -29,7 +29,7 @@ the status in it: `{"error": "the account is not open: starting"}`.
 |---|---|
 | `GET /v1/status` | the account's fingerprint, name, address and the id of the last event |
 | `GET /v1/invite` | the invite URI to hand out to be added as a contact |
-| `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted and `tokens` for how many more messages can be sent to them |
+| `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted and `writable` for whether this account holds the pass that admits it to their mailbox |
 | `POST /v1/contacts` | `{"invite": "...", "text": "..."}` adds one; `{"accept": "<fingerprint>"}` accepts a request |
 | `GET /v1/chats` | the last line of every conversation |
 | `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first |
@@ -38,7 +38,6 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `DELETE /v1/messages/{id}?peer=` | takes a message this account sent back, on both sides |
 | `POST /v1/reactions` | `{"peer": "...", "messageId": "...", "emoji": "👍"}`; an empty emoji takes it back |
 | `POST /v1/receipts` | `{"peer": "...", "messageId": "..."}` tells the peer their message arrived |
-| `POST /v1/tokens` | `{"peer": "...", "batches": 2}` asks that contact for more of their tokens |
 | `POST /v1/chats/{fingerprint}/clear` | asks the peer to drop the conversation, and drops this side of it |
 | `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds |
 
@@ -130,40 +129,22 @@ done
 
 ## Sending in bulk
 
-A bot that sends notices rather than answers has two failure modes worth
-watching, and both are visible here.
+A bot that sends notices rather than answers has one thing to watch, and it is
+visible here.
 
-**Capacity.** Every message spends a one-time token the recipient issued. `GET
-/v1/contacts` reports what is left:
+**Admission.** A message is admitted to a mailbox by the **pass** its owner
+issued this account when they accepted the contact. A pass is one per
+correspondent and nothing runs it down, so there is no stash to keep topped up
+and no count to read: `GET /v1/contacts` answers `writable` and that is the whole
+of it.
 
 ```json
-[{"fingerprint": "...", "name": "alice", "pending": false, "tokens": 41}]
+[{"fingerprint": "...", "name": "alice", "pending": false, "writable": true}]
 ```
 
-The stash refills itself: below a threshold the next message asks the recipient
-for a fresh batch and prepays the reply, so a conversation does not run dry
-while both sides are about. What it cannot do is refill against a recipient who
-is not there - their client is what mints the tokens. **At zero, sends fail and
-keep failing until they come back.** A bot that queues thousands of notices
-should read `tokens` and stop, rather than turn every one of them into a
-failure.
-
-**Building a stash.** A conversation refills on its own traffic, which suits two
-people talking and not a service that sends far more than it receives. Ask for
-more while the other side is about:
-
-```bash
-curl -s -X POST http://127.0.0.1:8440/v1/tokens \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"peer": "<fingerprint>", "batches": 4}'
-```
-
-Each ask is a delivery of its own - nothing is shown to the person on the other
-end - and each brings back a batch of 64. It spends one token to gain sixty-four,
-and up to 8 asks are allowed per call. The batches arrive when the other side's
-client next syncs, so read `tokens` afterwards rather than assuming: an ask to
-somebody who is not running answers nothing until they are. With no tokens at
-all there is nothing to ask with, and the call says so.
+`writable` is false while a contact request has not been accepted, and after the
+correspondent revokes what they issued - at which point sends to them fail and
+keep failing, because only they can admit this account again.
 
 **Delivery.** `POST /v1/messages` answers as soon as the mailbox takes the
 message, and `confirmed` says only whether the far side signed for it inside the
