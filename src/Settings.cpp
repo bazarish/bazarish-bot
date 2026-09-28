@@ -33,19 +33,6 @@ std::string transportName(const Settings::Transport transport)
     return transport == Settings::Transport::eSam ? "sam" : "embedded";
 }
 
-std::string privacyName(const i2p::Privacy privacy)
-{
-    switch (privacy) {
-        case i2p::Privacy::eMinimal:
-            return "minimal";
-        case i2p::Privacy::eMiddle:
-            return "middle";
-        case i2p::Privacy::eMax:
-            return "max";
-    }
-    return "middle";
-}
-
 std::int64_t nowSeconds()
 {
     return static_cast<std::int64_t>(std::time(nullptr));

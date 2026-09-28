@@ -141,13 +141,13 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
         = [this](const std::string& user) { return destinations_->prepareServingKey(user); };
     options.commitServingKey
         = [this](const std::string& user) { return destinations_->commitServingKey(user); };
-    api_ = std::make_unique<server::HttpApi>(*storage_, *engine_, options);
+    api_ = std::make_unique<server::HttpApi>(*storage_, options);
     api_->setEventGate(gate_.get());
 
     // The card carries no endpoint: this mailbox has no address of its own, and
     // the account is reached at the destination it federates on.
-    const Bytes card = ServerCard::issue(identity_, {},
-        Key::fromPublicDer(sealing_.publicDer()), nowSeconds());
+    const Bytes card = ServerCard::issue(
+        identity_, Key::fromPublicDer(sealing_.publicDer()), nowSeconds());
     {
         std::ofstream out(serverDir / "server-card.der", std::ios::binary | std::ios::trunc);
         out.write(reinterpret_cast<const char*>(card.data()),
@@ -159,19 +159,20 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     }
 
     // The account node: what issues this account's card, its quota and its
-    // tokens. On a public server it is a separate daemon run by an operator; here
-    // the operator is the account, so it registers openly and asks no captcha.
+    // passes. On a public server it is a separate daemon run by an operator; here
+    // the operator is the account, so registration is open and nobody moderates
+    // it.
     subscriptions_ = std::make_unique<service::SubscriptionStore>(serverDir / "node");
     grants_ = std::make_unique<service::GrantStore>(serverDir / "node");
-    nodeSettings_ = std::make_shared<service::NodeSettings>(serverDir / "node" / "node.json",
-        service::NodeSettings::Values{.requireApproval = false,
-            .registrationMessage = {},
-            .portalMessage = {},
-            .requireCaptcha = false,
-            .facades = {},
-            .reseeds = {},
-            .defaultQuotaBytes = kOwnQuotaBytes,
-            .idleDeleteDays = 0});
+    // Only the two that mean anything inside one process: the operator is the
+    // account, so nothing is moderated, and the account it grants itself gets the
+    // whole quota. The rest of the node's settings describe a deployment with a
+    // portal and addresses of its own, which this one has not.
+    service::NodeSettings::Values nodeValues;
+    nodeValues.requireApproval = false;
+    nodeValues.defaultQuotaBytes = kOwnQuotaBytes;
+    nodeSettings_ = std::make_shared<service::NodeSettings>(
+        serverDir / "node" / "node.json", nodeValues);
 
     service::AccountApiOptions accountOptions;
     accountOptions.serverFingerprint = fingerprint_;
