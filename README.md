@@ -3,7 +3,7 @@
 A Bazarish account that runs as a service instead of as a desktop application,
 and answers a REST API. Automation talks to that API and never to the protocol:
 a bot is written against `POST /v1/messages`, not against sealed envelopes,
-tokens and destinations.
+delivery passes and destinations.
 
 It is self-hosting. The daemon carries its own mailbox and federates on its own
 destination, so a bot depends on no one else's server for its uptime - which is
@@ -36,7 +36,7 @@ apt install build-essential cmake git libssl-dev zlib1g-dev libboost-all-dev \
             libsqlcipher-dev libqrencode-dev libopus-dev
 git clone --recursive https://github.com/bazarish/client-daemon
 cmake -S client-daemon -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j"$(nproc)"
+cmake --build build -j4
 ```
 
 `-DBAZARISH_WITH_I2PD=OFF` leaves out the embedded router and builds a daemon

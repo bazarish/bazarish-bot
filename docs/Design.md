@@ -3,7 +3,7 @@
 ## The job
 
 An operator writes automation. They should not have to learn sealed envelopes,
-prepaid tokens, destinations or leasesets to do it. So the daemon holds one
+delivery passes, destinations or leasesets to do it. So the daemon holds one
 Bazarish account and offers two faces over it: a REST API for the automation,
 and a web interface for the human who runs it.
 
@@ -57,17 +57,17 @@ from any language with an HTTP client and readable in `curl`. The daemon holds a
 poll open and pushes when something happens, so automation neither spins nor
 lags.
 
-Authentication is a token from the config file. Whoever holds it holds the
-account, so the listener is on loopback unless the operator moves it
-deliberately, and the daemon refuses to start without a token rather than
-serving an open account.
+Authentication is a bearer token, issued in the web interface under a name and
+shown once. Whoever holds one holds the account, so the listener is on loopback
+unless the operator moves it deliberately, and the first visitor to the web
+interface sets the password that guards the issuing.
 
 ## Where the code comes from
 
 | From | What |
 |---|---|
 | `common-cpp` | the client core (accounts, session, courier, invites, bot framework) and the crypto and I2P transport under it |
-| `bazarish-server` | `server-core`: the mailbox, the delivery engine and the federation this daemon serves to itself |
+| `bazarish-server` | `server-core` for the mailbox, the delivery engine and the federation this daemon serves to itself, and `service-node` for the account it registers with itself |
 
 The client core is shared with the desktop client rather than copied, so both
 front-ends speak the protocol through exactly the same code.
