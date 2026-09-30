@@ -4,6 +4,7 @@
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Certificates.hpp>
 #include <bazarish/HttpClient.hpp>
+#include <bazarish/I2p.hpp>
 #include <bazarish/Log.hpp>
 
 #include <nlohmann/json.hpp>
@@ -325,7 +326,9 @@ std::string ServerSide::serveDestinationFor(const std::string& accountFingerprin
         if (router_ == nullptr) {
             throw std::runtime_error("no router: this daemon has no destination to serve on");
         }
-        blob = toBase64(router_->generateKeys().blob());
+        // Its own, and it keeps it: a key a transport mints belongs to the
+        // destination that transport operates, and this one goes to disk.
+        blob = toBase64(bazarish::i2p::Keys::generate().blob());
         writePrivateFile(keyFile, blob);
     }
     destinations_->provision(account_, blob, nowSeconds() + kOwnDestLifetimeSeconds);
