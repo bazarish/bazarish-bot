@@ -36,9 +36,9 @@ Two things follow from that, and both are welcome:
   router that is already running instead of carrying one, which is what makes
   many accounts on one host cheap: many processes, one router.
 
-The embedded router is still built in by default, so a single daemon is a single
-thing to install. `-DBAZARISH_WITH_I2PD=OFF` drops it and leaves a SAM-only
-build.
+The embedded router is always built in, so a single daemon is a single thing to
+install. Borrowing a router instead is a configuration, not a build: the
+transport is chosen at runtime, and there is one shape of the library.
 
 ## What it is not
 

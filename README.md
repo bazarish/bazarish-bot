@@ -39,9 +39,9 @@ cmake -S client-daemon -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j4
 ```
 
-`-DBAZARISH_WITH_I2PD=OFF` leaves out the embedded router and builds a daemon
-that only speaks to one over SAM - smaller, and what several accounts on one
-host want anyway.
+The embedded router is always built in; a daemon that would rather borrow one
+over SAM - which is what several accounts on one host want - says so in its
+config, not at build time.
 
 Then lay it out, write the one config file, and start it:
 
