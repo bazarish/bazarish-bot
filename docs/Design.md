@@ -40,7 +40,13 @@ follow:
   borrowing a router stays possible - which is what makes many accounts on one
   host cheap: many processes, one router. It needs i2pd >= 2.61.0, and the one
   thing SAM will not do is swap a live transient in place: a re-issue there
-  rebuilds the session.
+  rebuilds the session, which keeps the address because the master is unchanged.
+
+Both of those have been run against an external i2pd, not only reasoned about:
+two daemons on one borrowed router published b33 addresses from their delegations,
+held a conversation in both directions, and kept their addresses across a re-issue.
+One thing to know when borrowing a router: a destination there gets exactly one
+stream forward, and asking twice takes down the one that works.
 
 The embedded router is always built in, so a single daemon is a single thing to
 install. Borrowing a router instead is a configuration, not a build: the
