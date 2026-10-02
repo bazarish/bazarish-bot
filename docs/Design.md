@@ -20,21 +20,27 @@ that runs as a service already has the uptime a mailbox needs, and depending on
 somebody else's server for it buys nothing while adding an operator, a
 subscription and a second thing to be down.
 
-This has one consequence worth stating, because it removes machinery rather than
-adding it. On a public server the account's serving destination is delegated:
-the user keeps the identity key and hands the server a short-lived offline
-transient, so an operator who is not the user cannot become them. Inside one
-process there is no such boundary - the account, the mailbox and the operator
-are the same party - so there is nothing to delegate. The daemon owns its
-destination key outright.
+This has one consequence worth stating. On a public server the account's serving
+destination is delegated: the user keeps the master key and hands the server a
+short-lived offline transient, so an operator who is not the user cannot become
+them. Inside one process there is no such boundary - the account, the mailbox and
+the operator are the same party - but the delegation stays, because it is not
+only a trust boundary. The per-day blinded keys it carries are what let the
+server publish the address as an **encrypted** leaseset without holding the
+master signing key, and the server refuses a delegation that has none: a bare
+master would build tunnels and then never publish.
 
-Two things follow from that, and both are welcome:
+So the daemon keeps its master on disk and issues a delegation to its own server
+side, re-issuing it from that master well before the term runs out. Two things
+follow:
 
-- No offline keys, so the destination can publish an encrypted leaseset (b33)
-  like any other, and the address is not forced back to a plain b32.
-- No offline keys, so the SAM transport is enough. The daemon can speak to a
-  router that is already running instead of carrying one, which is what makes
-  many accounts on one host cheap: many processes, one router.
+- The address is the blinded b33 of an encrypted leaseset, like every other
+  destination in the project. Nothing is forced back to a plain b32.
+- The SAM transport asks an external router for the same encrypted leaseset, so
+  borrowing a router stays possible - which is what makes many accounts on one
+  host cheap: many processes, one router. It needs i2pd >= 2.61.0, and the one
+  thing SAM will not do is swap a live transient in place: a re-issue there
+  rebuilds the session.
 
 The embedded router is always built in, so a single daemon is a single thing to
 install. Borrowing a router instead is a configuration, not a build: the

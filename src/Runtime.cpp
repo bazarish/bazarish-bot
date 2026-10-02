@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 #include <openssl/rand.h>
 
+#include <bazarish/Clock.hpp>
 #include <bazarish/Log.hpp>
 #include <bazarish/ServerDescriptor.hpp>
 
@@ -280,8 +281,9 @@ void Runtime::bringUp(const std::string& passphrase)
         status_ = "running";
     }
     stopping_ = false;
-    cardCarriesDestination_ = !mailbox_->destination().empty() && session_ != nullptr
-        && false;  // proven only by a successful re-issue below
+    // Set only by a re-issue that succeeded, in the poll loop below: the card is
+    // published at registration, when the destination may still be building.
+    cardCarriesDestination_ = false;
     poller_ = std::thread([this]() { poll(); });
 }
 
@@ -307,9 +309,23 @@ void Runtime::poll()
             log::warn("mailbox: {}", error.what());
         }
 
-        // The card is published at registration, when the destination may still
-        // be building - and a card with no address in it is one a contact cannot
-        // reach. It is re-issued once, as soon as there is an address to put in.
+        // The delegation the server side operates this address under runs out like
+        // any other. Re-issued from the master this daemon keeps, well before it
+        // lapses, or the sweep would take the address down under a running account.
+        if (mailbox_->destinationNeedsRenewal(bazarish::nowSeconds())) {
+            try {
+                const std::lock_guard<std::mutex> lock(sessionMutex_);
+                if (session_ != nullptr) {
+                    mailbox_->serveDestinationFor(session_->fingerprint());
+                    log::info("delegation re-issued for {}", mailbox_->destination());
+                }
+            } catch (const std::exception& error) {
+                log::warn("delegation not re-issued: {}", error.what());
+            }
+        }
+
+        // A card with no address in it is one a contact cannot reach. It is
+        // re-issued once, as soon as there is an address to put in.
         if (!cardCarriesDestination_ && !mailbox_->destination().empty()) {
             try {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);

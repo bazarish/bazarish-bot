@@ -3,6 +3,20 @@
 Work that is known to be missing, kept here so it is found before the next
 change rather than after it.
 
+## The delegated address has not been run over SAM
+
+The server side operates this daemon's address under a delegation it issues to
+itself, because the per-day blinded keys in one are what let an encrypted leaseset
+be published at all. That path is live-verified with the **embedded** router: two
+daemons federated a full conversation over real I2P.
+
+Borrowing a router over SAM is meant to work the same way - the backend asks for
+the same encrypted leaseset type and derives the same b33 - but it has not been
+run. Two things to watch when it is: that an external i2pd (>= 2.61.0) publishes
+the blinded leaseset from the delegation rather than refusing it, and that a
+re-issue, which rebuilds the SAM session rather than swapping the transient in
+place, does not drop the account's streams for longer than a poll.
+
 ## Draw message formatting in the web interface
 
 The desktop client draws light markup in a message body: `*italic*`, `**bold**`,

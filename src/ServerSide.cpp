@@ -4,7 +4,9 @@
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Certificates.hpp>
 #include <bazarish/HttpClient.hpp>
+#include <bazarish/Clock.hpp>
 #include <bazarish/I2p.hpp>
+#include <bazarish/Limits.hpp>
 #include <bazarish/Log.hpp>
 
 #include <nlohmann/json.hpp>
@@ -28,10 +30,12 @@ constexpr const char* kVersion = "0.0.1";
 // The mailbox answers this process and nothing else, so it takes a port the
 // system hands out rather than one an operator has to keep out of the way.
 constexpr const char* kMailboxHost = "127.0.0.1";
-// This daemon's destination is not delegated and does not lapse; the field the
-// server keeps for an offline transient's expiry is given a year and renewed at
-// every start, so the sweep that retires lapsed destinations never takes it.
-constexpr std::int64_t kOwnDestLifetimeSeconds = 365 * 24 * 60 * 60;
+// How long a delegation this daemon issues to its own server side runs for, and
+// the point in that term at which it is re-issued. The daemon owns both halves,
+// but the server side operates the address under a delegation like any other: it
+// publishes the encrypted LeaseSet from the blinded keys the delegation carries,
+// and it retires an address whose term has run out.
+constexpr int kOwnDelegationDays = static_cast<int>(bazarish::kMaxDelegationDays);
 // The mailbox is this account's alone, so its destination carries one account's
 // traffic rather than a server's: a full pool would be tunnels built for nobody.
 constexpr int kOwnDestTunnelQuantity = 3;
@@ -99,9 +103,10 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     , privacy_(privacy)
     , router_(router)
     , host_(kMailboxHost)
-    , identity_(loadOrCreateIdentity(stateDir_ / "server" / "identity.pem"))
-    , sealing_(loadOrCreateSealingKey(stateDir_ / "server" / "sealing.pem"))
-    , fingerprint_(identity_.fingerprint())
+    , identity_(std::make_shared<const Identity>(
+          loadOrCreateIdentity(stateDir_ / "server" / "identity.pem")))
+    , sealing_(std::make_shared<Key>(loadOrCreateSealingKey(stateDir_ / "server" / "sealing.pem")))
+    , fingerprint_(identity_->fingerprint())
 {
     const fs::path serverDir = stateDir_ / "server";
     storage_ = std::make_unique<server::DiskStorage>(serverDir / "storage");
@@ -109,50 +114,22 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
 
     server::DeliveryEngineOptions engineOptions;
     engineOptions.onDelivered = [this](const std::string& user) { gate_->notify(user); };
-    engine_ = std::make_unique<server::DeliveryEngine>(*storage_, fingerprint_,
-        Key::fromPrivatePem(sealing_.privatePem()), engineOptions);
+    engine_ = std::make_unique<server::DeliveryEngine>(
+        *storage_, fingerprint_, sealing_, engineOptions);
 
     destinations_ = std::make_unique<server::PerUserDestinations>(router_, *engine_, serverDir,
         privacy_, kOwnDestTunnelQuantity);
     destinations_->reloadPersisted(nowSeconds());
 
-    server::HttpApiOptions options;
-    options.version = kVersion;
-    options.defaultQuotaBytes = engineOptions.defaultQuotaBytes;
-    // The account asks its server for the slice of netDb a router with no peers
-    // starts from. Here that is this same process's router, which bootstraps from
-    // the public hosts because there is no other server to ask.
-    if (router_ != nullptr) {
-        options.reseedSample
-            = [](const std::size_t count) { return i2p::sampleRouterInfos(count); };
-    }
-    options.assignDestination
-        = [this](const std::string& user) -> server::DestinationAssignment {
-        const std::shared_ptr<Key> key = destinations_->servingKeyFor(user);
-        if (!key) {
-            return {std::string(), nullptr, "none"};
-        }
-        return {destinations_->destinationFor(user), key,
-            destinations_->stateFor(user, nowSeconds())};
-    };
-    // Rotating the key this account is served under is the account's own to ask
-    // for, and the destinations hold it: without these the server answers that it
-    // cannot, which is true of a server that was never given them.
-    options.prepareServingKey
-        = [this](const std::string& user) { return destinations_->prepareServingKey(user); };
-    options.commitServingKey
-        = [this](const std::string& user) { return destinations_->commitServingKey(user); };
-    api_ = std::make_unique<server::HttpApi>(*storage_, options);
-    api_->setEventGate(gate_.get());
-
-    // The card carries no endpoint: this mailbox has no address of its own, and
-    // the account is reached at the destination it federates on.
-    const Bytes card = ServerCard::issue(
-        identity_, Key::fromPublicDer(sealing_.publicDer()), nowSeconds());
+    // The card every client of this mailbox needs before it can seal anything: it
+    // carries the sealing key a tunnel hello is sealed to. Issued here, because
+    // both the mailbox and the account node are handed it below.
+    card_ = ServerCard::issue(
+        *identity_, Key::fromPublicDer(sealing_->publicDer()), nowSeconds());
     {
         std::ofstream out(serverDir / "server-card.der", std::ios::binary | std::ios::trunc);
-        out.write(reinterpret_cast<const char*>(card.data()),
-            static_cast<std::streamsize>(card.size()));
+        out.write(reinterpret_cast<const char*>(card_.data()),
+            static_cast<std::streamsize>(card_.size()));
         out.close();
         if (!out) {
             throw std::runtime_error("cannot write the server card");
@@ -177,11 +154,9 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
 
     service::AccountApiOptions accountOptions;
     accountOptions.serverFingerprint = fingerprint_;
-    accountOptions.serverCardDer = card;
+    accountOptions.serverCardDer = card_;
     accountOptions.version = kVersion;
     accountOptions.settings = nodeSettings_;
-    accountOptions.defaultQuotaBytes = kOwnQuotaBytes;
-    accountOptions.registration = service::AccountApiOptions::Registration::eOpen;
     // The node prepares a new serving key and the mailbox puts it in force. In a
     // deployment those are two daemons and a private channel between them; here
     // they are two objects, so the call goes straight across.
@@ -197,7 +172,16 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
         = [this](const std::string& user) { return destinations_->commitServingKey(user); };
     accountOptions.forgetMailbox = [this](const std::string& user) {
         destinations_->revoke(user);
+        storage_->forgetUser(user);
         return true;
+    };
+    // In a deployment this is the node's signed push to a server across a private
+    // channel. Here the two are objects in one process, so it is a call - but it
+    // still has to happen, or the mailbox would enforce its own default against a
+    // quota the node promised.
+    accountOptions.publishQuota
+        = [this](const std::string& user, const std::uint64_t quotaBytes) {
+        storage_->setUserQuota(user, quotaBytes);
     };
     accounts_ = std::make_unique<service::AccountApi>(*subscriptions_, *grants_, accountOptions);
 }
@@ -210,30 +194,60 @@ ServerSide::~ServerSide()
 void ServerSide::start()
 {
     // Each component takes a port the system hands out: they answer this process
-    // and nothing else, so there is no address for an operator to keep free.
-    mailboxPort_ = api_->bindToAnyPort(host_, 0);
-    if (mailboxPort_ == 0) {
-        throw std::runtime_error("the mailbox cannot take a port on " + host_);
-    }
-    nodePort_ = accounts_->bindToAnyPort(host_);
-    if (nodePort_ == 0) {
+    // and nothing else, so there is no address for an operator to keep free. The
+    // account node goes first, because the mailbox has to be told where to forward
+    // a client's account calls.
+    nodePort_ = accounts_->bind(host_, 0);
+    if (nodePort_ <= 0) {
         throw std::runtime_error("the account node cannot take a port on " + host_);
     }
 
-    // What the node owes the mailbox - the quota an account was granted - goes
-    // over the same private channel a deployed fleet uses.
-    push_ = std::make_unique<service::OperatorPush>(
-        "http://" + host_ + ":" + std::to_string(mailboxPort_), identity_);
+    server::HttpApiOptions options;
+    options.version = kVersion;
+    options.defaultQuotaBytes = kOwnQuotaBytes;
+    options.eventGate = gate_.get();
+    // What a client needs before it can say anything: the card that hands out the
+    // sealing key, and the key itself, which its tunnel hello is sealed to.
+    options.serverCardDer = card_;
+    options.sealingKey = sealing_;
+    // An account call arrives inside the same tunnel as everything else and is
+    // passed on to the node under this server's own signature, naming whose call
+    // it is - exactly as a deployed pair does it, only without leaving the process.
+    options.identity = identity_;
+    options.serviceNodeUrl = "http://" + host_ + ":" + std::to_string(nodePort_);
+    // The account asks its server for the slice of netDb a router with no peers
+    // starts from. Here that is this same process's router, which bootstraps from
+    // the public hosts because there is no other server to ask.
+    if (router_ != nullptr) {
+        options.reseedSample
+            = [](const std::size_t count) { return i2p::sampleRouterInfos(count); };
+    }
+    options.assignDestination
+        = [this](const std::string& user) -> server::DestinationAssignment {
+        const server::PerUserDestinations::Assignment assigned
+            = destinations_->assignmentFor(user, nowSeconds());
+        return {assigned.dest, assigned.sealingKey, assigned.state};
+    };
+    // Rotating the key this account is served under is the account's own to ask
+    // for, and the destinations hold it: without these the server answers that it
+    // cannot, which is true of a server that was never given them.
+    options.prepareServingKey
+        = [this](const std::string& user) { return destinations_->prepareServingKey(user); };
+    options.commitServingKey
+        = [this](const std::string& user) { return destinations_->commitServingKey(user); };
+    api_ = std::make_unique<server::HttpApi>(*storage_, options);
+    mailboxPort_ = api_->bind(host_, 0);
+    if (mailboxPort_ <= 0) {
+        throw std::runtime_error("the mailbox cannot take a port on " + host_);
+    }
 
     facade::FacadeOptions facadeOptions;
     facadeOptions.messagingHost = host_;
     facadeOptions.messagingPort = mailboxPort_;
-    facadeOptions.accountHost = host_;
-    facadeOptions.accountPort = nodePort_;
     facadeOptions.version = kVersion;
     facade_ = std::make_unique<facade::Facade>(facadeOptions);
-    facadePort_ = facade_->bindToAnyPort(host_);
-    if (facadePort_ == 0) {
+    facadePort_ = facade_->bind(host_, 0);
+    if (facadePort_ <= 0) {
         throw std::runtime_error("the facade cannot take a port on " + host_);
     }
 
@@ -265,22 +279,8 @@ void ServerSide::start()
             }
         });
 
-    // Each serving call parks its caller until stop(), so each gets a thread.
-    servingMailbox_ = std::thread([this]() {
-        if (!api_->listenAfterBind()) {
-            log::error("the mailbox bound its port but will not serve");
-        }
-    });
-    servingAccounts_ = std::thread([this]() {
-        if (!accounts_->listenAfterBind()) {
-            log::error("the account node bound its port but will not serve");
-        }
-    });
-    servingFacade_ = std::thread([this]() {
-        if (!facade_->listenAfterBind()) {
-            log::error("the facade bound its port but will not serve");
-        }
-    });
+    // Each engine serves on threads of its own once it is bound; nothing here has
+    // to park to keep it answering.
     log::info("server up on {}: mailbox {}, accounts {}, facade {}", host_, mailboxPort_,
         nodePort_, facadePort_);
 }
@@ -296,23 +296,11 @@ void ServerSide::stop()
     if (api_) {
         api_->stop();
     }
-    for (std::thread* const serving : {&servingFacade_, &servingAccounts_, &servingMailbox_}) {
-        if (serving->joinable()) {
-            serving->join();
-        }
-    }
 }
 
 Bytes ServerSide::card() const
 {
-    const fs::path path = stateDir_ / "server" / "server-card.der";
-    std::ifstream in(path, std::ios::binary);
-    if (!in) {
-        throw std::runtime_error("cannot read the server card");
-    }
-    const std::string text((std::istreambuf_iterator<char>(in)),
-        std::istreambuf_iterator<char>());
-    return Bytes(text.begin(), text.end());
+    return card_;
 }
 
 std::string ServerSide::serveDestinationFor(const std::string& accountFingerprint)
@@ -326,13 +314,29 @@ std::string ServerSide::serveDestinationFor(const std::string& accountFingerprin
         if (router_ == nullptr) {
             throw std::runtime_error("no router: this daemon has no destination to serve on");
         }
-        // Its own, and it keeps it: a key a transport mints belongs to the
-        // destination that transport operates, and this one goes to disk.
+        // Its own master, and it keeps it: the address is derived from this key,
+        // so it is what makes the address survive a restart.
         blob = toBase64(bazarish::i2p::Keys::generate().blob());
         writePrivateFile(keyFile, blob);
     }
-    destinations_->provision(account_, blob, nowSeconds() + kOwnDestLifetimeSeconds);
-    return destinations_->destinationFor(account_);
+    // The server side publishes the address blinded, which it can only do from the
+    // per-day keys a delegation carries - so even here, where both halves are the
+    // same party, what it is handed is a delegation and not the master.
+    const bazarish::i2p::Keys delegated
+        = bazarish::i2p::Keys::fromBlob(fromBase64(blob)).issueTransient(kOwnDelegationDays);
+    destinationExpires_ = delegated.transientExpires();
+    destinations_->provision(account_, toBase64(delegated.blob()), destinationExpires_);
+    return destinations_->assignmentFor(account_, nowSeconds()).dest;
+}
+
+bool ServerSide::destinationNeedsRenewal(const std::int64_t now) const
+{
+    if (account_.empty() || destinationExpires_ == 0) {
+        return false;
+    }
+    const std::int64_t term = kOwnDelegationDays * bazarish::kSecondsPerDay;
+    return now > destinationExpires_
+        - static_cast<std::int64_t>(static_cast<double>(term) * bazarish::kDelegationRenewAtFraction);
 }
 
 std::string ServerSide::replaceDestinationFor(const std::string& accountFingerprint)
@@ -344,7 +348,8 @@ std::string ServerSide::replaceDestinationFor(const std::string& accountFingerpr
 
 std::string ServerSide::destination() const
 {
-    return account_.empty() ? std::string() : destinations_->destinationFor(account_);
+    return account_.empty() ? std::string()
+                            : destinations_->assignmentFor(account_, nowSeconds()).dest;
 }
 
 }  // namespace bazarish::daemon

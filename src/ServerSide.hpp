@@ -11,16 +11,15 @@
 #include <GrantStore.hpp>
 #include <HttpApi.hpp>
 #include <NodeSettings.hpp>
-#include <OperatorPush.hpp>
 #include <PerUserDestinations.hpp>
 #include <SubscriptionStore.hpp>
 
 #include <bazarish/Crypto.hpp>
 #include <bazarish/I2p.hpp>
 
+#include <cstdint>
 #include <memory>
 #include <string>
-#include <thread>
 
 namespace bazarish::daemon {
 
@@ -28,11 +27,11 @@ namespace bazarish::daemon {
 // client talks to over I2P - the mailbox, the account node and the facade in
 // front of them - running in this process and answering on loopback.
 //
-// It serves exactly one account, which is also the operator, so nothing here is
-// delegated. On a public server the account hands over a short-lived offline
-// transient and keeps its identity key; here the two are the same party, so the
-// destination key is simply owned - which is also what lets the transport be
-// SAM, where an offline key cannot be issued at all.
+// It serves exactly one account, which is also the operator - but the address is
+// still delegated rather than handed over whole: the per-day blinded keys in a
+// delegation are what let the mailbox publish an encrypted leaseset, and it
+// refuses one that carries none. So this side keeps the master and issues itself
+// a term from it, re-issuing before it runs out.
 class ServerSide {
 public:
     ServerSide(std::filesystem::path stateDir, i2p::Privacy privacy, i2p::Router* router);
@@ -56,10 +55,15 @@ public:
     // The card the account needs to seal deliveries to this mailbox.
     Bytes card() const;
 
-    // Brings up (or renews) the destination this daemon federates on, from a key
-    // it owns and keeps. Returns the routing host once it is up, empty while it
-    // is still building.
+    // Brings up (or renews) the destination this daemon federates on, from the
+    // master key it owns and keeps. Returns the routing host once it is up, empty
+    // while it is still building.
     std::string serveDestinationFor(const std::string& accountFingerprint);
+    // Whether the delegation the server side is operating this address under is
+    // past half its term. The daemon owns both halves, so renewing is re-issuing
+    // from the master it already has - but the address still has to be delegated,
+    // and a delegation still runs out.
+    bool destinationNeedsRenewal(std::int64_t now) const;
     // Throws the destination key away and raises a fresh one: a new address for
     // the same account. The old address stops answering at once.
     std::string replaceDestinationFor(const std::string& accountFingerprint);
@@ -74,9 +78,13 @@ private:
     int nodePort_ = 0;
     int facadePort_ = 0;
 
-    Identity identity_;
-    Key sealing_;
+    // One object each, shared with everything that needs them: a key parsed again
+    // from its own PEM is a second copy of a secret.
+    std::shared_ptr<const Identity> identity_;
+    std::shared_ptr<Key> sealing_;
     std::string fingerprint_;
+    // The card both the mailbox and the account node hand out.
+    Bytes card_;
 
     std::unique_ptr<server::DiskStorage> storage_;
     std::unique_ptr<server::EventGate> gate_;
@@ -86,15 +94,13 @@ private:
 
     std::unique_ptr<service::SubscriptionStore> subscriptions_;
     std::unique_ptr<service::GrantStore> grants_;
-    std::unique_ptr<service::OperatorPush> push_;
     std::shared_ptr<service::NodeSettings> nodeSettings_;
     std::unique_ptr<service::AccountApi> accounts_;
     std::unique_ptr<facade::Facade> facade_;
 
     std::string account_;
-    std::thread servingMailbox_;
-    std::thread servingAccounts_;
-    std::thread servingFacade_;
+    // When the delegation this address is served under runs out.
+    std::int64_t destinationExpires_ = 0;
 };
 
 }  // namespace bazarish::daemon
