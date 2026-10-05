@@ -1,6 +1,4 @@
 // Bazarish project (c) 2026
-// The sign-in page: it asks for a password, or for a first one when the daemon
-// has never been set up.
 "use strict";
 
 const el = (id) => document.getElementById(id);

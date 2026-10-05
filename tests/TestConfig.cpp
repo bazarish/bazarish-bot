@@ -49,7 +49,6 @@ fs::path write(const std::string& name, const std::string& text)
 
 int main()
 {
-    // A full document, comments and all.
     {
         const fs::path path = write("bz-daemon-full.json", R"({
             // where everything lives
@@ -65,7 +64,6 @@ int main()
         fs::remove(path);
     }
 
-    // What a document that says only where the state lives falls back to.
     {
         const fs::path path = write("bz-daemon-min.json", R"({
             "state": "/tmp/bz"
@@ -77,8 +75,6 @@ int main()
         fs::remove(path);
     }
 
-    // What the daemon refuses to start without: somewhere to keep its account,
-    // and a port to answer on.
     {
         const fs::path noState = write("bz-daemon-nostate.json", R"({
             "listen": {"host": "127.0.0.1", "port": 8440}
@@ -94,7 +90,6 @@ int main()
         fs::remove(noPort);
     }
 
-    // A file that is not there is not an empty config.
     CHECK_THROWS(readConfig(fs::temp_directory_path() / "bz-daemon-missing.json"));
 
     std::fprintf(stderr, "TestConfig passed\n");

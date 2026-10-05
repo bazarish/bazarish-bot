@@ -13,16 +13,12 @@ namespace bazarish::daemon {
 
 namespace {
 
-// How long a writer waits for another to finish before giving up.
 constexpr int kBusyTimeoutMs = 5000;
-// What a query will hand back at most, however much is asked for: a page, not a
-// database.
 constexpr int kMaxPage = 500;
 
 constexpr const char* kLineColumns
     = "id, peer, outgoing, type, e2eId, text, keyboard, replyTo, sentAt, edited, status";
 
-// A raw key is given to SQLCipher as hex in a blob literal.
 std::string rawKeyLiteral(const Bytes& key)
 {
     return "x'" + toHex(key) + "'";
@@ -38,7 +34,6 @@ void run(sqlite3* const db, const std::string& sql)
     }
 }
 
-// A prepared statement that is always finalised, however the caller leaves.
 class Statement {
 public:
     Statement(sqlite3* const db, const std::string& sql)
@@ -116,9 +111,6 @@ Line readLine(const Statement& statement)
 Transcript::Transcript(const std::filesystem::path& file, const std::string& passphrase)
 {
     std::filesystem::create_directories(file.parent_path());
-    // The key record is made before the database file exists: a database with no
-    // record beside it is one whose key is gone, and asking for it then is how a
-    // wrong passphrase would read as a new account.
     const Bytes key = client::accountkey::keyFor(file, passphrase);
     if (sqlite3_open(file.string().c_str(), &db_) != SQLITE_OK) {
         sqlite3_close(db_);
@@ -134,16 +126,9 @@ Transcript::Transcript(const std::filesystem::path& file, const std::string& pas
         "peer TEXT NOT NULL, outgoing INTEGER NOT NULL, type TEXT, e2eId TEXT,"
         "text TEXT, keyboard TEXT, replyTo TEXT, sentAt INTEGER,"
         "edited INTEGER NOT NULL DEFAULT 0, status TEXT)");
-    // The mailbox may hand the same item over twice; the second one is not a
-    // second message.
     run(db_, "CREATE UNIQUE INDEX IF NOT EXISTS messages_e2e ON messages(e2eId)"
              " WHERE e2eId IS NOT NULL AND e2eId <> ''");
     run(db_, "CREATE INDEX IF NOT EXISTS messages_peer ON messages(peer, id)");
-    // A file written by an older daemon has a table of the same name and other
-    // columns, and CREATE TABLE IF NOT EXISTS leaves it exactly as it was. Said
-    // here rather than met later as a query that cannot be prepared - and the
-    // file is left alone, because deleting somebody's conversations to fix a
-    // schema is not this code's decision to make.
     {
         Statement columns(db_, "SELECT COUNT(*) FROM pragma_table_info('messages')"
                                " WHERE name = 'status'");
@@ -154,7 +139,6 @@ Transcript::Transcript(const std::filesystem::path& file, const std::string& pas
                   " lost, and nothing else will");
         }
     }
-    // One reaction per reactor per message: a new emoji replaces the old one.
     run(db_,
         "CREATE TABLE IF NOT EXISTS reactions ("
         "peer TEXT NOT NULL, messageId TEXT NOT NULL, reactor TEXT NOT NULL, emoji TEXT,"

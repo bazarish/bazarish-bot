@@ -26,19 +26,10 @@ namespace fs = std::filesystem;
 
 namespace {
 
-// One account, one file, one name: there is no account picker here, so the name
-// is not the operator's to choose.
 constexpr const char* kAccountFile = "account.db";
 constexpr const char* kTranscriptFile = "transcript.db";
-// How often the mailbox is pulled when nothing has woken the poller. The client
-// core holds a long poll open on the mailbox, so this is the floor, not the rate.
 constexpr int kPollSeconds = 5;
-// What a long poll waits at most before answering with nothing: long enough that
-// an idle bot makes one request a minute, short enough that a proxy in front of
-// the daemon does not time the request out itself.
 constexpr int kMaxWaitSeconds = 60;
-// A protocol message id: eight random bytes, as hex, which is the shape every
-// other client on this protocol writes.
 constexpr std::size_t kMessageIdBytes = 8;
 
 std::string freshMessageId()
@@ -50,9 +41,6 @@ std::string freshMessageId()
     return toHex(id);
 }
 
-// The mailbox this daemon serves is reached by the account in this same process.
-// It is not a client of the network and never leaves the machine, which is what
-// this switch says out loud.
 void allowOwnLoopbackFacade()
 {
     bazarish::setSelfHostedFacadeOnLoopback(true);
@@ -105,7 +93,6 @@ void Runtime::createAccount(const std::string& name, const std::string& passphra
     }
     allowOwnLoopbackFacade();
     {
-        // Created and closed here; bringUp opens it as the running session.
         const client::Session created
             = client::Session::create(accountFile(), passphrase, name);
         log::info("account {} created", log::redact(created.fingerprint()));
@@ -120,8 +107,6 @@ void Runtime::importAccount(const Bytes& bundle, const std::string& bundlePassph
         throw std::runtime_error("this daemon already has an account");
     }
     allowOwnLoopbackFacade();
-    // The core takes a bundle as a file, and the operator hands one over through a
-    // browser: it is written down beside the account, used, and removed.
     const fs::path scratch = config_.stateDir / "import.bundle";
     {
         std::ofstream out(scratch, std::ios::binary | std::ios::trunc);
@@ -193,8 +178,6 @@ void Runtime::start(const std::string& passphrase)
     if (running()) {
         return;
     }
-    // A wrong passphrase is the caller's mistake and must come back as one, not
-    // as a status they have to go and read.
     if (!client::accountkey::unlocks(accountFile(), passphrase)) {
         throw std::runtime_error("that passphrase does not open the account");
     }
@@ -232,17 +215,11 @@ void Runtime::bringUp(const std::string& passphrase)
         status_ = "starting";
     }
 
-    // The client core reaches the transport through one router per process, and
-    // the server half of this daemon is handed the same one: two routers here
-    // would be two netDbs, two sets of tunnels and two addresses for one account.
     client::setI2pEnabled(true);
     if (settings_.transport() == Settings::Transport::eSam) {
         client::setSamTransport(settings_.samHost(), settings_.samPort());
         log::info("transport: SAM at {}:{}", settings_.samHost(), settings_.samPort());
     } else {
-        // Nobody to ask for a netDb: this daemon is the server it would have
-        // asked, so it names no reseed of its own and the engine falls back to
-        // its built-in public hosts, the way a server does.
         log::info("transport: a router of our own under {}",
             (config_.stateDir / "i2p").string());
     }
@@ -255,14 +232,9 @@ void Runtime::bringUp(const std::string& passphrase)
     log::info("opening the account");
     auto session = std::make_unique<client::Session>(client::Session::open(accountFile(), passphrase));
 
-    // The destination is this daemon's own, raised by the server from a key it
-    // keeps: there is nothing to delegate to a server that is this same process.
     const std::string destination = mailbox_->serveDestinationFor(session->fingerprint());
     log::info("destination {}", destination.empty() ? "still building" : destination);
 
-    // The account subscribes to the server in this process, over loopback. The
-    // ports are handed out at every start, so the endpoint is set every time
-    // rather than only when there is none.
     client::ServerEndpoint endpoint;
     endpoint.serverFingerprint = mailbox_->fingerprint();
     endpoint.facades.push_back(client::Facade{false, mailbox_->host(), mailbox_->port(), {}});
@@ -281,8 +253,6 @@ void Runtime::bringUp(const std::string& passphrase)
         status_ = "running";
     }
     stopping_ = false;
-    // Set only by a re-issue that succeeded, in the poll loop below: the card is
-    // published at registration, when the destination may still be building.
     cardCarriesDestination_ = false;
     poller_ = std::thread([this]() { poll(); });
 }
@@ -309,9 +279,6 @@ void Runtime::poll()
             log::warn("mailbox: {}", error.what());
         }
 
-        // The delegation the server side operates this address under runs out like
-        // any other. Re-issued from the master this daemon keeps, well before it
-        // lapses, or the sweep would take the address down under a running account.
         if (mailbox_->destinationNeedsRenewal(bazarish::nowSeconds())) {
             try {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -324,8 +291,6 @@ void Runtime::poll()
             }
         }
 
-        // A card with no address in it is one a contact cannot reach. It is
-        // re-issued once, as soon as there is an address to put in.
         if (!cardCarriesDestination_ && !mailbox_->destination().empty()) {
             try {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -346,8 +311,6 @@ void Runtime::poll()
                 if (transcript_ == nullptr) {
                     continue;
                 }
-                // An edit, a delete, a reaction and a receipt are about a message
-                // that is already here; only the rest are lines of their own.
                 if (item.contentType == "edit") {
                     wrote = transcript_->applyEdit(item.fromFingerprint, item.refId, item.text,
                                 item.keyboardJson, item.sentByUs)
@@ -372,14 +335,10 @@ void Runtime::poll()
                     continue;
                 }
                 if (item.contentType == "chat.clear") {
-                    // Their wish for the conversation, honoured the way every
-                    // other client honours it.
                     transcript_->clearPeer(item.fromFingerprint);
                     wrote = true;
                     continue;
                 }
-                // Control traffic is the core's business, not a conversation's:
-                // what is written down is what somebody said.
                 if (item.contentType != "text" && item.contentType != "file"
                     && item.contentType != "picture" && item.contentType != "voice"
                     && item.contentType != "bot.command" && item.contentType != "bot.callback"
@@ -442,7 +401,6 @@ std::string Runtime::destination() const
     return mailbox_ ? mailbox_->destination() : std::string();
 }
 
-
 std::string Runtime::fingerprint() const
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -500,12 +458,6 @@ Runtime::Sent Runtime::sendText(const std::string& peer, const std::string& text
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        // False is not a refusal: the mailbox took it and federates it in the
-        // background with retries. It says only that the far side had not
-        // confirmed storage before the wait was up.
-        // The courier answers later and on its own thread; what it says is
-        // written onto the line, because a bot sending in bulk has no other way
-        // to learn that its messages stopped arriving.
         client::DeliveryWatch watch;
         const std::string messageId = line.e2eId;
         watch.onOutcome = [this, peer, messageId](const client::OutboundCourier::Outcome& outcome) {
@@ -570,8 +522,6 @@ Runtime::Sent Runtime::sendKeyboard(
         transcript_->append(line);
     }
     waiters_.notify_all();
-    // An interactive message is handed to the courier the same way; there is no
-    // confirmation to report because the call does not wait for one.
     return {line.e2eId, false};
 }
 

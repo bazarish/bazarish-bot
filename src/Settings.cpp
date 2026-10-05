@@ -25,7 +25,6 @@ namespace {
 // The SAM port i2pd serves by default.
 constexpr int kDefaultSamPort = 7656;
 constexpr const char* kDefaultSamHost = "127.0.0.1";
-// A token is read by machines and pasted by people: 32 bytes of randomness, hex.
 constexpr std::size_t kTokenBytes = 32;
 
 std::string transportName(const Settings::Transport transport)
@@ -50,7 +49,7 @@ void Settings::load()
 {
     std::ifstream in(file_, std::ios::binary);
     if (!in) {
-        return;  // nothing set yet: the defaults above are the answer
+        return;
     }
     const std::string text((std::istreambuf_iterator<char>(in)),
         std::istreambuf_iterator<char>());
@@ -97,8 +96,6 @@ void Settings::save() const
     };
     const std::string text = document.dump(2);
     fs::create_directories(file_.parent_path());
-    // Written through a neighbour and renamed: a settings file torn in half is a
-    // daemon that does not start, and this is written on every change.
     const fs::path scratch = fs::path(file_).concat(".new");
     {
         std::ofstream out(scratch, std::ios::binary | std::ios::trunc);

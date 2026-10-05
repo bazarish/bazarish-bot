@@ -18,8 +18,6 @@ namespace {
 
 constexpr const char* kVersion = "0.0.1";
 constexpr const char* kConfigFlag = "--config";
-// Where the pages live when the config does not say: beside the binary, which is
-// where an installation puts them.
 constexpr const char* kWebDirectory = "web";
 
 std::mutex g_stopMutex;
@@ -84,9 +82,6 @@ int main(int argc, char** argv)
     bazarish::log::setLevel(*level);
 
     bazarish::daemon::Runtime runtime(config);
-    // An account with no passphrase is opened by the daemon itself, which is what
-    // an unattended service needs; one with a passphrase waits for the operator
-    // to unlock it in the interface.
     if (runtime.hasAccount()) {
         try {
             runtime.start({});

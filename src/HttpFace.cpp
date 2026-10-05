@@ -17,17 +17,11 @@ namespace bazarish::daemon {
 
 namespace {
 
-// A sign-in lasts a working day; the secret behind it is minted at every start,
-// so a restart signs everyone out.
 constexpr std::int64_t kSessionSeconds = 12 * 60 * 60;
 constexpr std::size_t kSessionSecretBytes = 32;
-// The name the operator is signed in under. There is one account and one
-// operator here, so the token binds a role rather than a person.
 constexpr const char* kOperator = "operator";
 constexpr const char* kSessionCookie = "bazarish_daemon";
-// What a long poll waits when the caller asks for nothing in particular.
 constexpr int kDefaultWaitSeconds = 30;
-// A page of history when the caller names no size.
 constexpr int kDefaultPage = 50;
 
 std::string sessionSecret()
@@ -53,9 +47,6 @@ http::Response json(const nlohmann::json& body, const int status = 200)
     return response;
 }
 
-// The account's backup, named as the desktop client names it: the display name
-// with everything a file name will not take replaced, and the extension both
-// ends read.
 std::string backupFileName(const std::string& displayName)
 {
     std::string name;
@@ -234,14 +225,8 @@ void HttpFace::stop()
     }
 }
 
-
 void HttpFace::routes()
 {
-    // ---- the REST API the automation calls -------------------------------
-    //
-    // Every route here is opened by a token in the Authorization header and by
-    // nothing else. A refusal says which of the two it was: no token at all, or
-    // a token that is not one of ours.
     const auto guarded = [this](const http::Request& request,
                              const std::function<http::Response(const http::Request&)>& handler) {
         if (tokenFor(request).empty()) {
@@ -367,7 +352,6 @@ void HttpFace::routes()
             if (peer.empty() || messageId.empty()) {
                 return failure(400, "a reaction is a \"peer\", a \"messageId\" and an \"emoji\"");
             }
-            // An empty emoji is how a reaction is taken back, so it is allowed.
             runtime_.react(peer, messageId, body.value("emoji", std::string()));
             return json({{"ok", true}});
         });
@@ -393,9 +377,6 @@ void HttpFace::routes()
         });
     });
 
-    // The one route that waits: it answers when there is something after
-    // "since", or with nothing when the wait is up. A bot loops on it and
-    // neither spins nor lags.
     server_->getAsync("/v1/events",
         [this](const http::Request& request, http::Responder respond)
             -> std::optional<http::Response> {
@@ -407,7 +388,6 @@ void HttpFace::routes()
             }
             const std::int64_t since = longParam(request, "since");
             const int wait = intParam(request, "wait", kDefaultWaitSeconds);
-            // The wait is spent on a thread of its own so the loop keeps serving.
             std::thread([this, since, wait, respond = std::move(respond)]() {
                 try {
                     const std::vector<Event> events = runtime_.await(since, wait);
@@ -420,11 +400,6 @@ void HttpFace::routes()
             return std::nullopt;
         });
 
-    // ---- what the interface itself calls ---------------------------------
-    //
-    // Opened by the operator's password, kept in a cookie. Until a password is
-    // set there is nothing to sign in to, and the only thing that answers is the
-    // route that sets one.
     const auto operatorOnly = [this](const http::Request& request,
                                   const std::function<http::Response(const http::Request&)>& handler) {
         if (!signedIn(request)) {
@@ -454,16 +429,10 @@ void HttpFace::routes()
             if (password.empty()) {
                 return failure(400, "a password that is empty is not a password");
             }
-            // The first one is set by whoever reaches the interface first, which
-            // on loopback is the operator. Every one after it is a change, and a
-            // change asks for the current password even from a signed-in page:
-            // otherwise a page left open is a way to take the panel over.
             if (runtime_.settings().hasPassword()) {
                 if (!runtime_.settings().passwordMatches(body.value("current", std::string()))) {
                     return failure(401, "the current password does not match");
                 }
-                // Checked here rather than in the page: a check the page makes is
-                // one that is not made.
                 if (body.value("repeat", std::string()) != password) {
                     return failure(400, "the two new passwords are not the same");
                 }
@@ -503,8 +472,6 @@ void HttpFace::routes()
             Settings& settings = runtime_.settings();
             nlohmann::json tokens = nlohmann::json::array();
             for (const ApiToken& token : settings.tokens()) {
-                // The secret is not handed back: it was shown when it was issued
-                // and is not something this page may leak later.
                 tokens.push_back({{"name", token.name}, {"createdAt", token.createdAt}});
             }
             return json({
@@ -553,8 +520,6 @@ void HttpFace::routes()
                 return failure(400, "a token is issued under a name");
             }
             const ApiToken token = runtime_.settings().issueToken(name);
-            // The one time the secret is shown: it is not kept anywhere it could
-            // be shown again.
             return json({{"name", token.name}, {"token", token.secret},
                 {"createdAt", token.createdAt}});
         });
@@ -574,16 +539,11 @@ void HttpFace::routes()
             const nlohmann::json body = nlohmann::json::parse(call.body);
             const std::string action = body.value("action", std::string());
             const std::string passphrase = body.value("passphrase", std::string());
-            // The three of these start the account coming up and return at once:
-            // a router that is finding the network takes minutes. What came of it
-            // is read from the status, not waited for here.
             if (action == "create") {
                 runtime_.createAccount(body.value("name", std::string()), passphrase);
                 return json({{"status", runtime_.status()}});
             }
             if (action == "import") {
-                // The bundle arrives as bytes in the request: an operator with a
-                // browser has a file, not a path on the daemon's machine.
                 return json({{"status", [&]() {
                     runtime_.importAccount(fromBase64(body.value("bundle", std::string())),
                         body.value("bundlePassphrase", std::string()), passphrase);
@@ -616,10 +576,6 @@ void HttpFace::routes()
             const nlohmann::json body = nlohmann::json::parse(call.body);
             const Bytes bundle = runtime_.exportAccount(
                 body.value("bundlePassphrase", std::string()));
-            // Handed back as a file the browser saves, so nothing is written on
-            // the machine the daemon runs on and left there. Named the way the
-            // desktop client names it - it is the same backup, and the same file
-            // restores it there.
             http::Response response;
             response.contentType = "application/octet-stream";
             response.headers["Content-Disposition"]
@@ -723,7 +679,6 @@ void HttpFace::routes()
         });
     });
 
-    // The interface waits for new lines the same way a bot does.
     server_->getAsync("/ui/events",
         [this](const http::Request& request, http::Responder respond)
             -> std::optional<http::Response> {
@@ -747,10 +702,6 @@ void HttpFace::routes()
             return std::nullopt;
         });
 
-    // ---- the interface -----------------------------------------------------
-    // One address for the panel: the sign-in page until there is a session, the
-    // panel itself afterwards. A page that draws its own empty shell and then
-    // finds out it is not signed in is a page that flickers.
     server_->get("/", [this](const http::Request& request) {
         http::Response response;
         response.contentType = "text/html; charset=utf-8";

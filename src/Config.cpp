@@ -9,8 +9,6 @@ namespace bazarish::daemon {
 
 namespace {
 
-// Loopback: what is served here is the account itself, and a default that
-// reaches the network is a default nobody chose.
 constexpr const char* kDefaultListenHost = "127.0.0.1";
 constexpr int kDefaultListenPort = 8440;
 constexpr const char* kDefaultLogLevel = "info";

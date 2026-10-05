@@ -1,20 +1,15 @@
 // Bazarish project (c) 2026
-// The daemon's panel: one page, a view per menu entry, over the /ui routes.
 "use strict";
 
 const el = (id) => document.getElementById(id);
 const content = () => el("content");
 
-// What the panel knows between renders: the chat it is looking at, the contact
-// names, and how far it has read the daemon's feed.
 let peer = null;
 let names = {};
 let lastEventId = 0;
 let watching = false;
 let editing = null;
 
-// The reactions offered on a message. Kept short on purpose: a picker of two
-// hundred emoji is a picker nobody scrolls.
 const kReactions = ["\u{1F44D}", "❤️", "\u{1F602}", "\u{1F389}", "\u{1F440}", "✅"];
 
 async function call(method, path, body) {
@@ -47,8 +42,6 @@ function node(tag, className, text) {
     return made;
 }
 
-// The shared helper hands out copy marks; it does its own pass at load, and
-// every view here is drawn after that, so freshly drawn blocks get one here.
 function decorateCopies(root) {
     const marks = window.bazarishCopy;
     if (!marks) {
@@ -70,8 +63,6 @@ function facts(pairs) {
     for (const [label, value] of pairs) {
         const row = node("li");
         row.append(node("span", "fact-label", label));
-        // The value and the mark that copies it stand together, the way the
-        // operator panel sets them.
         const held = node("b");
         const inner = node("span", "fact-value", value);
         inner.dataset.copy = value;
@@ -82,8 +73,6 @@ function facts(pairs) {
     return list;
 }
 
-// A picked file as the base64 the daemon takes: the operator has a file in a
-// browser, and the daemon has no idea what is on their machine.
 function base64Of(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -100,8 +89,6 @@ function nameOf(fingerprint) {
 function when(milliseconds) {
     return milliseconds ? new Date(milliseconds).toLocaleString() : "";
 }
-
-// ---- the rail: what the daemon is doing, in the sidebar --------------------
 
 async function refreshRail() {
     const state = await call("GET", "/ui/state");
@@ -120,8 +107,6 @@ async function refreshRail() {
         : "own router";
     return state;
 }
-
-// ---- overview ---------------------------------------------------------------
 
 async function viewOverview() {
     const state = await call("GET", "/ui/state");
@@ -263,8 +248,6 @@ function accountSetup() {
     return card;
 }
 
-// ---- chats -------------------------------------------------------------------
-
 async function viewChats() {
     const view = node("section", "view");
     view.style.maxWidth = "none";
@@ -385,7 +368,6 @@ function lineNode(line) {
     }
     held.append(bubble);
 
-    // The reactions this message carries, on its edge.
     if (line.reactions && line.reactions.length > 0) {
         const reactions = node("div", "reactions");
         for (const reaction of line.reactions) {
@@ -419,8 +401,6 @@ function toolsFor(line) {
         button.type = "button";
         button.title = mine ? "take it back" : "react";
         button.onclick = async () => {
-            // The same button puts a reaction on and takes it off: an empty
-            // emoji is how the protocol says "no longer".
             await call("POST", "/ui/reactions",
                 {peer, messageId: line.messageId, emoji: mine ? "" : emoji});
             await drawThread();
@@ -443,8 +423,6 @@ function toolsFor(line) {
     }
     return tools;
 }
-
-// ---- contacts ----------------------------------------------------------------
 
 async function viewContacts() {
     const view = node("section", "view");
@@ -509,8 +487,6 @@ async function viewContacts() {
     return view;
 }
 
-// ---- api ---------------------------------------------------------------------
-
 async function viewApi() {
     const settings = await call("GET", "/ui/settings");
     const view = node("section", "view");
@@ -572,8 +548,6 @@ async function viewApi() {
     view.append(how);
     return view;
 }
-
-// ---- settings ----------------------------------------------------------------
 
 async function viewSettings() {
     const settings = await call("GET", "/ui/settings");
@@ -719,8 +693,6 @@ async function viewSettings() {
     run.onclick = async () => {
         wrote.textContent = "";
         try {
-            // Handed to the browser as a download: nothing is left on the machine
-            // the daemon runs on.
             const answer = await fetch("/ui/account/export", {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
@@ -731,7 +703,6 @@ async function viewSettings() {
             }
             const link = document.createElement("a");
             link.href = URL.createObjectURL(await answer.blob());
-            // The daemon names the file; the browser is only asked to keep it.
             const named = /filename="([^"]+)"/.exec(
                 answer.headers.get("Content-Disposition") || "");
             link.download = named ? named[1] : "bazarish.bazarish";
@@ -770,8 +741,6 @@ async function viewSettings() {
     const change = node("button", "btn", "Change");
     change.onclick = async () => {
         try {
-            // Both are sent: the daemon compares them itself, because a check
-            // that only the page makes is a check that is not made.
             await call("POST", "/ui/password",
                 {current: currently.value, password: next.value, repeat: again.value});
             changed.textContent = "Changed.";
@@ -787,8 +756,6 @@ async function viewSettings() {
     view.append(password);
     return view;
 }
-
-// ---- the shell ---------------------------------------------------------------
 
 const views = {
     overview: viewOverview,
@@ -850,8 +817,6 @@ async function render() {
     }
 }
 
-// New lines, edits and reactions arrive on a request the daemon holds open, so
-// an idle panel is idle.
 async function watch() {
     while (watching) {
         try {

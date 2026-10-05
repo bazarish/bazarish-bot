@@ -25,26 +25,11 @@ namespace fs = std::filesystem;
 
 namespace {
 
-// The version this mailbox reports to its one client.
 constexpr const char* kVersion = "0.0.1";
-// The mailbox answers this process and nothing else, so it takes a port the
-// system hands out rather than one an operator has to keep out of the way.
 constexpr const char* kMailboxHost = "127.0.0.1";
-// How long a delegation this daemon issues to its own server side runs for, and
-// the point in that term at which it is re-issued. The daemon owns both halves,
-// but the server side operates the address under a delegation like any other: it
-// publishes the encrypted LeaseSet from the blinded keys the delegation carries,
-// and it retires an address whose term has run out.
 constexpr int kOwnDelegationDays = static_cast<int>(bazarish::kMaxDelegationDays);
-// The mailbox is this account's alone, so its destination carries one account's
-// traffic rather than a server's: a full pool would be tunnels built for nobody.
 constexpr int kOwnDestTunnelQuantity = 3;
-// What the account is allowed to keep in its own mailbox on its own disk. There
-// is nobody to ration here, so this is a backstop against a runaway, not a
-// tariff: 4 GiB.
 constexpr std::uint64_t kOwnQuotaBytes = 4ULL * 1024 * 1024 * 1024;
-// The account node is in this process; a lookup that takes longer than this is
-// not a slow node, it is a broken one.
 constexpr int kNodeTimeoutSeconds = 5;
 
 std::int64_t nowSeconds()
@@ -121,9 +106,6 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
         privacy_, kOwnDestTunnelQuantity);
     destinations_->reloadPersisted(nowSeconds());
 
-    // The card every client of this mailbox needs before it can seal anything: it
-    // carries the sealing key a tunnel hello is sealed to. Issued here, because
-    // both the mailbox and the account node are handed it below.
     card_ = ServerCard::issue(
         *identity_, Key::fromPublicDer(sealing_->publicDer()), nowSeconds());
     {
@@ -136,16 +118,8 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
         }
     }
 
-    // The account node: what issues this account's card, its quota and its
-    // passes. On a public server it is a separate daemon run by an operator; here
-    // the operator is the account, so registration is open and nobody moderates
-    // it.
     subscriptions_ = std::make_unique<service::SubscriptionStore>(serverDir / "node");
     grants_ = std::make_unique<service::GrantStore>(serverDir / "node");
-    // Only the two that mean anything inside one process: the operator is the
-    // account, so nothing is moderated, and the account it grants itself gets the
-    // whole quota. The rest of the node's settings describe a deployment with a
-    // portal and addresses of its own, which this one has not.
     service::NodeSettings::Values nodeValues;
     nodeValues.requireApproval = false;
     nodeValues.defaultQuotaBytes = kOwnQuotaBytes;
@@ -157,9 +131,6 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     accountOptions.serverCardDer = card_;
     accountOptions.version = kVersion;
     accountOptions.settings = nodeSettings_;
-    // The node prepares a new serving key and the mailbox puts it in force. In a
-    // deployment those are two daemons and a private channel between them; here
-    // they are two objects, so the call goes straight across.
     accountOptions.prepareServingKey
         = [this](const std::string& user) -> std::optional<std::string> {
         const std::string prepared = destinations_->prepareServingKey(user);
@@ -175,10 +146,6 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
         storage_->forgetUser(user);
         return true;
     };
-    // In a deployment this is the node's signed push to a server across a private
-    // channel. Here the two are objects in one process, so it is a call - but it
-    // still has to happen, or the mailbox would enforce its own default against a
-    // quota the node promised.
     accountOptions.publishQuota
         = [this](const std::string& user, const std::uint64_t quotaBytes) {
         storage_->setUserQuota(user, quotaBytes);
@@ -193,10 +160,6 @@ ServerSide::~ServerSide()
 
 void ServerSide::start()
 {
-    // Each component takes a port the system hands out: they answer this process
-    // and nothing else, so there is no address for an operator to keep free. The
-    // account node goes first, because the mailbox has to be told where to forward
-    // a client's account calls.
     nodePort_ = accounts_->bind(host_, 0);
     if (nodePort_ <= 0) {
         throw std::runtime_error("the account node cannot take a port on " + host_);
@@ -206,18 +169,10 @@ void ServerSide::start()
     options.version = kVersion;
     options.defaultQuotaBytes = kOwnQuotaBytes;
     options.eventGate = gate_.get();
-    // What a client needs before it can say anything: the card that hands out the
-    // sealing key, and the key itself, which its tunnel hello is sealed to.
     options.serverCardDer = card_;
     options.sealingKey = sealing_;
-    // An account call arrives inside the same tunnel as everything else and is
-    // passed on to the node under this server's own signature, naming whose call
-    // it is - exactly as a deployed pair does it, only without leaving the process.
     options.identity = identity_;
     options.serviceNodeUrl = "http://" + host_ + ":" + std::to_string(nodePort_);
-    // The account asks its server for the slice of netDb a router with no peers
-    // starts from. Here that is this same process's router, which bootstraps from
-    // the public hosts because there is no other server to ask.
     if (router_ != nullptr) {
         options.reseedSample
             = [](const std::size_t count) { return i2p::sampleRouterInfos(count); };
@@ -228,9 +183,6 @@ void ServerSide::start()
             = destinations_->assignmentFor(user, nowSeconds());
         return {assigned.dest, assigned.sealingKey, assigned.state};
     };
-    // Rotating the key this account is served under is the account's own to ask
-    // for, and the destinations hold it: without these the server answers that it
-    // cannot, which is true of a server that was never given them.
     options.prepareServingKey
         = [this](const std::string& user) { return destinations_->prepareServingKey(user); };
     options.commitServingKey
@@ -251,10 +203,6 @@ void ServerSide::start()
         throw std::runtime_error("the facade cannot take a port on " + host_);
     }
 
-    // First contact: a peer dials this account's destination and asks for its
-    // card. The destination does not hold cards - the account node does - so the
-    // question is passed to it, exactly as a deployed server passes it to the
-    // service node it belongs to.
     const std::string nodeHost = host_;
     const int nodePort = nodePort_;
     destinations_->setGetCard(
@@ -279,8 +227,6 @@ void ServerSide::start()
             }
         });
 
-    // Each engine serves on threads of its own once it is bound; nothing here has
-    // to park to keep it answering.
     log::info("server up on {}: mailbox {}, accounts {}, facade {}", host_, mailboxPort_,
         nodePort_, facadePort_);
 }
@@ -314,14 +260,9 @@ std::string ServerSide::serveDestinationFor(const std::string& accountFingerprin
         if (router_ == nullptr) {
             throw std::runtime_error("no router: this daemon has no destination to serve on");
         }
-        // Its own master, and it keeps it: the address is derived from this key,
-        // so it is what makes the address survive a restart.
         blob = toBase64(bazarish::i2p::Keys::generate().blob());
         writePrivateFile(keyFile, blob);
     }
-    // The server side publishes the address blinded, which it can only do from the
-    // per-day keys a delegation carries - so even here, where both halves are the
-    // same party, what it is handed is a delegation and not the master.
     const bazarish::i2p::Keys delegated
         = bazarish::i2p::Keys::fromBlob(fromBase64(blob)).issueTransient(kOwnDelegationDays);
     destinationExpires_ = delegated.transientExpires();

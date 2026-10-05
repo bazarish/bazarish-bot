@@ -18,9 +18,6 @@ namespace {
 
 constexpr std::size_t kSaltBytes = 16;
 constexpr std::size_t kHashBytes = 32;
-// The cost of one sign-in on the machine a daemon runs on. An account key is
-// derived with more (that file can be stolen and attacked offline); this guards
-// an interface that is on loopback and answers at human speed.
 constexpr std::uint32_t kMemoryKiB = 64 * 1024;
 constexpr std::uint32_t kPasses = 3;
 constexpr std::uint32_t kLanes = 1;

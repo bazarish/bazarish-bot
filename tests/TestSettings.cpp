@@ -39,8 +39,6 @@ int main()
     const fs::path file = fs::temp_directory_path() / "bz-daemon-settings.json";
     fs::remove(file);
 
-    // A daemon that has never been configured: an embedded router, no password,
-    // no token. Nothing is served until the operator sets the password.
     {
         Settings settings(file);
         CHECK(settings.transport() == Settings::Transport::eEmbedded);
@@ -50,14 +48,13 @@ int main()
         CHECK(!settings.passwordMatches("anything"));
     }
 
-    // What the operator sets in the interface survives a restart.
     {
         Settings settings(file);
         settings.setTransport(Settings::Transport::eSam, "127.0.0.1", 7656);
         settings.setPrivacy(bazarish::i2p::Privacy::eMinimal);
         settings.setPassword("correct horse");
         const auto token = settings.issueToken("nightly-report");
-        CHECK(token.secret.size() == 64);  // 32 bytes, hex
+        CHECK(token.secret.size() == 64);
         CHECK(token.createdAt > 0);
     }
     {
@@ -72,15 +69,12 @@ int main()
         CHECK(!settings.passwordMatches(""));
         CHECK(settings.tokens().size() == 1);
 
-        // A token opens the API by its secret and by nothing else.
         const std::string secret = settings.tokens().front().secret;
         CHECK(settings.tokenNameFor(secret) == "nightly-report");
         CHECK(settings.tokenNameFor("").empty());
         CHECK(settings.tokenNameFor(secret.substr(0, secret.size() - 1)).empty());
         CHECK(settings.tokenNameFor(std::string(secret.size(), 'a')).empty());
 
-        // Two tokens under one name would be one token the operator cannot
-        // revoke, so the second is refused.
         CHECK_THROWS(settings.issueToken("nightly-report"));
         CHECK(settings.issueToken("deploy-hook").secret != secret);
         CHECK(settings.tokens().size() == 2);
@@ -91,7 +85,6 @@ int main()
         CHECK(settings.tokens().size() == 1);
     }
 
-    // A changed password takes effect, and the old one stops working.
     {
         Settings settings(file);
         settings.setPassword("another one");

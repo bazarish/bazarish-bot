@@ -52,17 +52,15 @@ int main()
         CHECK(transcript.append(lineFor("alice", "hi", "m2", true, 20)) > first);
         CHECK(transcript.append(lineFor("bob", "hey", "m3", false, 30)) > 0);
 
-        // The mailbox may hand the same item over again; that is one message.
         CHECK(transcript.append(lineFor("alice", "hello", "m1", false, 10)) == 0);
 
         const std::vector<Line> withAlice = transcript.conversation("alice", 0, 50);
         CHECK(withAlice.size() == 2);
-        CHECK(withAlice.front().text == "hi");      // newest first
+        CHECK(withAlice.front().text == "hi");
         CHECK(withAlice.front().outgoing);
         CHECK(withAlice.back().text == "hello");
         CHECK(withAlice.back().sentAt == 10);
 
-        // A page older than what is held.
         const std::vector<Line> older
             = transcript.conversation("alice", withAlice.front().id, 50);
         CHECK(older.size() == 1);
@@ -72,14 +70,12 @@ int main()
         CHECK(chats.size() == 2);
         CHECK(chats.front().peer == "bob");
 
-        // Every message is an event, in the order it happened.
         const std::vector<bazarish::daemon::Event> after = transcript.since(1, 50);
         CHECK(after.size() == 2);
-        CHECK(after.front().messageId == "m2");  // oldest first
+        CHECK(after.front().messageId == "m2");
         CHECK(after.front().kind == "message");
         CHECK(transcript.lastEventId() == after.back().id);
 
-        // An edit revises the line and says so; a reaction rides on it.
         CHECK(transcript.applyEdit("alice", "m2", "hi there", {}, true));
         CHECK(!transcript.applyEdit("alice", "m2", "wrong side", {}, false));
         CHECK(!transcript.applyEdit("alice", "no-such-id", "nothing", {}, true));
@@ -91,29 +87,22 @@ int main()
         CHECK(edited.front().edited);
         CHECK(edited.front().reactions.size() == 2);
 
-        // A reaction is one per reactor: a second one replaces the first.
         transcript.applyReaction("alice", "m2", "alice", "\xF0\x9F\x8E\x89");
         CHECK(transcript.conversation("alice", 0, 50).front().reactions.size() == 2);
-        // And an empty emoji takes it back.
         transcript.applyReaction("alice", "m2", "alice", "");
         CHECK(transcript.conversation("alice", 0, 50).front().reactions.size() == 1);
 
-        // A delete takes the line and its reactions with it.
         CHECK(transcript.applyDelete("alice", "m2", true));
         CHECK(!transcript.applyDelete("alice", "m2", true));
         CHECK(transcript.conversation("alice", 0, 50).size() == 1);
 
-        // What a send came to is the line's own field and an event of its own:
-        // a bot sending in bulk watches this to know it has stopped arriving.
         transcript.append(lineFor("carol", "notice", "n1", true, 50));
         transcript.setStatus("carol", "n1", "delivered");
         CHECK(transcript.conversation("carol", 0, 10).front().status == "delivered");
         transcript.setStatus("carol", "n1", "failed: no tokens");
         CHECK(transcript.conversation("carol", 0, 10).front().status == "failed: no tokens");
-        // A status for something nobody sent is not recorded at all.
         transcript.setStatus("carol", "no-such-id", "delivered");
 
-        // All of it shows up in the feed a bot watches.
         const std::vector<bazarish::daemon::Event> feed = transcript.since(0, 100);
         std::string kinds;
         for (const bazarish::daemon::Event& event : feed) {
@@ -124,7 +113,6 @@ int main()
                "message status status ");
     }
 
-    // What was written is there on the next open, and only with the passphrase.
     {
         Transcript transcript(file, "pw");
         CHECK(transcript.latestPerPeer().size() == 3);
