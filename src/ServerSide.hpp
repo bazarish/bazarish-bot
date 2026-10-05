@@ -41,7 +41,6 @@ public:
     Bytes card() const;
 
     std::string serveDestinationFor(const std::string& accountFingerprint);
-    // Whether the delegation the server side is operating this address under is past half its term.
     bool destinationNeedsRenewal(std::int64_t now) const;
     std::string replaceDestinationFor(const std::string& accountFingerprint);
     std::string destination() const;
