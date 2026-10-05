@@ -30,13 +30,14 @@
 
     --bz-ink: #d7dbd8;
     --bz-ink-dim: #8b948c;
-    --bz-ink-faint: #5e676a;
+    --bz-ink-faint: #80888b;
 
     --bz-green-dim: #1f7a14;
     --bz-green: #39ff14;
 
     --bz-accent: #f2f4f2;
     --bz-on-accent: #11151a;
+    --bz-accent-lit: #ffffff;
 
     --bz-ok-bg: #0f2410;
     --bz-warn: #ffb454;
@@ -46,6 +47,7 @@
     --bz-err-bg: #2a1112;
     --bz-err-line: #7a2b2b;
 
+    --bz-touch: 2.75rem;
     --bz-radius: 10px;
     --bz-radius-sm: 6px;
     --bz-font: "Roboto Mono", ui-monospace, "DejaVu Sans Mono", SFMono-Regular, Menlo, monospace;
@@ -640,6 +642,12 @@ textarea.field {
 }
 
 .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    /* A finger needs a target this big, and an anchor would ignore a height
+       without the box above (WCAG 2.5.5). */
+    min-height: var(--bz-touch);
     margin-top: 1rem;
     padding: 0.55rem 1.1rem;
     background: var(--bz-accent);
@@ -655,8 +663,8 @@ textarea.field {
 }
 
 .btn:hover {
-    background: #ffffff;
-    border-color: #ffffff;
+    background: var(--bz-accent-lit);
+    border-color: var(--bz-accent-lit);
 }
 
 .btn[disabled] {
@@ -1052,5 +1060,17 @@ textarea.field {
     }
     .log {
         min-height: 18rem;
+    }
+}
+
+/* The ring above is a shadow, and forced-colors drops shadows. The same
+   focus is drawn again as an outline, which it keeps. */
+@media (forced-colors: active) {
+    .field:focus-visible,
+    .btn:focus-visible,
+    .chip:focus-visible,
+    .row:focus-visible {
+        outline: 2px solid;
+        outline-offset: 2px;
     }
 }
