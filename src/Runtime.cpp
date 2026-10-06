@@ -340,7 +340,7 @@ void Runtime::poll()
                     continue;
                 }
                 if (item.contentType != "text" && item.contentType != "file"
-                    && item.contentType != "picture" && item.contentType != "voice"
+                    && item.contentType != "image" && item.contentType != "audio"
                     && item.contentType != "bot.command" && item.contentType != "bot.callback"
                     && item.contentType != "contact.request") {
                     continue;
