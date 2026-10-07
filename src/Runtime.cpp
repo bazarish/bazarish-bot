@@ -107,45 +107,14 @@ void Runtime::importAccount(const Bytes& bundle, const std::string& bundlePassph
         throw std::runtime_error("this daemon already has an account");
     }
     allowOwnLoopbackFacade();
-    const fs::path scratch = config_.stateDir / "import.bundle";
-    {
-        std::ofstream out(scratch, std::ios::binary | std::ios::trunc);
-        out.write(reinterpret_cast<const char*>(bundle.data()),
-            static_cast<std::streamsize>(bundle.size()));
-        out.close();
-        if (!out) {
-            throw std::runtime_error("cannot write the bundle down to read it");
-        }
-    }
-    try {
-        client::Session::importAccount(scratch, accountFile(), bundlePassphrase, passphrase);
-    } catch (...) {
-        std::error_code ignored;
-        fs::remove(scratch, ignored);
-        throw;
-    }
-    std::error_code ignored;
-    fs::remove(scratch, ignored);
+    client::Session::importAccountBytes(bundle, accountFile(), bundlePassphrase, passphrase);
     bringUpAsync(passphrase);
 }
 
 Bytes Runtime::exportAccount(const std::string& bundlePassphrase)
 {
-    const fs::path scratch = config_.stateDir / "export.bundle";
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        openSession().exportAccount(scratch, bundlePassphrase);
-    }
-    std::ifstream in(scratch, std::ios::binary);
-    const std::string text((std::istreambuf_iterator<char>(in)),
-        std::istreambuf_iterator<char>());
-    in.close();
-    std::error_code ignored;
-    fs::remove(scratch, ignored);
-    if (text.empty()) {
-        throw std::runtime_error("the export produced nothing");
-    }
-    return Bytes(text.begin(), text.end());
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    return openSession().exportAccountBytes(bundlePassphrase);
 }
 
 void Runtime::rename(const std::string& name)
