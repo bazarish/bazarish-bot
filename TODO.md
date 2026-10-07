@@ -9,7 +9,7 @@ The desktop client draws light markup in a message body: `*italic*`, `**bold**`,
 `~~struck~~`, `!!text!!` (pressable, sends `text` back), `!name` (pressable,
 opens the add-a-contact form) and `http(s)` addresses behind a warning about what
 following one discloses. The grammar and the rules are specified in
-`client-qt6/docs/Formatting.md`, and `docs/Api.md` says what a bot may write.
+`client-qt/docs/Formatting.md`, and `docs/Api.md` says what a bot may write.
 
 The daemon's web interface draws none of it. A conversation with a bot that
 writes for the desktop therefore reads as `**bold**` and `!!/help!!` in the one
@@ -17,7 +17,7 @@ place an operator watches that bot from.
 
 What it needs:
 
-- a parser mirroring `client-qt6/app/Markup.cpp` - the same rules, or the two
+- a parser mirroring `client-qt/app/Markup.cpp` - the same rules, or the two
   faces will disagree about what a body means;
 - DOM built node by node, never `innerHTML`: the body is a correspondent's text,
   and a page that accepted their tags would fetch what they named in one, from

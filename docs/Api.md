@@ -189,7 +189,7 @@ belongs to: each message carries a `reactions` array of `{reactor, emoji}`.
 ## What the desktop client draws in a message
 
 A body is plain text on the wire, and the daemon sends it exactly as given. The
-desktop client (`client-qt6`) reads a few markers in it when it draws the bubble,
+desktop client (`client-qt`) reads a few markers in it when it draws the bubble,
 and a bot writing for that audience can use them:
 
 | Written in the body | Drawn there |
@@ -209,5 +209,5 @@ Nothing between `!!` and `!!` is read as markup, so what is written there is wha
 comes back. A body meant to be shown as typed should avoid `*`, `~~` and `!!`;
 single markers that do not pair off are drawn as themselves.
 
-`client-qt6/docs/Formatting.md` specifies the whole of it. The daemon's own web
+`client-qt/docs/Formatting.md` specifies the whole of it. The daemon's own web
 interface does not draw any of it yet.

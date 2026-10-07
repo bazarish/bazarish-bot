@@ -23,7 +23,7 @@ bazarish-daemon --config /etc/bazarish/daemon.json
 
 The protocol is specified in the `docs-main` repository. The client core this
 daemon is built on lives in `common-cpp` and is shared with the desktop client
-(`client-qt6`), so both speak the protocol through the same code.
+(`client-qt`), so both speak the protocol through the same code.
 
 ## Installing
 
