@@ -131,16 +131,6 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     accountOptions.serverCardDer = card_;
     accountOptions.version = kVersion;
     accountOptions.settings = nodeSettings_;
-    accountOptions.prepareServingKey
-        = [this](const std::string& user) -> std::optional<std::string> {
-        const std::string prepared = destinations_->prepareServingKey(user);
-        if (prepared.empty()) {
-            return std::nullopt;
-        }
-        return prepared;
-    };
-    accountOptions.commitServingKey
-        = [this](const std::string& user) { return destinations_->commitServingKey(user); };
     accountOptions.forgetMailbox = [this](const std::string& user) {
         destinations_->revoke(user);
         storage_->forgetUser(user);
@@ -183,10 +173,6 @@ void ServerSide::start()
             = destinations_->assignmentFor(user, nowSeconds());
         return {assigned.dest, assigned.sealingKey, assigned.state};
     };
-    options.prepareServingKey
-        = [this](const std::string& user) { return destinations_->prepareServingKey(user); };
-    options.commitServingKey
-        = [this](const std::string& user) { return destinations_->commitServingKey(user); };
     api_ = std::make_unique<server::HttpApi>(*storage_, options);
     mailboxPort_ = api_->bind(host_, 0);
     if (mailboxPort_ <= 0) {
@@ -206,11 +192,10 @@ void ServerSide::start()
     const std::string nodeHost = host_;
     const int nodePort = nodePort_;
     destinations_->setGetCard(
-        [nodeHost, nodePort](const std::string& fingerprint,
-            const std::string& view) -> std::optional<Bytes> {
+        [nodeHost, nodePort](const std::string& fingerprint) -> std::optional<Bytes> {
             http::ClientRequest lookup;
             lookup.method = "GET";
-            lookup.target = "/v1/account/card?user=" + fingerprint + "&view=" + view;
+            lookup.target = "/v1/account/card?user=" + fingerprint;
             http::ClientOptions options;
             options.connectTimeout = std::chrono::seconds(kNodeTimeoutSeconds);
             options.readTimeout = std::chrono::seconds(kNodeTimeoutSeconds);

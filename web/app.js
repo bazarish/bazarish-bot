@@ -642,23 +642,12 @@ async function viewSettings() {
     const keys = node("div", "block");
     keys.append(node("p", "block-title", "Keys"));
     keys.append(node("p", "hint",
-        "The serving key is what this account's own server seals with; rotating it "
-        + "keeps the address and tells the contacts. A new address throws the "
-        + "destination key away and raises another - the old address stops "
-        + "answering, and a contact who has not seen the new card has to be written "
-        + "to first."));
+        "A new address throws this account's destination key away and raises "
+        + "another. Every invite link already handed out stops working, the old "
+        + "address stops answering at once, and the contacts are sent the new "
+        + "card."));
     const keyResult = node("p", "hint");
     const keyFooter = node("p", "form-footer");
-    const rotate = node("button", "btn btn-quiet", "Rotate the serving key");
-    rotate.onclick = async () => {
-        keyResult.textContent = "Rotating…";
-        try {
-            await call("POST", "/ui/account", {action: "rotate-serving-key"});
-            keyResult.textContent = "Rotated, and the contacts have been told.";
-        } catch (error) {
-            keyResult.textContent = error.message;
-        }
-    };
     const fresh = node("button", "btn btn-danger", "New address");
     fresh.onclick = async () => {
         if (!window.confirm("The old address stops answering. Continue?")) {
@@ -673,7 +662,7 @@ async function viewSettings() {
             keyResult.textContent = error.message;
         }
     };
-    keyFooter.append(rotate, fresh);
+    keyFooter.append(fresh);
     keys.append(keyFooter, keyResult);
     identity.append(keys);
 

@@ -43,7 +43,6 @@ public:
     Bytes exportAccount(const std::string& bundlePassphrase);
 
     void rename(const std::string& name);
-    void rotateServingKey();
     void newAddress();
 
     void start(const std::string& passphrase);

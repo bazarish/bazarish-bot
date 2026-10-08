@@ -554,10 +554,6 @@ void HttpFace::routes()
                 runtime_.rename(body.value("name", std::string()));
                 return json({{"name", body.value("name", std::string())}});
             }
-            if (action == "rotate-serving-key") {
-                runtime_.rotateServingKey();
-                return json({{"ok", true}});
-            }
             if (action == "new-address") {
                 runtime_.newAddress();
                 return json({{"address", runtime_.destination()}});
@@ -567,7 +563,7 @@ void HttpFace::routes()
                 return json({{"status", runtime_.status()}});
             }
             return failure(400,
-                "the action is create, import, open, rename, rotate-serving-key or new-address");
+                "the action is create, import, open, rename or new-address");
         });
     });
 

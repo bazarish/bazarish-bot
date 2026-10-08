@@ -123,13 +123,6 @@ void Runtime::rename(const std::string& name)
     openSession().setDisplayName(name);
 }
 
-void Runtime::rotateServingKey()
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    openSession().rotateServingKey(
-        [](const std::string& stage) { log::info("serving key: {}", stage); });
-}
-
 void Runtime::newAddress()
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
