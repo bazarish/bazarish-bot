@@ -136,6 +136,7 @@ void Runtime::newAddress()
     client::Session& session = openSession();
     const std::string address = mailbox_->replaceDestinationFor(session.fingerprint());
     cardCarriesDestination_ = false;
+    aliasesAsked_ = false;
     log::info("address replaced: {}", address.empty() ? "building" : address);
 }
 
@@ -223,6 +224,7 @@ void Runtime::bringUp(const std::string& passphrase)
     }
     stopping_ = false;
     cardCarriesDestination_ = false;
+    aliasesAsked_ = false;
     poller_ = std::thread([this]() { poll(); });
 }
 
@@ -257,6 +259,18 @@ void Runtime::poll()
                 }
             } catch (const std::exception& error) {
                 log::warn("delegation not re-issued: {}", error.what());
+            }
+        }
+
+        if (!aliasesAsked_) {
+            aliasesAsked_ = true;
+            try {
+                const std::lock_guard<std::mutex> lock(sessionMutex_);
+                if (session_ != nullptr && !session_->refreshAliasStatus()) {
+                    log::info("this build has no alias registry to ask");
+                }
+            } catch (const std::exception& error) {
+                log::warn("the name service was not reached: {}", error.what());
             }
         }
 

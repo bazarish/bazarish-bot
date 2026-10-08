@@ -107,6 +107,7 @@ private:
     std::thread poller_;
     std::atomic<bool> stopping_{false};
     std::atomic<bool> cardCarriesDestination_{false};
+    std::atomic<bool> aliasesAsked_{false};
     mutable std::mutex waitMutex_;
     mutable std::condition_variable waiters_;
 };
