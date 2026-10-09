@@ -666,6 +666,35 @@ async function viewSettings() {
     keys.append(keyFooter, keyResult);
     identity.append(keys);
 
+    const owed = who.pendingRouting || [];
+    if (owed.length > 0 || who.pendingRegistry) {
+        const stuck = node("div", "block");
+        stuck.append(node("p", "block-title", "The new card has not reached everybody"));
+        if (who.pendingRegistry) {
+            stuck.append(node("p", "hint",
+                "The alias registry has not taken the new address. It is asked again "
+                + "every ten seconds until it does."));
+        }
+        for (const peer of owed) {
+            const row = node("p", "form-footer");
+            row.append(node("span", "hint", peer));
+            const said = node("p", "hint");
+            const again = node("button", "btn btn-quiet", "Retry");
+            again.onclick = async () => {
+                said.textContent = "Sending…";
+                try {
+                    await call("POST", "/ui/account", {action: "retry-routing", peer: peer});
+                    said.textContent = "On its way. This list clears when it lands.";
+                } catch (error) {
+                    said.textContent = error.message;
+                }
+            };
+            row.append(again);
+            stuck.append(row, said);
+        }
+        identity.append(stuck);
+    }
+
     const move = node("div", "block");
     move.append(node("p", "block-title", "Back this account up"));
     move.append(node("p", "hint",

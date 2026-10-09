@@ -83,6 +83,13 @@ public:
     void acceptContact(const std::string& peer);
     std::string addByInvite(const std::string& inviteUri, const std::string& text);
 
+    struct PendingRouting {
+        std::vector<std::string> contacts;
+        bool registry = false;
+    };
+    PendingRouting pendingRouting() const;
+    void retryRouting(const std::string& peer);
+
     std::vector<Event> await(std::int64_t sinceId, int seconds) const;
     std::int64_t lastEventId() const;
 
@@ -106,6 +113,7 @@ private:
     std::thread poller_;
     std::atomic<bool> stopping_{false};
     std::atomic<bool> cardCarriesDestination_{false};
+    std::atomic<bool> announceRoutingWhenCardIsOut_{false};
     std::atomic<bool> aliasesAsked_{false};
     mutable std::mutex waitMutex_;
     mutable std::condition_variable waiters_;

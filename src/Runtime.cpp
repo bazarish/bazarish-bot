@@ -129,7 +129,7 @@ void Runtime::newAddress()
     client::Session& session = openSession();
     const std::string address = mailbox_->replaceDestinationFor(session.fingerprint());
     cardCarriesDestination_ = false;
-    aliasesAsked_ = false;
+    announceRoutingWhenCardIsOut_ = true;
     log::info("address replaced: {}", address.empty() ? "building" : address);
 }
 
@@ -221,6 +221,22 @@ void Runtime::bringUp(const std::string& passphrase)
     poller_ = std::thread([this]() { poll(); });
 }
 
+Runtime::PendingRouting Runtime::pendingRouting() const
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    if (session_ == nullptr) {
+        return {};
+    }
+    const client::Session::RoutingFanout queued = session_->routingFanout();
+    return {queued.contacts, queued.registry};
+}
+
+void Runtime::retryRouting(const std::string& peer)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    openSession().retryRoutingTo(peer);
+}
+
 client::Session& Runtime::openSession() const
 {
     if (session_ == nullptr) {
@@ -255,6 +271,14 @@ void Runtime::poll()
             }
         }
 
+        {
+            const std::lock_guard<std::mutex> lock(sessionMutex_);
+            if (session_ != nullptr) {
+                session_->flushPendingEchoes();
+                session_->serviceRoutingFanout();
+            }
+        }
+
         if (!aliasesAsked_) {
             aliasesAsked_ = true;
             try {
@@ -274,6 +298,11 @@ void Runtime::poll()
                     session_->refreshOwnCard();
                     cardCarriesDestination_ = true;
                     log::info("card re-issued with the destination {}", mailbox_->destination());
+                    if (announceRoutingWhenCardIsOut_.exchange(false)) {
+                        session_->announceNewRouting();
+                    } else {
+                        session_->runRoutingFanout();
+                    }
                 }
             } catch (const std::exception& error) {
                 log::warn("card not re-issued yet: {}", error.what());

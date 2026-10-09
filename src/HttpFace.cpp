@@ -558,12 +558,16 @@ void HttpFace::routes()
                 runtime_.newAddress();
                 return json({{"address", runtime_.destination()}});
             }
+            if (action == "retry-routing") {
+                runtime_.retryRouting(body.value("peer", std::string()));
+                return json({{"sending", true}});
+            }
             if (action == "open") {
                 runtime_.start(passphrase);
                 return json({{"status", runtime_.status()}});
             }
             return failure(400,
-                "the action is create, import, open, rename or new-address");
+                "the action is create, import, open, rename, new-address or retry-routing");
         });
     });
 
@@ -583,12 +587,15 @@ void HttpFace::routes()
 
     server_->get("/ui/account", [this, operatorOnly](const http::Request& request) {
         return operatorOnly(request, [this](const http::Request&) {
+            const Runtime::PendingRouting owed = runtime_.pendingRouting();
             return json({
                 {"fingerprint", runtime_.fingerprint()},
                 {"name", runtime_.displayName()},
                 {"destination", runtime_.destination()},
                 {"invite", runtime_.running() ? runtime_.inviteUri() : std::string()},
                 {"status", runtime_.status()},
+                {"pendingRouting", owed.contacts},
+                {"pendingRegistry", owed.registry},
             });
         });
     });
