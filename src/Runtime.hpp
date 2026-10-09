@@ -94,7 +94,9 @@ public:
     std::int64_t lastEventId() const;
 
 private:
-    void poll();
+    void maintain();
+    void waitForEvents(const client::Session::ContactFetchContext& context);
+    void drainMailbox();
     void bringUpAsync(const std::string& passphrase);
     client::Session& openSession() const;
     std::filesystem::path accountFile() const;
@@ -110,7 +112,8 @@ private:
     std::string status_;
 
     std::thread starter_;
-    std::thread poller_;
+    std::thread maintainer_;
+    std::thread eventWaiter_;
     std::atomic<bool> stopping_{false};
     std::atomic<bool> cardCarriesDestination_{false};
     std::atomic<bool> announceRoutingWhenCardIsOut_{false};

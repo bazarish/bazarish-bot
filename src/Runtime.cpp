@@ -28,7 +28,8 @@ namespace {
 
 constexpr const char* kAccountFile = "account.db";
 constexpr const char* kTranscriptFile = "transcript.db";
-constexpr int kPollSeconds = 5;
+constexpr int kMaintenanceSeconds = 5;
+constexpr int kEventWaitSeconds = 30;
 constexpr int kMaxWaitSeconds = 60;
 constexpr std::size_t kMessageIdBytes = 8;
 
@@ -205,6 +206,7 @@ void Runtime::bringUp(const std::string& passphrase)
     session->connectServer(endpoint);
     session->registerSelfHosted();
     log::info("registered; the account is up");
+    const client::Session::ContactFetchContext waiterContext = session->contactFetchContext();
 
     auto transcript = std::make_unique<Transcript>(
         config_.stateDir / kTranscriptFile, passphrase);
@@ -218,7 +220,8 @@ void Runtime::bringUp(const std::string& passphrase)
     stopping_ = false;
     cardCarriesDestination_ = false;
     aliasesAsked_ = false;
-    poller_ = std::thread([this]() { poll(); });
+    maintainer_ = std::thread([this]() { maintain(); });
+    eventWaiter_ = std::thread([this, waiterContext]() { waitForEvents(waiterContext); });
 }
 
 Runtime::PendingRouting Runtime::pendingRouting() const
@@ -245,20 +248,9 @@ client::Session& Runtime::openSession() const
     return *session_;
 }
 
-void Runtime::poll()
+void Runtime::maintain()
 {
     while (!stopping_) {
-        std::vector<client::IncomingMessage> arrived;
-        try {
-            const std::lock_guard<std::mutex> lock(sessionMutex_);
-            if (session_ == nullptr) {
-                return;
-            }
-            arrived = session_->sync();
-        } catch (const std::exception& error) {
-            log::warn("mailbox: {}", error.what());
-        }
-
         if (mailbox_->destinationNeedsRenewal(bazarish::nowSeconds())) {
             try {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -311,71 +303,109 @@ void Runtime::poll()
             }
         }
 
-        bool wrote = false;
-        for (const client::IncomingMessage& item : arrived) {
-            try {
-                const std::lock_guard<std::mutex> lock(sessionMutex_);
-                if (transcript_ == nullptr) {
-                    continue;
-                }
-                if (item.contentType == "edit") {
-                    wrote = transcript_->applyEdit(item.fromFingerprint, item.refId, item.text,
-                                item.keyboardJson, item.sentByUs)
-                        || wrote;
-                    continue;
-                }
-                if (item.contentType == "delete") {
-                    wrote = transcript_->applyDelete(
-                                item.fromFingerprint, item.refId, item.sentByUs)
-                        || wrote;
-                    continue;
-                }
-                if (item.contentType == "reaction") {
-                    transcript_->applyReaction(item.fromFingerprint, item.refId,
-                        item.sentByUs ? std::string("me") : item.fromFingerprint, item.text);
-                    wrote = true;
-                    continue;
-                }
-                if (item.contentType == "receipt") {
-                    transcript_->applyReceipt(item.fromFingerprint, item.refId);
-                    wrote = true;
-                    continue;
-                }
-                if (item.contentType == "chat.clear") {
-                    transcript_->clearPeer(item.fromFingerprint);
-                    wrote = true;
-                    continue;
-                }
-                if (item.contentType != "text" && item.contentType != "file"
-                    && item.contentType != "image" && item.contentType != "audio"
-                    && item.contentType != "bot.command" && item.contentType != "bot.callback"
-                    && item.contentType != "contact.request") {
-                    continue;
-                }
-                Line line;
-                line.peer = item.fromFingerprint;
-                line.outgoing = item.sentByUs;
-                line.type = item.contentType;
-                line.e2eId = item.e2eId;
-                line.text = item.contentType == "bot.callback" ? item.callbackData : item.text;
-                line.keyboard = item.keyboardJson;
-                line.replyTo = item.contentType == "bot.callback" ? item.refId : item.replyTo;
-                line.sentAt = item.sentAt;
-                if (transcript_->append(line) != 0) {
-                    wrote = true;
-                }
-            } catch (const std::exception& error) {
-                log::warn("transcript: {}", error.what());
-            }
-        }
-
-        if (wrote) {
-            waiters_.notify_all();
-        }
-
         std::unique_lock<std::mutex> lock(waitMutex_);
-        waiters_.wait_for(lock, std::chrono::seconds(kPollSeconds),
+        waiters_.wait_for(lock, std::chrono::seconds(kMaintenanceSeconds),
             [this]() { return stopping_.load(); });
+    }
+}
+
+void Runtime::waitForEvents(const client::Session::ContactFetchContext& context)
+{
+    drainMailbox();
+    std::unique_ptr<client::Client> waiter;
+    while (!stopping_) {
+        std::vector<client::PendingEntry> waiting;
+        try {
+            if (waiter == nullptr) {
+                waiter = client::Session::makeEventClient(context);
+            }
+            waiting = client::Session::waitForMail(*waiter, kEventWaitSeconds);
+        } catch (const std::exception& error) {
+            log::info("mail wait failed, asking again: {}", error.what());
+            continue;
+        }
+        if (stopping_) {
+            return;
+        }
+        if (!waiting.empty()) {
+            drainMailbox();
+        }
+    }
+}
+
+void Runtime::drainMailbox()
+{
+    std::vector<client::IncomingMessage> arrived;
+    try {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        if (session_ == nullptr) {
+            return;
+        }
+        arrived = session_->sync();
+    } catch (const std::exception& error) {
+        log::warn("mailbox: {}", error.what());
+    }
+
+    bool wrote = false;
+    for (const client::IncomingMessage& item : arrived) {
+        try {
+            const std::lock_guard<std::mutex> lock(sessionMutex_);
+            if (transcript_ == nullptr) {
+                continue;
+            }
+            if (item.contentType == "edit") {
+                wrote = transcript_->applyEdit(item.fromFingerprint, item.refId, item.text,
+                            item.keyboardJson, item.sentByUs)
+                    || wrote;
+                continue;
+            }
+            if (item.contentType == "delete") {
+                wrote = transcript_->applyDelete(
+                            item.fromFingerprint, item.refId, item.sentByUs)
+                    || wrote;
+                continue;
+            }
+            if (item.contentType == "reaction") {
+                transcript_->applyReaction(item.fromFingerprint, item.refId,
+                    item.sentByUs ? std::string("me") : item.fromFingerprint, item.text);
+                wrote = true;
+                continue;
+            }
+            if (item.contentType == "receipt") {
+                transcript_->applyReceipt(item.fromFingerprint, item.refId);
+                wrote = true;
+                continue;
+            }
+            if (item.contentType == "chat.clear") {
+                transcript_->clearPeer(item.fromFingerprint);
+                wrote = true;
+                continue;
+            }
+            if (item.contentType != "text" && item.contentType != "file"
+                && item.contentType != "image" && item.contentType != "audio"
+                && item.contentType != "bot.command" && item.contentType != "bot.callback"
+                && item.contentType != "contact.request") {
+                continue;
+            }
+            Line line;
+            line.peer = item.fromFingerprint;
+            line.outgoing = item.sentByUs;
+            line.type = item.contentType;
+            line.e2eId = item.e2eId;
+            line.text = item.contentType == "bot.callback" ? item.callbackData : item.text;
+            line.keyboard = item.keyboardJson;
+            line.replyTo = item.contentType == "bot.callback" ? item.refId : item.replyTo;
+            line.sentAt = item.sentAt;
+            if (transcript_->append(line) != 0) {
+                wrote = true;
+            }
+        } catch (const std::exception& error) {
+            log::warn("transcript: {}", error.what());
+        }
+    }
+
+    if (wrote) {
+        waiters_.notify_all();
     }
 }
 
@@ -386,8 +416,11 @@ void Runtime::stop()
         starter_.join();
     }
     waiters_.notify_all();
-    if (poller_.joinable()) {
-        poller_.join();
+    if (maintainer_.joinable()) {
+        maintainer_.join();
+    }
+    if (eventWaiter_.joinable()) {
+        eventWaiter_.join();
     }
     std::unique_ptr<client::Session> session;
     {
