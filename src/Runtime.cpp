@@ -271,12 +271,14 @@ void Runtime::poll()
             }
         }
 
-        {
+        try {
             const std::lock_guard<std::mutex> lock(sessionMutex_);
             if (session_ != nullptr) {
                 session_->flushPendingEchoes();
                 session_->serviceRoutingFanout();
             }
+        } catch (const std::exception& error) {
+            log::warn("the fan-out after the address change will try again: {}", error.what());
         }
 
         if (!aliasesAsked_) {
