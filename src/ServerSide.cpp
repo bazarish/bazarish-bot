@@ -1,6 +1,7 @@
 // Bazarish project (c) 2026
 #include "ServerSide.hpp"
 
+#include <bazarish/Auth.hpp>
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Certificates.hpp>
 #include <bazarish/HttpClient.hpp>
@@ -8,10 +9,12 @@
 #include <bazarish/I2p.hpp>
 #include <bazarish/Limits.hpp>
 #include <bazarish/Log.hpp>
+#include <bazarish/Tls.hpp>
 
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <map>
 #include <optional>
 
 #include <ctime>
@@ -155,8 +158,12 @@ void ServerSide::start()
         throw std::runtime_error("the account node cannot take a port on " + host_);
     }
 
+    const tls::Credential credential = tls::selfSigned(stateDir_ / "server");
+
     server::HttpApiOptions options;
     options.version = kVersion;
+    options.tlsCertificate = credential.certificate.string();
+    options.tlsKey = credential.key.string();
     options.defaultQuotaBytes = kOwnQuotaBytes;
     options.eventGate = gate_.get();
     options.serverCardDer = card_;
@@ -182,6 +189,7 @@ void ServerSide::start()
     facade::FacadeOptions facadeOptions;
     facadeOptions.messagingHost = host_;
     facadeOptions.messagingPort = mailboxPort_;
+    facadeOptions.messagingPin = credential.pin;
     facadeOptions.version = kVersion;
     facade_ = std::make_unique<facade::Facade>(facadeOptions);
     facadePort_ = facade_->bind(host_, 0);
@@ -191,11 +199,15 @@ void ServerSide::start()
 
     const std::string nodeHost = host_;
     const int nodePort = nodePort_;
+    const std::shared_ptr<const Identity> identity = identity_;
     destinations_->setGetCard(
-        [nodeHost, nodePort](const std::string& fingerprint) -> std::optional<Bytes> {
+        [nodeHost, nodePort, identity](const std::string& fingerprint) -> std::optional<Bytes> {
             http::ClientRequest lookup;
             lookup.method = "GET";
             lookup.target = "/v1/account/card?user=" + fingerprint;
+            const auth::Headers signature
+                = auth::signRequest(*identity, nowSeconds(), "GET", "/v1/account/card", {});
+            lookup.headers = std::map<std::string, std::string>(signature.begin(), signature.end());
             http::ClientOptions options;
             options.connectTimeout = std::chrono::seconds(kNodeTimeoutSeconds);
             options.readTimeout = std::chrono::seconds(kNodeTimeoutSeconds);
