@@ -582,6 +582,16 @@ body.centred {
     font-size: 0.8rem;
 }
 
+.field[type="number"] {
+    appearance: textfield;
+}
+
+.field[type="number"]::-webkit-inner-spin-button,
+.field[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
 textarea.field {
     min-height: 6rem;
     resize: vertical;
