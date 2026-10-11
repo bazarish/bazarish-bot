@@ -129,16 +129,6 @@ Transcript::Transcript(const std::filesystem::path& file, const std::string& pas
     run(db_, "CREATE UNIQUE INDEX IF NOT EXISTS messages_e2e ON messages(e2eId)"
              " WHERE e2eId IS NOT NULL AND e2eId <> ''");
     run(db_, "CREATE INDEX IF NOT EXISTS messages_peer ON messages(peer, id)");
-    {
-        Statement columns(db_, "SELECT COUNT(*) FROM pragma_table_info('messages')"
-                               " WHERE name = 'status'");
-        if (!columns.step() || columns.number(0) == 0) {
-            throw std::runtime_error("the transcript at " + file.string()
-                + " was written by an older daemon and cannot be read; remove it and its"
-                  " .key file to start a fresh one - the conversations kept in it will be"
-                  " lost, and nothing else will");
-        }
-    }
     run(db_,
         "CREATE TABLE IF NOT EXISTS reactions ("
         "peer TEXT NOT NULL, messageId TEXT NOT NULL, reactor TEXT NOT NULL, emoji TEXT,"
