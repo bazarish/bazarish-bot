@@ -22,6 +22,8 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr int kMaintenanceSeconds = 5;
+constexpr std::int64_t kAliasServiceSeconds = 60;
+constexpr std::int64_t kRegistryRetrySeconds = 10;
 constexpr int kEventWaitSeconds = 30;
 constexpr int kMaxWaitSeconds = 60;
 constexpr std::size_t kMessageIdBytes = 8;
@@ -142,16 +144,20 @@ void Account::bringUp()
     session->registerSelfHosted();
     log::info("account {}: registered and up", id_);
     const client::Session::ContactFetchContext waiterContext = session->contactFetchContext();
+    const std::shared_ptr<client::LoginSigner> signer = session->loginSigner();
+    noteAliases(*session);
 
     auto transcript = std::make_unique<Transcript>(transcriptFile_, std::string());
 
     stopping_ = false;
     cardCarriesDestination_ = false;
-    aliasesAsked_ = false;
+    lastAliasErrand_ = 0;
+    aliasesAnswered_ = false;
     {
         const std::lock_guard<std::mutex> lock(stateMutex_);
         fingerprint_ = fingerprint;
         name_ = session->displayName();
+        signer_ = signer;
     }
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -180,12 +186,22 @@ void Account::close()
     if (eventWaiter_.joinable()) {
         eventWaiter_.join();
     }
+    std::thread errand;
+    {
+        const std::lock_guard<std::mutex> lock(errandMutex_);
+        errand = std::move(aliasErrand_);
+    }
+    if (errand.joinable()) {
+        errand.join();
+    }
     std::unique_ptr<client::Session> session;
     {
         const std::lock_guard<std::mutex> lock(stateMutex_);
         if (status_ == kRunning || status_ == kStarting) {
             status_ = kClosed;
         }
+        signer_.reset();
+        aliases_ = {};
     }
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -324,16 +340,27 @@ void Account::maintain()
                 error.what());
         }
 
-        if (!aliasesAsked_) {
-            aliasesAsked_ = true;
-            try {
+        try {
+            std::optional<client::Session::AliasErrandContext> errand;
+            {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
-                if (session_ != nullptr && !session_->refreshAliasStatus()) {
-                    log::info("this build has no alias registry to ask");
+                if (session_ != nullptr) {
+                    const std::int64_t every = session_->routingFanout().registry
+                        ? kRegistryRetrySeconds
+                        : kAliasServiceSeconds;
+                    const std::int64_t now = bazarish::nowSeconds();
+                    const bool due = !aliasesAnswered_ || session_->aliasServicingDue();
+                    if (due && (lastAliasErrand_ == 0 || now - lastAliasErrand_ >= every)) {
+                        lastAliasErrand_ = now;
+                        errand = session_->aliasErrandContext();
+                    }
                 }
-            } catch (const std::exception& error) {
-                log::warn("account {}: the name service was not reached: {}", id_, error.what());
             }
+            if (errand) {
+                startAliasErrand(std::move(*errand), false);
+            }
+        } catch (const std::exception& error) {
+            log::warn("account {}: alias servicing not started: {}", id_, error.what());
         }
 
         if (!cardCarriesDestination_ && !mailbox_->destination(fingerprint).empty()) {
@@ -636,6 +663,136 @@ std::string Account::addByInvite(const std::string& invite, const std::string& t
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
     return openSession().addByInvite(invite, text);
+}
+
+std::string Account::addByAlias(const std::string& alias, const std::string& text)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    return openSession().addByAlias(alias, text);
+}
+
+std::string Account::signLogin(const std::string& challenge) const
+{
+    std::shared_ptr<client::LoginSigner> signer;
+    {
+        const std::lock_guard<std::mutex> lock(stateMutex_);
+        signer = signer_;
+    }
+    if (signer == nullptr) {
+        throw std::runtime_error("the account is not open");
+    }
+    return signer->sign(challenge);
+}
+
+Account::Aliases Account::aliases() const
+{
+    const std::lock_guard<std::mutex> lock(stateMutex_);
+    return aliases_;
+}
+
+void Account::noteAliases(const client::Session& session)
+{
+    std::vector<Alias> held;
+    for (const client::Session::AliasHolding& holding : session.aliasNames()) {
+        if (!holding.inApp) {
+            continue;
+        }
+        held.push_back({holding.alias, holding.notAfter, holding.autoRenew,
+            holding.bindingWanted, holding.bindingWanted && holding.bound});
+    }
+    const bool depositCovers = session.aliasDepositCovers();
+    const std::lock_guard<std::mutex> lock(stateMutex_);
+    aliases_.held = std::move(held);
+    aliases_.depositCovers = depositCovers;
+}
+
+void Account::checkAliases()
+{
+    client::Session::AliasErrandContext context;
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        context = openSession().aliasErrandContext();
+    }
+    startAliasErrand(std::move(context), true);
+}
+
+void Account::setAliasBinding(const std::string& alias, const bool on)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    client::Session& session = openSession();
+    session.setAliasBinding(alias, on);
+    noteAliases(session);
+}
+
+void Account::startAliasErrand(client::Session::AliasErrandContext context, const bool byHand)
+{
+    const std::lock_guard<std::mutex> lock(errandMutex_);
+    if (stopping_) {
+        return;
+    }
+    if (byHand) {
+        aliasErrandByHand_ = true;
+        const std::lock_guard<std::mutex> held(stateMutex_);
+        aliases_.checked.reset();
+    }
+    if (aliasErrandRunning_) {
+        return;
+    }
+    if (aliasErrand_.joinable()) {
+        aliasErrand_.join();
+    }
+    aliasErrandRunning_ = true;
+    {
+        const std::lock_guard<std::mutex> held(stateMutex_);
+        aliases_.checking = true;
+    }
+    aliasErrand_ = std::thread(
+        [this, context = std::move(context)]() { runAliasErrand(context); });
+}
+
+void Account::runAliasErrand(const client::Session::AliasErrandContext& context)
+{
+    const client::Session::AliasErrandResult result = client::Session::runAliasErrand(context);
+    bool ok = result.ok;
+    std::string note = result.error;
+    if (result.ok) {
+        try {
+            const std::lock_guard<std::mutex> lock(sessionMutex_);
+            if (session_ != nullptr) {
+                aliasesAnswered_ = true;
+                session_->applyAliasErrand(result);
+                noteAliases(*session_);
+                if (session_->aliasNames().empty()) {
+                    note = "No alias is registered to this account";
+                } else if (result.pointed) {
+                    note = "The aliases now point here";
+                } else if (session_->aliasUpdatePending()) {
+                    ok = false;
+                    note = "The registry did not take the update. It will be tried again.";
+                } else {
+                    note = "The aliases are up to date";
+                }
+            }
+        } catch (const std::exception& error) {
+            ok = false;
+            note = error.what();
+        }
+    }
+    bool byHand = false;
+    {
+        const std::lock_guard<std::mutex> lock(errandMutex_);
+        byHand = aliasErrandByHand_;
+        aliasErrandByHand_ = false;
+        aliasErrandRunning_ = false;
+        const std::lock_guard<std::mutex> held(stateMutex_);
+        aliases_.checking = false;
+        if (byHand) {
+            aliases_.checked = AliasCheck{ok, note};
+        }
+    }
+    if (!ok && !byHand) {
+        log::info("account {}: alias servicing will try again: {}", id_, note);
+    }
 }
 
 void Account::editMessage(

@@ -128,6 +128,24 @@ sign-in per account. Account files carry no passphrase either: the operator and
 the server of an account are the same party on the same disk, so every account
 opens by itself at start.
 
+## Aliases and signing in elsewhere
+
+An account here is a full identity, so it does what the desktop client does
+with one. The web interface signs a sign-in-with-key challenge with the
+account's own key, which is how the operator buys and renews an alias for a bot
+in the alias registry, or signs in as that bot to anything else that speaks the
+same sign-in. The key never leaves the daemon: the challenge comes in, the
+signature goes out. The API has no such route, because a token is for one
+bot's conversations and not for speaking as it elsewhere.
+
+The aliases are serviced the way the desktop client services them: the
+account asks the registry what it holds when it comes up, once a minute until
+the registry has answered, and after that whenever something is due. It points
+the aliases it wants pointing at its current address, and repoints them after
+a new address. The ask runs off the account's lock, so a registry that does not
+answer holds up nothing else; stopping the daemon waits for an ask in flight to
+come back. A contact is added by alias as well as by invite.
+
 ## Where the code comes from
 
 | From | What |

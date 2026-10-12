@@ -3,6 +3,7 @@
 
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Log.hpp>
+#include <bazarish/Portal.hpp>
 
 #include <nlohmann/json.hpp>
 #include <openssl/rand.h>
@@ -230,6 +231,52 @@ void answerEvents(const std::shared_ptr<Account>& account, const http::Request& 
     }).detach();
 }
 
+http::Response addContact(Account& account, const nlohmann::json& body)
+{
+    const std::string text = body.value("text", std::string());
+    if (body.contains("invite")) {
+        return json({{"fingerprint",
+            account.addByInvite(body.at("invite").get<std::string>(), text)}});
+    }
+    if (body.contains("alias")) {
+        return json({{"fingerprint",
+            account.addByAlias(body.at("alias").get<std::string>(), text)}});
+    }
+    if (body.contains("accept")) {
+        account.acceptContact(body.at("accept").get<std::string>());
+        return json({{"accepted", body.at("accept")}});
+    }
+    return failure(400,
+        "a contact is added by an \"invite\" or an \"alias\", or accepted by \"accept\"");
+}
+
+nlohmann::json aliasesJson(const Account::Aliases& aliases)
+{
+    nlohmann::json held = nlohmann::json::array();
+    for (const Account::Alias& alias : aliases.held) {
+        held.push_back({{"alias", alias.alias}, {"notAfter", alias.notAfter},
+            {"autoRenew", alias.autoRenew}, {"resolving", alias.resolving},
+            {"live", alias.live}});
+    }
+    nlohmann::json body = {{"aliases", held}, {"depositCovers", aliases.depositCovers},
+        {"checking", aliases.checking}};
+    if (aliases.checked) {
+        body["checked"] = {{"ok", aliases.checked->ok}, {"note", aliases.checked->note}};
+    }
+    return body;
+}
+
+nlohmann::json consumerJson(const std::string& challenge)
+{
+    try {
+        const service::LoginConsumer consumer = service::readLoginConsumer(challenge);
+        return {{"ok", true}, {"name", consumer.name}, {"place", consumer.place},
+            {"role", consumer.role}};
+    } catch (const std::exception& error) {
+        return {{"ok", false}, {"problem", error.what()}};
+    }
+}
+
 nlohmann::json accountJson(Account& account, Settings& settings)
 {
     nlohmann::json tokens = nlohmann::json::array();
@@ -364,17 +411,7 @@ void HttpFace::apiRoutes()
 
     server_->post("/v1/contacts", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            if (body.contains("invite")) {
-                return json({{"fingerprint",
-                    account.addByInvite(body.at("invite").get<std::string>(),
-                        body.value("text", std::string()))}});
-            }
-            if (body.contains("accept")) {
-                account.acceptContact(body.at("accept").get<std::string>());
-                return json({{"accepted", body.at("accept")}});
-            }
-            return failure(400, "a contact is added by an \"invite\" or accepted by \"accept\"");
+            return addContact(account, nlohmann::json::parse(call.body));
         });
     });
 
@@ -763,6 +800,44 @@ void HttpFace::accountRoutes()
         });
     });
 
+    server_->post(base + "/sign", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string challenge = body.value("challenge", std::string());
+            nlohmann::json described = consumerJson(challenge);
+            if (body.value("sign", false)) {
+                if (!described.at("ok").get<bool>()) {
+                    return failure(400, described.at("problem").get<std::string>());
+                }
+                described["signature"] = account.signLogin(challenge);
+            }
+            return json(described);
+        });
+    });
+
+    server_->get(base + "/aliases", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            return json(aliasesJson(account.aliases()));
+        });
+    });
+
+    server_->post(base + "/aliases", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            if (body.value("check", false)) {
+                account.checkAliases();
+                return json(aliasesJson(account.aliases()));
+            }
+            if (body.contains("alias") && body.contains("resolving")) {
+                account.setAliasBinding(
+                    body.at("alias").get<std::string>(), body.at("resolving").get<bool>());
+                return json(aliasesJson(account.aliases()));
+            }
+            return failure(400, "\"check\" asks the registry; \"alias\" with \"resolving\" "
+                                "points one here or nowhere");
+        });
+    });
+
     server_->get(base + "/contacts", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request&) {
             return json(peersJson(account.contacts()));
@@ -771,17 +846,7 @@ void HttpFace::accountRoutes()
 
     server_->post(base + "/contacts", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            if (body.contains("invite")) {
-                return json({{"fingerprint",
-                    account.addByInvite(body.at("invite").get<std::string>(),
-                        body.value("text", std::string()))}});
-            }
-            if (body.contains("accept")) {
-                account.acceptContact(body.at("accept").get<std::string>());
-                return json({{"accepted", body.at("accept")}});
-            }
-            return failure(400, "a contact is added by an \"invite\" or accepted by \"accept\"");
+            return addContact(account, nlohmann::json::parse(call.body));
         });
     });
 

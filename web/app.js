@@ -17,6 +17,7 @@ const kReactions = ["\u{1F44D}", "❤️", "\u{1F602}", "\u{1F389}", "\u{1F440}"
 const kPollMs = 1000;
 const kEventWaitSeconds = 45;
 const kRetryMs = 3000;
+const kAliasSigil = "!";
 const kKinds = [
     ["bot", "Bot"],
     ["group", "Group"],
@@ -25,6 +26,8 @@ const kAccountViews = [
     ["overview", "Overview"],
     ["chats", "Chats"],
     ["contacts", "Contacts"],
+    ["aliases", "Aliases"],
+    ["sign", "Sign in"],
     ["api", "API"],
     ["account", "Account"],
 ];
@@ -656,21 +659,24 @@ async function viewContacts() {
 
     const add = node("article", "panel-box");
     add.style.marginTop = "1rem";
-    add.append(node("p", "block-title", "Add by invite"));
+    add.append(node("p", "block-title", "Add a contact"));
     const invite = node("input", "field");
     invite.type = "text";
-    invite.placeholder = "bazarish://invite?…";
+    invite.placeholder = "bazarish://invite?… or " + kAliasSigil + "alias";
     const intro = node("input", "field");
     intro.type = "text";
     intro.placeholder = "a line to introduce yourself";
-    add.append(node("label", "field-label", "Invite"), invite);
+    add.append(node("label", "field-label", "Invite or alias"), invite);
     add.append(node("label", "field-label", "Message"), intro);
     const failure = node("p", "hint");
     const footer = node("p", "form-footer");
     const send = node("button", "btn", "Send request");
     send.onclick = async () => {
         try {
-            await call("POST", base() + "/contacts", {invite: invite.value, text: intro.value});
+            const typed = invite.value.trim();
+            await call("POST", base() + "/contacts", typed.startsWith(kAliasSigil)
+                ? {alias: typed, text: intro.value}
+                : {invite: typed, text: intro.value});
             await render();
         } catch (error) {
             failure.textContent = error.message;
@@ -679,6 +685,177 @@ async function viewContacts() {
     footer.append(send);
     add.append(footer, failure);
     view.append(add);
+    return view;
+}
+
+function aliasTerm(alias) {
+    const day = new Date(alias.notAfter * 1000).toLocaleDateString();
+    return (alias.autoRenew ? "renews " : "expires ") + day;
+}
+
+function aliasState(alias) {
+    if (!alias.resolving) {
+        return "answers nobody";
+    }
+    return alias.live ? aliasTerm(alias) : "pointing it here…";
+}
+
+async function viewAliases() {
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", "Aliases"));
+    view.append(node("p", "hint",
+        "An alias is bought in the alias registry, signed in with this account's key "
+        + "under Sign in. Whoever types it reaches this account while it points here."));
+
+    const rows = node("div", "rows");
+    const note = node("p", "hint");
+    const outcome = node("p", "hint");
+    const check = node("button", "btn", "Check aliases");
+
+    const draw = (state) => {
+        rows.textContent = "";
+        if (state.aliases.length === 0) {
+            rows.append(node("p", "empty", "No alias is registered to this account."));
+        }
+        for (const alias of state.aliases) {
+            const row = node("div", "row");
+            const keys = node("span", "row-keys");
+            const name = node("span", "row-key", kAliasSigil + alias.alias);
+            name.dataset.copy = kAliasSigil + alias.alias;
+            keys.append(name, node("span", "row-dest", aliasState(alias)));
+            const tags = node("span", "row-tags");
+            if (alias.live) {
+                tags.append(node("span", "tag is-live", "points here"));
+            }
+            row.append(keys, tags);
+            const toggle = node("button", "btn btn-copy",
+                alias.resolving ? "Point nowhere" : "Point here");
+            toggle.onclick = async () => {
+                toggle.disabled = true;
+                try {
+                    draw(await call("POST", base() + "/aliases",
+                        {alias: alias.alias, resolving: !alias.resolving}));
+                } catch (error) {
+                    outcome.textContent = error.message;
+                    toggle.disabled = false;
+                }
+            };
+            row.append(toggle);
+            rows.append(row);
+        }
+        decorateCopies(rows);
+        note.textContent = state.aliases.length > 0 && !state.depositCovers
+            ? "The deposit will not cover the next renewal." : "";
+        check.disabled = state.checking;
+        check.textContent = state.checking ? "Asking…" : "Check aliases";
+        if (state.checked) {
+            outcome.textContent = state.checked.ok && state.aliases.length === 0
+                ? "" : state.checked.note;
+        }
+    };
+
+    const follow = () => poll(async () => {
+        const state = await call("GET", base() + "/aliases");
+        draw(state);
+        return state.checking;
+    });
+
+    check.onclick = async () => {
+        outcome.textContent = "";
+        try {
+            draw(await call("POST", base() + "/aliases", {check: true}));
+            follow();
+        } catch (error) {
+            outcome.textContent = error.message;
+        }
+    };
+
+    const state = await call("GET", base() + "/aliases");
+    draw(state);
+    if (state.checking) {
+        follow();
+    }
+    view.append(rows, note);
+    const footer = node("p", "form-footer");
+    footer.append(check);
+    view.append(footer, outcome);
+    return view;
+}
+
+async function viewSign() {
+    const account = await call("GET", base());
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", "Sign in"));
+    view.append(node("p", "hint",
+        "A site that signs in with a Bazarish key shows a challenge. Paste it here "
+        + "and hand the signature back: the site lets you in as "
+        + labelOf(account) + "."));
+
+    const box = node("article", "panel-box");
+    const challenge = node("textarea", "field");
+    challenge.rows = 5;
+    challenge.placeholder = "Paste the challenge";
+    box.append(node("label", "field-label", "Challenge from the site"), challenge);
+
+    const consumer = node("div");
+    const signature = node("pre", "copy");
+    const signed = node("div");
+    signed.hidden = true;
+    signed.append(node("label", "field-label", "Signature"), signature);
+    const failure = node("p", "hint");
+    const footer = node("p", "form-footer");
+    const sign = node("button", "btn", "Sign");
+    sign.disabled = true;
+
+    const describe = async () => {
+        signed.hidden = true;
+        failure.textContent = "";
+        consumer.textContent = "";
+        const typed = challenge.value.trim();
+        sign.disabled = true;
+        if (!typed) {
+            return;
+        }
+        const seen = await call("POST", base() + "/sign", {challenge: typed});
+        if (challenge.value.trim() !== typed) {
+            return;
+        }
+        if (!seen.ok) {
+            consumer.append(node("p", "hint", "This challenge cannot be signed: " + seen.problem));
+            return;
+        }
+        consumer.append(node("p", "field-label", "You are signing in to"));
+        consumer.append(node("p", "block-title", seen.name));
+        for (const place of seen.place) {
+            consumer.append(node("p", "row-dest", place));
+        }
+        if (seen.role) {
+            consumer.append(node("p", "hint", "as " + seen.role));
+        }
+        consumer.append(node("p", "hint", seen.place.length > 1
+            ? "If the address you came to is not in the list, do not sign."
+            : "Compare this with where you got it. If they differ, do not sign."));
+        sign.disabled = false;
+    };
+    challenge.oninput = () => describe().catch((error) => {
+        failure.textContent = error.message;
+    });
+
+    sign.onclick = async () => {
+        failure.textContent = "";
+        try {
+            const answer = await call("POST", base() + "/sign",
+                {challenge: challenge.value.trim(), sign: true});
+            signature.textContent = answer.signature;
+            signed.hidden = false;
+            decorateCopies(box);
+        } catch (error) {
+            failure.textContent = error.message;
+        }
+    };
+    footer.append(sign);
+    box.append(consumer, footer, signed, failure);
+    view.append(box);
     return view;
 }
 
@@ -1091,6 +1268,8 @@ const views = {
     overview: viewOverview,
     chats: viewChats,
     contacts: viewContacts,
+    aliases: viewAliases,
+    sign: viewSign,
     api: viewApi,
     account: viewAccount,
     add: viewAdd,
@@ -1111,7 +1290,7 @@ async function render() {
         }
         await drawSidebar();
         const summary = accounts.find((account) => account.id === accountId);
-        const needsOpen = ["chats", "contacts", "api"].includes(route.view);
+        const needsOpen = ["chats", "contacts", "aliases", "sign", "api"].includes(route.view);
         if (needsOpen && summary && !summary.running) {
             const waiting = node("section", "view");
             waiting.append(node("h1", "view-title", route.view));

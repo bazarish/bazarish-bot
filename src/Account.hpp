@@ -5,6 +5,7 @@
 #include "Settings.hpp"
 #include "Transcript.hpp"
 
+#include <LoginSigner.hpp>
 #include <Session.hpp>
 
 #include <bazarish/Bytes.hpp>
@@ -16,6 +17,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -97,6 +99,30 @@ public:
 
     void acceptContact(const std::string& peer);
     std::string addByInvite(const std::string& inviteUri, const std::string& text);
+    std::string addByAlias(const std::string& alias, const std::string& text);
+
+    std::string signLogin(const std::string& challenge) const;
+
+    struct Alias {
+        std::string alias;
+        std::int64_t notAfter = 0;
+        bool autoRenew = true;
+        bool resolving = false;
+        bool live = false;
+    };
+    struct AliasCheck {
+        bool ok = false;
+        std::string note;
+    };
+    struct Aliases {
+        std::vector<Alias> held;
+        bool depositCovers = true;
+        bool checking = false;
+        std::optional<AliasCheck> checked;
+    };
+    Aliases aliases() const;
+    void checkAliases();
+    void setAliasBinding(const std::string& alias, bool on);
 
     struct PendingRouting {
         std::vector<std::string> contacts;
@@ -115,6 +141,9 @@ private:
     void bringUp();
     client::Session& openSession() const;
     void applyKind(client::Session& session) const;
+    void noteAliases(const client::Session& session);
+    void startAliasErrand(client::Session::AliasErrandContext context, bool byHand);
+    void runAliasErrand(const client::Session::AliasErrandContext& context);
 
     const std::string id_;
     const std::filesystem::path accountFile_;
@@ -131,6 +160,8 @@ private:
     std::string fingerprint_;
     std::string name_;
     std::string status_;
+    std::shared_ptr<client::LoginSigner> signer_;
+    Aliases aliases_;
 
     struct PairingSlot {
         std::mutex mutex;
@@ -144,7 +175,12 @@ private:
     std::atomic<bool> stopping_{false};
     std::atomic<bool> cardCarriesDestination_{false};
     std::atomic<bool> announceRoutingWhenCardIsOut_{false};
-    std::atomic<bool> aliasesAsked_{false};
+    std::int64_t lastAliasErrand_ = 0;
+    std::mutex errandMutex_;
+    std::thread aliasErrand_;
+    bool aliasErrandRunning_ = false;
+    bool aliasErrandByHand_ = false;
+    std::atomic<bool> aliasesAnswered_{false};
     mutable std::mutex waitMutex_;
     mutable std::condition_variable waiters_;
 };

@@ -16,7 +16,7 @@ uptime - which is the whole point of running one.
 | Face | For |
 |---|---|
 | REST API | the automation the operator writes |
-| Web interface | the operator: the accounts, their contacts and tokens, moving them in and out, and the chats themselves |
+| Web interface | the operator: the accounts, their contacts, aliases and tokens, signing in elsewhere as one of them, moving them in and out, and the chats themselves |
 
 Both are served over loopback by default. Everything the daemon needs is in one
 document; it takes the path to that document and nothing else:

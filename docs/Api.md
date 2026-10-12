@@ -31,7 +31,7 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `GET /v1/status` | the account's fingerprint, name, kind (`bot` or `group`), address and the id of the last event |
 | `GET /v1/invite` | the invite URI to hand out to be added as a contact |
 | `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted and `writable` for whether this account holds the pass that admits it to their mailbox |
-| `POST /v1/contacts` | `{"invite": "...", "text": "..."}` adds one; `{"accept": "<fingerprint>"}` accepts a request |
+| `POST /v1/contacts` | `{"invite": "...", "text": "..."}` or `{"alias": "!name", "text": "..."}` adds one; `{"accept": "<fingerprint>"}` accepts a request |
 | `GET /v1/chats` | the last line of every conversation |
 | `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first |
 | `POST /v1/messages` | `{"peer": "...", "text": "...", "keyboard": [...]}` |
