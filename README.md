@@ -60,7 +60,7 @@ systemctl enable --now bazarish-bot
 ```
 
 Open the address it answers on and sign the challenge it shows with your
-Bazarish key, under Signature in the desktop client. The first key to sign in
+Bazarish account's key in the desktop client. The first key to sign in
 becomes the operator and is written into the config as `operator`; from then on
 that key and no other opens the interface. Everything else - the transport, the
 accounts, the tokens - is set there.
