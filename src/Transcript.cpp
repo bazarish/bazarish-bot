@@ -9,7 +9,7 @@
 
 #include <stdexcept>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 namespace {
 
@@ -373,4 +373,4 @@ std::int64_t Transcript::lastEventId() const
     return query.step() ? query.number(0) : 0;
 }
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

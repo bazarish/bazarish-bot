@@ -13,14 +13,14 @@
 #include <stdexcept>
 #include <utility>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 namespace {
 
 constexpr std::int64_t kSessionSeconds = 12 * 60 * 60;
 constexpr std::size_t kSessionSecretBytes = 32;
 constexpr const char* kOperator = "operator";
-constexpr const char* kSessionCookie = "bazarish_daemon";
+constexpr const char* kSessionCookie = "bazarish_bot";
 constexpr int kDefaultWaitSeconds = 30;
 constexpr int kDefaultPage = 50;
 
@@ -724,4 +724,4 @@ void HttpFace::routes()
     });
 }
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

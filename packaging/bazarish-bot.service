@@ -1,5 +1,5 @@
 [Unit]
-Description=Bazarish client daemon
+Description=Bazarish bot
 After=network-online.target
 Wants=network-online.target
 
@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=bazarish
 Group=bazarish
-ExecStart=/opt/bazarish/client-daemon/bazarish-daemon --config /etc/bazarish/daemon.json
+ExecStart=/opt/bazarish/bazarish-bot/bazarish-bot --config /etc/bazarish/bot.json
 Restart=on-failure
 RestartSec=5
 

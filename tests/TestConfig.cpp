@@ -33,7 +33,7 @@
     } while (false)
 
 namespace fs = std::filesystem;
-using bazarish::daemon::readConfig;
+using bazarish::bot::readConfig;
 
 namespace {
 
@@ -50,14 +50,14 @@ fs::path write(const std::string& name, const std::string& text)
 int main()
 {
     {
-        const fs::path path = write("bz-daemon-full.json", R"({
+        const fs::path path = write("bz-bot-full.json", R"({
             // where everything lives
-            "state": "/var/lib/bazarish/daemon",
+            "state": "/var/lib/bazarish/bot",
             "listen": {"host": "0.0.0.0", "port": 9000},
             "logLevel": "debug"
         })");
         const auto config = readConfig(path);
-        CHECK(config.stateDir == "/var/lib/bazarish/daemon");
+        CHECK(config.stateDir == "/var/lib/bazarish/bot");
         CHECK(config.listenHost == "0.0.0.0");
         CHECK(config.listenPort == 9000);
         CHECK(config.logLevel == "debug");
@@ -65,7 +65,7 @@ int main()
     }
 
     {
-        const fs::path path = write("bz-daemon-min.json", R"({
+        const fs::path path = write("bz-bot-min.json", R"({
             "state": "/tmp/bz"
         })");
         const auto config = readConfig(path);
@@ -76,13 +76,13 @@ int main()
     }
 
     {
-        const fs::path noState = write("bz-daemon-nostate.json", R"({
+        const fs::path noState = write("bz-bot-nostate.json", R"({
             "listen": {"host": "127.0.0.1", "port": 8440}
         })");
         CHECK_THROWS(readConfig(noState));
         fs::remove(noState);
 
-        const fs::path noPort = write("bz-daemon-noport.json", R"({
+        const fs::path noPort = write("bz-bot-noport.json", R"({
             "state": "/tmp/bz",
             "listen": {"host": "127.0.0.1", "port": 0}
         })");
@@ -90,7 +90,7 @@ int main()
         fs::remove(noPort);
     }
 
-    CHECK_THROWS(readConfig(fs::temp_directory_path() / "bz-daemon-missing.json"));
+    CHECK_THROWS(readConfig(fs::temp_directory_path() / "bz-bot-missing.json"));
 
     std::fprintf(stderr, "TestConfig passed\n");
     return 0;

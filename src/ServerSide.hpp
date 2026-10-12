@@ -21,7 +21,7 @@
 #include <memory>
 #include <string>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 class ServerSide {
 public:
@@ -75,4 +75,4 @@ private:
     std::int64_t destinationExpires_ = 0;
 };
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

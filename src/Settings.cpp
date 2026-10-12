@@ -16,7 +16,7 @@
 #include <fstream>
 #include <stdexcept>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 namespace fs = std::filesystem;
 
@@ -172,7 +172,7 @@ bool Settings::passwordMatches(const std::string& password) const
         const std::lock_guard<std::mutex> lock(mutex_);
         record = {passwordSalt_, passwordHash_};
     }
-    return daemon::passwordMatches(record, password);
+    return bot::passwordMatches(record, password);
 }
 
 std::vector<ApiToken> Settings::tokens() const
@@ -231,4 +231,4 @@ std::string Settings::tokenNameFor(const std::string& secret) const
     return {};
 }
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

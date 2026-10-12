@@ -1,4 +1,4 @@
-# Bazarish client daemon
+# Bazarish bot
 
 A Bazarish account that runs as a service instead of as a desktop application,
 and answers a REST API. Automation talks to that API and never to the protocol:
@@ -18,7 +18,7 @@ Both are served over loopback by default. Everything the daemon needs is in one
 document; it takes the path to that document and nothing else:
 
 ```
-bazarish-daemon --config /etc/bazarish/daemon.json
+bazarish-bot --config /etc/bazarish/bot.json
 ```
 
 The protocol is specified in the `docs-main` repository. The client core this
@@ -34,8 +34,8 @@ that is tried.
 ```
 apt install build-essential cmake git libssl-dev zlib1g-dev libboost-all-dev \
             libsqlcipher-dev libqrencode-dev libopus-dev
-git clone --recursive https://github.com/bazarish/client-daemon
-cmake -S client-daemon -B build -DCMAKE_BUILD_TYPE=Release
+git clone --recursive https://github.com/bazarish/bazarish-bot
+cmake -S bazarish-bot -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j4
 ```
 
@@ -46,13 +46,13 @@ config, not at build time.
 Then lay it out, write the one config file, and start it:
 
 ```
-install -D build/bazarish-daemon /opt/bazarish/client-daemon/bazarish-daemon
-cp -r client-daemon/web /opt/bazarish/client-daemon/
-install -D client-daemon/config.example.json /etc/bazarish/daemon.json
-install -D client-daemon/packaging/bazarish-daemon.service \
-        /etc/systemd/system/bazarish-daemon.service
+install -D build/bazarish-bot /opt/bazarish/bazarish-bot/bazarish-bot
+cp -r bazarish-bot/web /opt/bazarish/bazarish-bot/
+install -D bazarish-bot/config.example.json /etc/bazarish/bot.json
+install -D bazarish-bot/packaging/bazarish-bot.service \
+        /etc/systemd/system/bazarish-bot.service
 adduser --system --group --home /var/lib/bazarish bazarish
-systemctl enable --now bazarish-daemon
+systemctl enable --now bazarish-bot
 ```
 
 Open the address it answers on. The first visitor sets the password, and

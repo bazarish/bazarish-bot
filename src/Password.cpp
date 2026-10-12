@@ -12,7 +12,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 namespace {
 
@@ -81,4 +81,4 @@ bool passwordMatches(const PasswordRecord& record, const std::string& password)
     return CRYPTO_memcmp(expected.data(), actual.data(), actual.size()) == 0;
 }
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

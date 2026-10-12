@@ -33,12 +33,12 @@ void onSignal(int)
 
 void usage()
 {
-    std::printf("bazarish-daemon %s\n\n"
+    std::printf("bazarish-bot %s\n\n"
                 "A Bazarish account that runs as a service: a REST API for automation\n"
                 "and a web interface for the operator. Everything else is set in that\n"
                 "interface.\n\n"
                 "Usage:\n"
-                "  bazarish-daemon --config <path>\n",
+                "  bazarish-bot --config <path>\n",
         kVersion);
 }
 
@@ -73,15 +73,15 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    bazarish::log::setComponent("daemon");
-    const bazarish::daemon::Config config = bazarish::daemon::readConfig(configPath);
+    bazarish::log::setComponent("bot");
+    const bazarish::bot::Config config = bazarish::bot::readConfig(configPath);
     const auto level = bazarish::log::levelFromString(config.logLevel);
     if (!level) {
         throw std::runtime_error("config: \"logLevel\" is not a level: " + config.logLevel);
     }
     bazarish::log::setLevel(*level);
 
-    bazarish::daemon::Runtime runtime(config);
+    bazarish::bot::Runtime runtime(config);
     if (runtime.hasAccount()) {
         try {
             runtime.start({});
@@ -90,9 +90,9 @@ int main(int argc, char** argv)
         }
     }
 
-    bazarish::daemon::HttpFace face(runtime, webDirectory(argv[0]));
+    bazarish::bot::HttpFace face(runtime, webDirectory(argv[0]));
     const int port = face.start();
-    bazarish::log::info("bazarish-daemon {} on http://{}:{}", kVersion, config.listenHost, port);
+    bazarish::log::info("bazarish-bot {} on http://{}:{}", kVersion, config.listenHost, port);
     if (!runtime.settings().hasPassword()) {
         bazarish::log::info("open that address to set the password and the account");
     }

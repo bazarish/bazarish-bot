@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 struct ApiToken {
     std::string name;
@@ -55,4 +55,4 @@ private:
     std::vector<ApiToken> tokens_;
 };
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

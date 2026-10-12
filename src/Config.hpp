@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <string>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 struct Config {
     std::filesystem::path stateDir;
@@ -15,4 +15,4 @@ struct Config {
 
 Config readConfig(const std::filesystem::path& path);
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

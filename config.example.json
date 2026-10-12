@@ -1,6 +1,6 @@
 {
   // Where this daemon keeps its account, its mailbox and its I2P state.
-  "state": "/var/lib/bazarish/daemon",
+  "state": "/var/lib/bazarish/bot",
 
   // Where the web interface and the REST API answer. Everything else - the
   // transport, the account, the tokens that open the API - is set in that

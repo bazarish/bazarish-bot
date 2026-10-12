@@ -10,7 +10,7 @@
 #include <memory>
 #include <string>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 class HttpFace {
 public:
@@ -31,4 +31,4 @@ private:
     std::unique_ptr<http::Server> server_;
 };
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

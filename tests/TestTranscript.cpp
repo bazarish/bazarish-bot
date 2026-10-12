@@ -16,8 +16,8 @@
     } while (false)
 
 namespace fs = std::filesystem;
-using bazarish::daemon::Line;
-using bazarish::daemon::Transcript;
+using bazarish::bot::Line;
+using bazarish::bot::Transcript;
 
 namespace {
 
@@ -38,7 +38,7 @@ Line lineFor(const std::string& peer, const std::string& text, const std::string
 
 int main()
 {
-    const fs::path dir = fs::temp_directory_path() / "bz-daemon-transcript";
+    const fs::path dir = fs::temp_directory_path() / "bz-bot-transcript";
     fs::remove_all(dir);
     const fs::path file = dir / "transcript.db";
 
@@ -70,7 +70,7 @@ int main()
         CHECK(chats.size() == 2);
         CHECK(chats.front().peer == "bob");
 
-        const std::vector<bazarish::daemon::Event> after = transcript.since(1, 50);
+        const std::vector<bazarish::bot::Event> after = transcript.since(1, 50);
         CHECK(after.size() == 2);
         CHECK(after.front().messageId == "m2");
         CHECK(after.front().kind == "message");
@@ -103,9 +103,9 @@ int main()
         CHECK(transcript.conversation("carol", 0, 10).front().status == "failed: no tokens");
         transcript.setStatus("carol", "no-such-id", "delivered");
 
-        const std::vector<bazarish::daemon::Event> feed = transcript.since(0, 100);
+        const std::vector<bazarish::bot::Event> feed = transcript.since(0, 100);
         std::string kinds;
-        for (const bazarish::daemon::Event& event : feed) {
+        for (const bazarish::bot::Event& event : feed) {
             kinds += event.kind + " ";
         }
         CHECK(kinds

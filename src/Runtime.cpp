@@ -20,7 +20,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 namespace fs = std::filesystem;
 
@@ -658,4 +658,4 @@ std::vector<Event> Runtime::await(const std::int64_t sinceId, const int seconds)
     return transcript_->since(sinceId, 0);
 }
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

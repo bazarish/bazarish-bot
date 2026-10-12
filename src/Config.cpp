@@ -5,7 +5,7 @@
 
 #include <stdexcept>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 namespace {
 
@@ -36,4 +36,4 @@ Config readConfig(const std::filesystem::path& path)
     return config;
 }
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

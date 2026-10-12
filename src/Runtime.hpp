@@ -20,7 +20,7 @@
 #include <thread>
 #include <vector>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 class Runtime {
 public:
@@ -122,4 +122,4 @@ private:
     mutable std::condition_variable waiters_;
 };
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

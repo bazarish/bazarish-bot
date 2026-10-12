@@ -3,7 +3,7 @@
 
 #include <string>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 struct PasswordRecord {
     std::string salt;
@@ -13,4 +13,4 @@ struct PasswordRecord {
 PasswordRecord hashPassword(const std::string& password);
 bool passwordMatches(const PasswordRecord& record, const std::string& password);
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

@@ -22,7 +22,7 @@
 #include <fstream>
 #include <stdexcept>
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 namespace fs = std::filesystem;
 
@@ -290,4 +290,4 @@ std::string ServerSide::destination() const
                             : destinations_->assignmentFor(account_, nowSeconds()).dest;
 }
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

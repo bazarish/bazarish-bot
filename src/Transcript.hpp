@@ -9,7 +9,7 @@
 
 struct sqlite3;
 
-namespace bazarish::daemon {
+namespace bazarish::bot {
 
 struct Reaction {
     std::string messageId;
@@ -77,4 +77,4 @@ private:
     mutable std::mutex mutex_;
 };
 
-}  // namespace bazarish::daemon
+}  // namespace bazarish::bot

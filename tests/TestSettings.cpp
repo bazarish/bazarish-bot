@@ -32,11 +32,11 @@
     } while (false)
 
 namespace fs = std::filesystem;
-using bazarish::daemon::Settings;
+using bazarish::bot::Settings;
 
 int main()
 {
-    const fs::path file = fs::temp_directory_path() / "bz-daemon-settings.json";
+    const fs::path file = fs::temp_directory_path() / "bz-bot-settings.json";
     fs::remove(file);
 
     {
