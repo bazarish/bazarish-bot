@@ -26,7 +26,7 @@ add_library(bazarish_bot_lib STATIC
     src/Account.cpp
     src/Config.cpp
     src/HttpFace.cpp
-    src/Password.cpp
+    src/OperatorAuth.cpp
     src/Runtime.cpp
     src/Transcript.cpp
     src/ServerSide.cpp
@@ -52,5 +52,6 @@ function(bazarish_bot_add_test name)
 endfunction()
 
 bazarish_bot_add_test(TestConfig)
+bazarish_bot_add_test(TestOperatorAuth)
 bazarish_bot_add_test(TestSettings)
 bazarish_bot_add_test(TestTranscript)

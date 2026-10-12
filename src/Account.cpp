@@ -1,7 +1,6 @@
 // Bazarish project (c) 2026
 #include "Account.hpp"
 
-#include <AccountKey.hpp>
 #include <ApiClient.hpp>
 
 #include <bazarish/Bytes.hpp>
@@ -97,11 +96,8 @@ std::string Account::status() const
     return status_;
 }
 
-void Account::open(const std::string& passphrase)
+void Account::open()
 {
-    if (!client::accountkey::unlocks(accountFile_, passphrase)) {
-        throw std::runtime_error("that passphrase does not open the account");
-    }
     {
         const std::lock_guard<std::mutex> lock(stateMutex_);
         if (status_ == kRunning || status_ == kStarting) {
@@ -112,9 +108,9 @@ void Account::open(const std::string& passphrase)
     if (starter_.joinable()) {
         starter_.join();
     }
-    starter_ = std::thread([this, passphrase]() {
+    starter_ = std::thread([this]() {
         try {
-            bringUp(passphrase);
+            bringUp();
         } catch (const std::exception& error) {
             log::error("account {}: cannot bring it up: {}", id_, error.what());
             const std::lock_guard<std::mutex> lock(stateMutex_);
@@ -123,14 +119,15 @@ void Account::open(const std::string& passphrase)
     });
 }
 
-void Account::bringUp(const std::string& passphrase)
+void Account::bringUp()
 {
     ServerSide& mailbox = serverSide_();
 
     log::info("account {}: opening", id_);
     auto session
-        = std::make_unique<client::Session>(client::Session::open(accountFile_, passphrase));
+        = std::make_unique<client::Session>(client::Session::open(accountFile_));
     applyKind(*session);
+    session->setDeviceSync(false);
     const std::string fingerprint = session->fingerprint();
     settings_.rememberAccount(id_, fingerprint, settings_.kind(id_));
 
@@ -146,7 +143,7 @@ void Account::bringUp(const std::string& passphrase)
     log::info("account {}: registered and up", id_);
     const client::Session::ContactFetchContext waiterContext = session->contactFetchContext();
 
-    auto transcript = std::make_unique<Transcript>(transcriptFile_, passphrase);
+    auto transcript = std::make_unique<Transcript>(transcriptFile_, std::string());
 
     stopping_ = false;
     cardCarriesDestination_ = false;

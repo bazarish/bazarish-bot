@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 #define CHECK(condition)                                                            \
     do {                                                                            \
@@ -54,13 +55,20 @@ int main()
             // where everything lives
             "state": "/var/lib/bazarish/bot",
             "listen": {"host": "0.0.0.0", "port": 9000},
-            "logLevel": "debug"
+            "logLevel": "debug",
+            "operator": "operatorfingerprint",
+            "consumer": {"name": "Weather bots", "place": ["https://bots.example"], "role": "Owner"}
         })");
         const auto config = readConfig(path);
         CHECK(config.stateDir == "/var/lib/bazarish/bot");
         CHECK(config.listenHost == "0.0.0.0");
         CHECK(config.listenPort == 9000);
         CHECK(config.logLevel == "debug");
+        CHECK(config.path == path);
+        CHECK(config.operatorFingerprint == "operatorfingerprint");
+        CHECK(config.consumer.name == "Weather bots");
+        CHECK(config.consumer.place == std::vector<std::string>{"https://bots.example"});
+        CHECK(config.consumer.role == "Owner");
         fs::remove(path);
     }
 
@@ -72,6 +80,10 @@ int main()
         CHECK(config.listenHost == "127.0.0.1");
         CHECK(config.listenPort == 8440);
         CHECK(config.logLevel == "info");
+        CHECK(config.operatorFingerprint.empty());
+        CHECK(config.consumer.name == "Bazarish bot");
+        CHECK(config.consumer.place == std::vector<std::string>{"http://127.0.0.1:8440"});
+        CHECK(config.consumer.role == "Operator");
         fs::remove(path);
     }
 

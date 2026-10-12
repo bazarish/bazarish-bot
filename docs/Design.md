@@ -82,9 +82,14 @@ transport is chosen at runtime, and there is one shape of the library.
 
 ## What it is not
 
-- **Not multi-device.** Each account lives in one place. The desktop client
-  synchronises devices; a service does not need to and paying for it here would
-  buy nothing. An account is moved the two ways the desktop client moves one:
+- **Not multi-device.** Each account lives in one place and runs on its own. The
+  desktop client keeps its devices in step through the account's own mailbox -
+  a copy of everything sent, the address book, read marks, the `device.*`
+  messages; the daemon switches all of that off in the client core
+  (`Session::setDeviceSync(false)`), so nothing it does lands in its own
+  mailbox and nothing asks for devices that do not exist. A service does not
+  need another device, and paying for one here would buy nothing. An account is
+  moved the two ways the desktop client moves one:
   the password-protected `.bazarish` backup - the same file restores it in
   either - or pairing, which carries that same bundle over I2P, sealed under a
   short code, to whoever opens the link. Moving is not sharing: two places
@@ -111,8 +116,17 @@ request to come back, up to the 30 seconds it is held.
 
 Authentication is a bearer token, issued in the web interface under a name and
 shown once. Whoever holds one holds the account, so the listener is on loopback
-unless the operator moves it deliberately, and the first visitor to the web
-interface sets the password that guards the issuing.
+unless the operator moves it deliberately.
+
+The web interface is the operator's, and the operator is a key, not a password:
+the interface shows a sign-in challenge, the operator signs it with their
+Bazarish identity, and the daemon checks the signature against the `operator`
+fingerprint in its config - the same sign-in-with-key the admin panel uses. A
+host with no operator in its config is unclaimed, and the first key to sign in
+claims it and is written there. There is one operator for every account and no
+sign-in per account. Account files carry no passphrase either: the operator and
+the server of an account are the same party on the same disk, so every account
+opens by itself at start.
 
 ## Where the code comes from
 

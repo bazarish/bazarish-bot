@@ -37,7 +37,7 @@ public:
     bool running() const;
     std::string status() const;
 
-    void open(const std::string& passphrase);
+    void open();
     void close();
     void closeOnServer();
 
@@ -112,7 +112,7 @@ private:
     void maintain();
     void waitForEvents(const client::Session::ContactFetchContext& context);
     void drainMailbox();
-    void bringUp(const std::string& passphrase);
+    void bringUp();
     client::Session& openSession() const;
     void applyKind(client::Session& session) const;
 

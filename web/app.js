@@ -258,19 +258,13 @@ function unlockCard(account) {
         });
         return card;
     }
-    card.append(node("p", "view-title", "The account is closed"));
-    card.append(node("p", "step-note",
-        "It is encrypted at rest, so it waits for its passphrase at every start. "
-        + "Status: " + account.status));
-    const field = node("input", "field");
-    field.type = "password";
-    card.append(node("label", "field-label", "Passphrase"));
-    card.append(field);
+    card.append(node("p", "view-title", "The account is not running"));
+    card.append(node("p", "step-note", "Status: " + account.status));
     const footer = node("p", "form-footer");
-    const open = node("button", "btn", "Open");
+    const open = node("button", "btn", "Start");
     open.onclick = async () => {
         try {
-            await call("POST", base(), {action: "open", passphrase: field.value});
+            await call("POST", base(), {action: "open"});
             await render();
         } catch (error) {
             footer.append(node("span", "hint", error.message));
@@ -292,13 +286,6 @@ async function viewAdd() {
     common.append(node("p", "block-title", "What it is"));
     const kind = kindPicker("bot");
     common.append(node("label", "field-label", "Kind"), kind, kindHint());
-    const passphrase = node("input", "field");
-    passphrase.type = "password";
-    common.append(node("label", "field-label", "Passphrase for the account file (optional)"));
-    common.append(passphrase);
-    common.append(node("p", "hint",
-        "Empty, and the account opens by itself at every start. Set one, and it is "
-        + "encrypted at rest and unlocked here after every restart."));
     view.append(common);
 
     const opened = async (id) => {
@@ -319,7 +306,7 @@ async function viewAdd() {
     make.onclick = async () => {
         try {
             const answer = await call("POST", "/ui/accounts", {action: "create",
-                name: name.value, passphrase: passphrase.value, kind: kind.value});
+                name: name.value, kind: kind.value});
             await opened(answer.id);
         } catch (error) {
             created.textContent = error.message;
@@ -353,7 +340,7 @@ async function viewAdd() {
         try {
             const answer = await call("POST", "/ui/accounts", {action: "import",
                 bundle: await base64Of(file), bundlePassphrase: bundlePassword.value,
-                passphrase: passphrase.value, kind: kind.value});
+                kind: kind.value});
             await opened(answer.id);
         } catch (error) {
             restored.textContent = error.message;
@@ -363,11 +350,11 @@ async function viewAdd() {
     restore.append(restoreFooter, restored);
     view.append(restore);
 
-    view.append(receiveCard(passphrase, kind, opened));
+    view.append(receiveCard(kind, opened));
     return view;
 }
 
-function receiveCard(passphrase, kind, opened) {
+function receiveCard(kind, opened) {
     const card = node("article", "panel-box");
     card.style.marginTop = "1rem";
     card.append(node("p", "block-title", "Receive from another device"));
@@ -428,8 +415,7 @@ function receiveCard(passphrase, kind, opened) {
 
     start.onclick = async () => {
         try {
-            show(await call("POST", "/ui/pairing",
-                {link: link.value, passphrase: passphrase.value, kind: kind.value}));
+            show(await call("POST", "/ui/pairing", {link: link.value, kind: kind.value}));
             follow();
         } catch (error) {
             status.textContent = error.message;
@@ -1090,42 +1076,14 @@ async function viewSettings() {
     transport.append(footer, saved);
     view.append(transport);
 
-    const password = node("article", "panel-box");
-    password.style.marginTop = "1rem";
-    password.append(node("p", "block-title", "Panel password"));
-    password.append(node("p", "hint",
-        "The current one is asked for so a page left open cannot be used to take "
-        + "the panel over, and the new one twice so a typo does not lock you out."));
-    const currently = node("input", "field");
-    currently.type = "password";
-    currently.autocomplete = "current-password";
-    const next = node("input", "field");
-    next.type = "password";
-    next.autocomplete = "new-password";
-    const again = node("input", "field");
-    again.type = "password";
-    again.autocomplete = "new-password";
-    password.append(node("label", "field-label", "Current password"), currently);
-    password.append(node("label", "field-label", "New password"), next);
-    password.append(node("label", "field-label", "New password again"), again);
-    const changed = node("p", "hint");
-    const passwordFooter = node("p", "form-footer");
-    const change = node("button", "btn", "Change");
-    change.onclick = async () => {
-        try {
-            await call("POST", "/ui/password",
-                {current: currently.value, password: next.value, repeat: again.value});
-            changed.textContent = "Changed.";
-            currently.value = "";
-            next.value = "";
-            again.value = "";
-        } catch (error) {
-            changed.textContent = error.message;
-        }
-    };
-    passwordFooter.append(change);
-    password.append(passwordFooter, changed);
-    view.append(password);
+    const operator = node("article", "panel-box");
+    operator.style.marginTop = "1rem";
+    operator.append(node("p", "block-title", "Operator"));
+    operator.append(node("p", "hint",
+        "The key that claimed this host signs in here, and no other. It is the "
+        + "\"operator\" in the config file; to hand the host over, change it there."));
+    operator.append(facts([["Fingerprint", settings.operator]]));
+    view.append(operator);
     return view;
 }
 

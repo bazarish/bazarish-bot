@@ -1,6 +1,7 @@
 // Bazarish project (c) 2026
 #pragma once
 
+#include "OperatorAuth.hpp"
 #include "Runtime.hpp"
 
 #include <bazarish/HttpServer.hpp>
@@ -28,6 +29,7 @@ private:
     bool signedIn(const http::Request& request) const;
 
     Runtime& runtime_;
+    OperatorAuth operator_;
     WebAssets assets_;
     service::PortalSession sessions_;
     std::unique_ptr<http::Server> server_;

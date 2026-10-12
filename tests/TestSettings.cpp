@@ -45,10 +45,7 @@ int main()
     {
         Settings settings(file);
         CHECK(settings.transport() == Settings::Transport::eEmbedded);
-        CHECK(!settings.hasPassword());
         CHECK(settings.tokens(first).empty());
-        CHECK(!settings.passwordMatches(""));
-        CHECK(!settings.passwordMatches("anything"));
         CHECK(settings.kind(first) == Settings::AccountKind::eBot);
     }
 
@@ -56,7 +53,6 @@ int main()
         Settings settings(file);
         settings.setTransport(Settings::Transport::eSam, "127.0.0.1", 7656);
         settings.setPrivacy(bazarish::i2p::Privacy::eMinimal);
-        settings.setPassword("correct horse");
         CHECK_THROWS(settings.setKind(second, Settings::AccountKind::eGroup));
         settings.rememberAccount(first, "fp-first", Settings::AccountKind::eBot);
         settings.rememberAccount(second, "fp-second", Settings::AccountKind::eBot);
@@ -72,10 +68,6 @@ int main()
         CHECK(settings.samHost() == "127.0.0.1");
         CHECK(settings.samPort() == 7656);
         CHECK(settings.privacy() == bazarish::i2p::Privacy::eMinimal);
-        CHECK(settings.hasPassword());
-        CHECK(settings.passwordMatches("correct horse"));
-        CHECK(!settings.passwordMatches("correct horse "));
-        CHECK(!settings.passwordMatches(""));
         CHECK(settings.kind(first) == Settings::AccountKind::eBot);
         CHECK(settings.kind(second) == Settings::AccountKind::eGroup);
         CHECK(settings.accountWithFingerprint("fp-second") == second);
@@ -110,13 +102,6 @@ int main()
         CHECK(settings.kind(second) == Settings::AccountKind::eBot);
         CHECK(settings.accountWithFingerprint("fp-second").empty());
         CHECK(settings.tokens(first).size() == 1);
-    }
-
-    {
-        Settings settings(file);
-        settings.setPassword("another one");
-        CHECK(settings.passwordMatches("another one"));
-        CHECK(!settings.passwordMatches("correct horse"));
     }
 
     fs::remove(file);

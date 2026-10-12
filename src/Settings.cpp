@@ -1,8 +1,6 @@
 // Bazarish project (c) 2026
 #include "Settings.hpp"
 
-#include "Password.hpp"
-
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Log.hpp>
 
@@ -78,8 +76,6 @@ void Settings::load()
     if (const auto parsed = i2p::privacyFromString(document.value("privacy", "middle"))) {
         privacy_ = *parsed;
     }
-    passwordSalt_ = document.value("passwordSalt", std::string());
-    passwordHash_ = document.value("passwordHash", std::string());
     for (const nlohmann::json& entry : document.value("tokens", nlohmann::json::array())) {
         ApiToken token;
         token.account = entry.value("account", std::string());
@@ -117,8 +113,6 @@ void Settings::save() const
         {"samHost", samHost_},
         {"samPort", samPort_},
         {"privacy", privacyName(privacy_)},
-        {"passwordSalt", passwordSalt_},
-        {"passwordHash", passwordHash_},
         {"tokens", tokens},
         {"accounts", accounts},
     };
@@ -176,31 +170,6 @@ void Settings::setPrivacy(const i2p::Privacy privacy)
     const std::lock_guard<std::mutex> lock(mutex_);
     privacy_ = privacy;
     save();
-}
-
-bool Settings::hasPassword() const
-{
-    const std::lock_guard<std::mutex> lock(mutex_);
-    return !passwordHash_.empty();
-}
-
-void Settings::setPassword(const std::string& password)
-{
-    const PasswordRecord record = hashPassword(password);
-    const std::lock_guard<std::mutex> lock(mutex_);
-    passwordSalt_ = record.salt;
-    passwordHash_ = record.hash;
-    save();
-}
-
-bool Settings::passwordMatches(const std::string& password) const
-{
-    PasswordRecord record;
-    {
-        const std::lock_guard<std::mutex> lock(mutex_);
-        record = {passwordSalt_, passwordHash_};
-    }
-    return bot::passwordMatches(record, password);
 }
 
 std::vector<ApiToken> Settings::tokens(const std::string& account) const

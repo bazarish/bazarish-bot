@@ -257,6 +257,8 @@ nlohmann::json accountJson(Account& account, Settings& settings)
 
 HttpFace::HttpFace(Runtime& runtime, std::filesystem::path assets)
     : runtime_(runtime)
+    , operator_(runtime.config().path, runtime.config().operatorFingerprint,
+          runtime.config().consumer)
     , assets_(std::move(assets))
     , sessions_(sessionSecret(), kSessionSeconds)
 {
@@ -495,46 +497,25 @@ void HttpFace::operatorRoutes()
 
     server_->get("/ui/state", [this](const http::Request& request) {
         return json({
-            {"hasPassword", runtime_.settings().hasPassword()},
+            {"claimed", operator_.claimed()},
             {"signedIn", signedIn(request)},
+            {"challenge", operator_.issueChallenge(nowSeconds())},
         });
-    });
-
-    server_->post("/ui/password", [this](const http::Request& request) {
-        try {
-            const nlohmann::json body = nlohmann::json::parse(request.body);
-            const std::string password = body.value("password", std::string());
-            if (password.empty()) {
-                return failure(400, "a password that is empty is not a password");
-            }
-            if (runtime_.settings().hasPassword()) {
-                if (!runtime_.settings().passwordMatches(body.value("current", std::string()))) {
-                    return failure(401, "the current password does not match");
-                }
-                if (body.value("repeat", std::string()) != password) {
-                    return failure(400, "the two new passwords are not the same");
-                }
-            }
-            runtime_.settings().setPassword(password);
-            return json({{"ok", true}});
-        } catch (const std::exception& error) {
-            return failure(400, error.what());
-        }
     });
 
     server_->post("/ui/login", [this](const http::Request& request) {
         try {
             const nlohmann::json body = nlohmann::json::parse(request.body);
-            if (!runtime_.settings().passwordMatches(body.value("password", std::string()))) {
-                return failure(401, "that is not the password");
-            }
+            operator_.signIn(body.value("challenge", std::string()),
+                body.value("blob", std::string()), nowSeconds());
             http::Response response = json({{"ok", true}});
             response.headers["Set-Cookie"] = std::string(kSessionCookie) + "="
                 + sessions_.issue(kOperator, nowSeconds())
                 + "; Path=/; HttpOnly; SameSite=Strict";
             return response;
         } catch (const std::exception& error) {
-            return failure(400, error.what());
+            log::warn("panel sign-in refused: {}", error.what());
+            return failure(401, error.what());
         }
     });
 
@@ -558,6 +539,7 @@ void HttpFace::operatorRoutes()
                 {"samHost", settings.samHost()},
                 {"samPort", settings.samPort()},
                 {"privacy", std::string(privacyName(settings.privacy()))},
+                {"operator", operator_.operatorFingerprint()},
                 {"restartNeeded", anyRunning},
             });
         });
@@ -608,16 +590,14 @@ void HttpFace::operatorRoutes()
         return operatorOnly(request, [this](const http::Request& call) {
             const nlohmann::json body = nlohmann::json::parse(call.body);
             const std::string action = body.value("action", std::string());
-            const std::string passphrase = body.value("passphrase", std::string());
             if (action == "create") {
-                return json({{"id", runtime_.createAccount(body.value("name", std::string()),
-                                        passphrase, kindParam(body))}});
+                return json({{"id",
+                    runtime_.createAccount(body.value("name", std::string()), kindParam(body))}});
             }
             if (action == "import") {
                 return json({{"id",
                     runtime_.importAccount(fromBase64(body.value("bundle", std::string())),
-                        body.value("bundlePassphrase", std::string()), passphrase,
-                        kindParam(body))}});
+                        body.value("bundlePassphrase", std::string()), kindParam(body))}});
             }
             return failure(400, "the action is create or import");
         });
@@ -635,8 +615,7 @@ void HttpFace::operatorRoutes()
             if (body.contains("code")) {
                 runtime_.submitPairCode(body.at("code").get<std::string>());
             } else {
-                runtime_.startPairingImport(body.value("link", std::string()),
-                    body.value("passphrase", std::string()), kindParam(body));
+                runtime_.startPairingImport(body.value("link", std::string()), kindParam(body));
             }
             return json(pairingImportJson(runtime_.pairingImport()));
         });
@@ -695,7 +674,7 @@ void HttpFace::accountRoutes()
             const nlohmann::json body = nlohmann::json::parse(call.body);
             const std::string action = body.value("action", std::string());
             if (action == "open") {
-                account.open(body.value("passphrase", std::string()));
+                account.open();
                 return json({{"status", account.status()}});
             }
             if (action == "kind") {

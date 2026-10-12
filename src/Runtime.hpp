@@ -47,10 +47,9 @@ public:
     std::shared_ptr<Account> account(const std::string& id);
     std::shared_ptr<Account> accountForToken(const std::string& secret);
 
-    std::string createAccount(
-        const std::string& name, const std::string& passphrase, Settings::AccountKind kind);
-    std::string importAccount(const Bytes& bundle, const std::string& bundlePassphrase,
-        const std::string& passphrase, Settings::AccountKind kind);
+    std::string createAccount(const std::string& name, Settings::AccountKind kind);
+    std::string importAccount(
+        const Bytes& bundle, const std::string& bundlePassphrase, Settings::AccountKind kind);
     void removeAccount(const std::string& id);
 
     struct PairingImport {
@@ -63,8 +62,7 @@ public:
         std::string error;
         std::string account;
     };
-    void startPairingImport(
-        const std::string& link, const std::string& passphrase, Settings::AccountKind kind);
+    void startPairingImport(const std::string& link, Settings::AccountKind kind);
     void submitPairCode(const std::string& code);
     void cancelPairingImport();
     PairingImport pairingImport() const;
@@ -75,8 +73,7 @@ public:
 private:
     ServerSide& serverSide();
     i2p::Router& router();
-    std::string adopt(const client::AccountInfo& info, const std::string& passphrase,
-        Settings::AccountKind kind);
+    std::string adopt(const client::AccountInfo& info, Settings::AccountKind kind);
     std::filesystem::path transcriptFileFor(const std::string& id) const;
     void runPairWorker(std::function<void()> work);
 
@@ -96,7 +93,6 @@ private:
         std::shared_ptr<std::atomic<bool>> cancel;
         std::shared_ptr<i2p::Endpoint> endpoint;
         std::string dest;
-        std::string passphrase;
         Settings::AccountKind kind = Settings::AccountKind::eBot;
     };
     const std::shared_ptr<PairingSlot> pairing_ = std::make_shared<PairingSlot>();

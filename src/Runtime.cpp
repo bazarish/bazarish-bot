@@ -118,8 +118,7 @@ std::shared_ptr<Account> Runtime::accountForToken(const std::string& secret)
     return found == accounts_.end() ? nullptr : found->second;
 }
 
-std::string Runtime::adopt(const client::AccountInfo& info, const std::string& passphrase,
-    const Settings::AccountKind kind)
+std::string Runtime::adopt(const client::AccountInfo& info, const Settings::AccountKind kind)
 {
     const std::string held = settings_.accountWithFingerprint(info.fingerprint);
     if (!held.empty() && held != info.id) {
@@ -134,21 +133,19 @@ std::string Runtime::adopt(const client::AccountInfo& info, const std::string& p
         accounts_[info.id] = added;
     }
     log::info("account {} added as a {}", info.id, accountKindName(kind));
-    added->open(passphrase);
+    added->open();
     return info.id;
 }
 
-std::string Runtime::createAccount(
-    const std::string& name, const std::string& passphrase, const Settings::AccountKind kind)
+std::string Runtime::createAccount(const std::string& name, const Settings::AccountKind kind)
 {
-    return adopt(manager_.create(name, passphrase), passphrase, kind);
+    return adopt(manager_.create(name), kind);
 }
 
-std::string Runtime::importAccount(const Bytes& bundle, const std::string& bundlePassphrase,
-    const std::string& passphrase, const Settings::AccountKind kind)
+std::string Runtime::importAccount(
+    const Bytes& bundle, const std::string& bundlePassphrase, const Settings::AccountKind kind)
 {
-    return adopt(manager_.import(std::string(), bundle, bundlePassphrase, passphrase), passphrase,
-        kind);
+    return adopt(manager_.import(std::string(), bundle, bundlePassphrase), kind);
 }
 
 void Runtime::removeAccount(const std::string& id)
@@ -175,8 +172,7 @@ void Runtime::removeAccount(const std::string& id)
     log::info("account {} removed", id);
 }
 
-void Runtime::startPairingImport(
-    const std::string& link, const std::string& passphrase, const Settings::AccountKind kind)
+void Runtime::startPairingImport(const std::string& link, const Settings::AccountKind kind)
 {
     const PairLink parsed = parsePairLink(link);
     const std::shared_ptr<PairingSlot> slot = pairing_;
@@ -192,7 +188,6 @@ void Runtime::startPairingImport(
         slot->cancel = cancel;
         slot->endpoint.reset();
         slot->dest = parsed.dest;
-        slot->passphrase = passphrase;
         slot->kind = kind;
     }
     const fs::path i2pDir = config_.stateDir / kI2pDirectory;
@@ -265,7 +260,6 @@ void Runtime::submitPairCode(const std::string& code)
     std::shared_ptr<std::atomic<bool>> cancel;
     std::shared_ptr<i2p::Endpoint> endpoint;
     std::string dest;
-    std::string passphrase;
     Settings::AccountKind kind = Settings::AccountKind::eBot;
     {
         const std::lock_guard<std::mutex> lock(slot->mutex);
@@ -277,10 +271,9 @@ void Runtime::submitPairCode(const std::string& code)
         cancel = slot->cancel;
         endpoint = slot->endpoint;
         dest = slot->dest;
-        passphrase = slot->passphrase;
         kind = slot->kind;
     }
-    runPairWorker([this, slot, cancel, endpoint, dest, code, passphrase, kind]() {
+    runPairWorker([this, slot, cancel, endpoint, dest, code, kind]() {
         std::string error;
         std::string id;
         client::PairFetchResult got;
@@ -295,7 +288,7 @@ void Runtime::submitPairCode(const std::string& code)
                   };
             got = client::fetchPairBundle(*endpoint, dest, code, onProgress, *cancel);
             if (!got.wrongCode && !cancel->load()) {
-                id = importAccount(got.bundle, code, passphrase, kind);
+                id = importAccount(got.bundle, code, kind);
             }
         } catch (const std::exception& failure) {
             error = failure.what();
@@ -313,7 +306,6 @@ void Runtime::submitPairCode(const std::string& code)
         endpoint->stop();
         slot->endpoint.reset();
         slot->cancel.reset();
-        slot->passphrase.clear();
         slot->state.active = false;
         slot->state.needsCode = false;
         if (!error.empty()) {
@@ -346,7 +338,6 @@ void Runtime::cancelPairingImport()
     }
     pairing_->cancel.reset();
     pairing_->endpoint.reset();
-    pairing_->passphrase.clear();
     pairing_->state = {};
 }
 
@@ -367,7 +358,7 @@ void Runtime::openAll()
     }
     for (const std::shared_ptr<Account>& account : held) {
         try {
-            account->open({});
+            account->open();
         } catch (const std::exception& error) {
             log::info("account {} stays closed: {}", account->id(), error.what());
         }

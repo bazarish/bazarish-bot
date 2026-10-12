@@ -86,8 +86,8 @@ int main(int argc, char** argv)
     bazarish::bot::HttpFace face(runtime, webDirectory(argv[0]));
     const int port = face.start();
     bazarish::log::info("bazarish-bot {} on http://{}:{}", kVersion, config.listenHost, port);
-    if (!runtime.settings().hasPassword()) {
-        bazarish::log::info("open that address to set the password and add accounts");
+    if (config.operatorFingerprint.empty()) {
+        bazarish::log::info("open that address: the first key to sign in there operates this host");
     }
 
     std::signal(SIGINT, onSignal);

@@ -13,25 +13,22 @@
   <img class="wordmark" src="/assets/logo.svg" alt="bazarish" width="404" height="76">
   <p class="sheet-note">Bot panel</p>
 
-  <section class="panel-box" id="setup" hidden>
-    <p class="view-title">Set a password</p>
-    <p class="step-note">This daemon has not been set up yet. The password you set
-    here opens everything else: the accounts, their conversations, and the tokens
-    that open the API. Nothing is served until it is set.</p>
-    <label class="field-label" for="newPassword">Password</label>
-    <input class="field" type="password" id="newPassword" autocomplete="new-password" autofocus>
-    <p class="form-footer"><button class="btn" id="setPassword" type="button">Set password</button></p>
-    <p class="hint" id="setupError"></p>
-  </section>
-
-  <section class="panel-box" id="signin" hidden>
-    <p class="view-title">Sign in</p>
-    <label class="field-label" for="password">Password</label>
-    <input class="field" type="password" id="password" autocomplete="current-password" autofocus>
+  <section class="panel-box">
+    <p class="view-title" id="title">Sign in</p>
+    <p class="step-note" id="unclaimed" hidden>This host has no operator yet. The key that
+    signs this challenge becomes its operator and is written into its config; until then
+    anyone who reaches this page can claim it.</p>
+    <p class="step-note">Sign this challenge in Bazarish under Signature and paste the result
+    back.</p>
+    <p class="field-label">Challenge</p>
+    <pre class="copy" id="challenge"></pre>
+    <label class="field-label" for="blob">Signature</label>
+    <textarea class="field field-tall" id="blob" autofocus></textarea>
     <p class="form-footer"><button class="btn" id="signIn" type="button">Sign in</button></p>
     <p class="hint" id="signinError"></p>
   </section>
 </main>
+<script src="/assets/copy.js" defer></script>
 <script src="/assets/login.js" defer></script>
 </body>
 </html>

@@ -3,52 +3,43 @@
 
 const el = (id) => document.getElementById(id);
 
-async function call(path, body) {
-    const answer = await fetch(path, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(body),
-    });
-    const text = await answer.text();
-    const parsed = text ? JSON.parse(text) : {};
-    if (!answer.ok) {
-        throw new Error(parsed.error || answer.statusText);
-    }
-    return parsed;
-}
+let challenge = "";
 
 async function start() {
     const state = await (await fetch("/ui/state")).json();
-    el("setup").hidden = state.hasPassword;
-    el("signin").hidden = !state.hasPassword;
-}
-
-el("setPassword").onclick = async () => {
-    try {
-        const password = el("newPassword").value;
-        await call("/ui/password", {password});
-        await call("/ui/login", {password});
+    if (state.signedIn) {
         location.href = "/";
-    } catch (error) {
-        el("setupError").textContent = error.message;
+        return;
     }
-};
+    challenge = state.challenge;
+    el("challenge").textContent = challenge;
+    el("unclaimed").hidden = state.claimed;
+    el("title").textContent = state.claimed ? "Sign in" : "Claim this host";
+    el("signIn").textContent = state.claimed ? "Sign in" : "Claim";
+}
 
 el("signIn").onclick = async () => {
     try {
-        await call("/ui/login", {password: el("password").value});
+        const answer = await fetch("/ui/login", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({challenge, blob: el("blob").value.trim()}),
+        });
+        const parsed = await answer.json();
+        if (!answer.ok) {
+            throw new Error(parsed.error || answer.statusText);
+        }
         location.href = "/";
     } catch (error) {
         el("signinError").textContent = error.message;
+        await start();
     }
 };
 
-for (const field of ["newPassword", "password"]) {
-    el(field).addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-            el(field === "password" ? "signIn" : "setPassword").click();
-        }
-    });
-}
+el("blob").addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+        el("signIn").click();
+    }
+});
 
 start();

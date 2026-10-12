@@ -59,16 +59,26 @@ adduser --system --group --home /var/lib/bazarish bazarish
 systemctl enable --now bazarish-bot
 ```
 
-Open the address it answers on. The first visitor sets the password, and
-everything else - the transport, the accounts, the tokens - is set there.
+Open the address it answers on and sign the challenge it shows with your
+Bazarish key, under Signature in the desktop client. The first key to sign in
+becomes the operator and is written into the config as `operator`; from then on
+that key and no other opens the interface. Everything else - the transport, the
+accounts, the tokens - is set there.
+
+There is one operator for the whole host and no sign-in per account, and an
+account file here carries no passphrase: the host is the account's server and
+its operator, so a second lock on the same disk would guard nothing.
 
 ## What it will not do
 
 - **It is not multi-device.** The daemon is the server of every account it
-  holds. An account comes in and goes out the way the desktop client moves one:
-  a `.bazarish` backup, or pairing over I2P with a link and a code. Either moves
-  the account; two places cannot serve one account, and the interface says so
-  where it offers the export.
+  holds and runs each one on its own, so it sends nothing to an account's own
+  mailbox for other devices: no copies of what it sent, no address book, no
+  read marks - none of the `device.*` traffic the desktop client keeps its
+  devices in step with. An account comes in and goes out the way the desktop
+  client moves one: a `.bazarish` backup, or pairing over I2P with a link and a
+  code. Either moves the account; two places cannot serve one account, and the
+  interface says so where it offers the export.
 - **It is not a desktop client.** No calls, no file picker. What a bot and its
   operator need, and no more.
 
