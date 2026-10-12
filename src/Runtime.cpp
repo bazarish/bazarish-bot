@@ -2,21 +2,15 @@
 #include "Runtime.hpp"
 
 #include <AccountKey.hpp>
-#include <ApiClient.hpp>
+#include <DevicePairing.hpp>
 #include <I2pRouter.hpp>
 
-#include <bazarish/Bytes.hpp>
-
-#include <nlohmann/json.hpp>
-#include <openssl/rand.h>
-
-#include <bazarish/Clock.hpp>
 #include <bazarish/Log.hpp>
+#include <bazarish/PairLink.hpp>
 #include <bazarish/ServerDescriptor.hpp>
 
 #include <chrono>
 #include <filesystem>
-#include <fstream>
 #include <stdexcept>
 #include <utility>
 
@@ -26,37 +20,25 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr const char* kAccountFile = "account.db";
-constexpr const char* kTranscriptFile = "transcript.db";
-constexpr int kMaintenanceSeconds = 5;
-constexpr int kEventWaitSeconds = 30;
-constexpr int kMaxWaitSeconds = 60;
-constexpr std::size_t kMessageIdBytes = 8;
-
-std::string freshMessageId()
-{
-    Bytes id(kMessageIdBytes);
-    if (RAND_bytes(id.data(), static_cast<int>(id.size())) != 1) {
-        throw std::runtime_error("no randomness for a message id");
-    }
-    return toHex(id);
-}
-
-void allowOwnLoopbackFacade()
-{
-    bazarish::setSelfHostedFacadeOnLoopback(true);
-}
+constexpr const char* kAccountsDirectory = "accounts";
+constexpr const char* kTranscriptsDirectory = "transcripts";
+constexpr const char* kI2pDirectory = "i2p";
+constexpr const char* kTranscriptSuffix = ".db";
+constexpr int kPairPollSeconds = 2;
 
 }  // namespace
 
 Runtime::Runtime(Config config)
     : config_(std::move(config))
     , settings_(config_.stateDir / "settings.json")
-    , status_("no account")
+    , manager_(config_.stateDir / kAccountsDirectory)
 {
-    fs::create_directories(config_.stateDir);
-    if (hasAccount()) {
-        status_ = "closed";
+    fs::create_directories(config_.stateDir / kTranscriptsDirectory);
+    bazarish::setSelfHostedFacadeOnLoopback(true);
+    for (const client::AccountInfo& info : manager_.list()) {
+        const std::lock_guard<std::mutex> lock(accountsMutex_);
+        accounts_[info.id] = std::make_shared<Account>(info.id, info.file,
+            transcriptFileFor(info.id), settings_, [this]() -> ServerSide& { return serverSide(); });
     }
 }
 
@@ -65,597 +47,356 @@ Runtime::~Runtime()
     stop();
 }
 
-fs::path Runtime::accountFile() const
+fs::path Runtime::transcriptFileFor(const std::string& id) const
 {
-    return config_.stateDir / kAccountFile;
+    return config_.stateDir / kTranscriptsDirectory / (id + kTranscriptSuffix);
 }
 
-bool Runtime::hasAccount() const
+i2p::Router& Runtime::router()
 {
-    return fs::exists(accountFile());
-}
-
-bool Runtime::running() const
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    return session_ != nullptr;
-}
-
-std::string Runtime::status() const
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    return status_;
-}
-
-void Runtime::createAccount(const std::string& name, const std::string& passphrase)
-{
-    if (hasAccount()) {
-        throw std::runtime_error("this daemon already has an account");
+    client::setI2pEnabled(true);
+    if (settings_.transport() == Settings::Transport::eSam) {
+        client::setSamTransport(settings_.samHost(), settings_.samPort());
     }
-    allowOwnLoopbackFacade();
-    {
-        const client::Session created
-            = client::Session::create(accountFile(), passphrase, name);
-        log::info("account {} created", log::redact(created.fingerprint()));
-    }
-    bringUpAsync(passphrase);
+    return client::sharedI2pRouter(config_.stateDir / kI2pDirectory);
 }
 
-void Runtime::importAccount(const Bytes& bundle, const std::string& bundlePassphrase,
-    const std::string& passphrase)
+ServerSide& Runtime::serverSide()
 {
-    if (hasAccount()) {
-        throw std::runtime_error("this daemon already has an account");
-    }
-    allowOwnLoopbackFacade();
-    client::Session::importAccountBytes(bundle, accountFile(), bundlePassphrase, passphrase);
-    bringUpAsync(passphrase);
-}
-
-Bytes Runtime::exportAccount(const std::string& bundlePassphrase)
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    return openSession().exportAccountBytes(bundlePassphrase);
-}
-
-void Runtime::rename(const std::string& name)
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    openSession().setDisplayName(name);
-}
-
-void Runtime::newAddress()
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    client::Session& session = openSession();
-    const std::string address = mailbox_->replaceDestinationFor(session.fingerprint());
-    cardCarriesDestination_ = false;
-    announceRoutingWhenCardIsOut_ = true;
-    log::info("address replaced: {}", address.empty() ? "building" : address);
-}
-
-void Runtime::start(const std::string& passphrase)
-{
-    if (!hasAccount()) {
-        throw std::runtime_error("there is no account to open");
-    }
-    if (running()) {
-        return;
-    }
-    if (!client::accountkey::unlocks(accountFile(), passphrase)) {
-        throw std::runtime_error("that passphrase does not open the account");
-    }
-    allowOwnLoopbackFacade();
-    bringUpAsync(passphrase);
-}
-
-void Runtime::bringUpAsync(const std::string& passphrase)
-{
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        if (status_ == "starting") {
-            return;
+    const std::lock_guard<std::mutex> lock(hostMutex_);
+    if (mailbox_ == nullptr) {
+        if (settings_.transport() == Settings::Transport::eSam) {
+            log::info("transport: SAM at {}:{}", settings_.samHost(), settings_.samPort());
+        } else {
+            log::info("transport: a router of our own under {}",
+                (config_.stateDir / kI2pDirectory).string());
         }
-        status_ = "starting";
+        i2p::Router& shared = router();
+        auto mailbox = std::make_unique<ServerSide>(config_.stateDir, settings_.privacy(), &shared);
+        mailbox->start();
+        mailbox_ = std::move(mailbox);
     }
-    if (starter_.joinable()) {
-        starter_.join();
+    return *mailbox_;
+}
+
+std::vector<Runtime::Summary> Runtime::accounts() const
+{
+    std::vector<Summary> summaries;
+    const std::lock_guard<std::mutex> lock(accountsMutex_);
+    for (const auto& [id, account] : accounts_) {
+        Summary summary;
+        summary.id = id;
+        summary.kind = settings_.kind(id);
+        summary.running = account->running();
+        summary.status = account->status();
+        summary.name = account->displayName();
+        summary.fingerprint
+            = summary.running ? account->fingerprint() : settings_.fingerprintOf(id);
+        summaries.push_back(std::move(summary));
     }
-    starter_ = std::thread([this, passphrase]() {
+    return summaries;
+}
+
+std::shared_ptr<Account> Runtime::account(const std::string& id)
+{
+    const std::lock_guard<std::mutex> lock(accountsMutex_);
+    const auto found = accounts_.find(id);
+    if (found == accounts_.end()) {
+        throw std::runtime_error("there is no account " + id);
+    }
+    return found->second;
+}
+
+std::shared_ptr<Account> Runtime::accountForToken(const std::string& secret)
+{
+    const std::optional<ApiToken> token = settings_.tokenFor(secret);
+    if (!token) {
+        return nullptr;
+    }
+    const std::lock_guard<std::mutex> lock(accountsMutex_);
+    const auto found = accounts_.find(token->account);
+    return found == accounts_.end() ? nullptr : found->second;
+}
+
+std::string Runtime::adopt(const client::AccountInfo& info, const std::string& passphrase,
+    const Settings::AccountKind kind)
+{
+    const std::string held = settings_.accountWithFingerprint(info.fingerprint);
+    if (!held.empty() && held != info.id) {
+        manager_.remove(info.id);
+        throw std::runtime_error("this account is already here as " + held);
+    }
+    settings_.rememberAccount(info.id, info.fingerprint, kind);
+    const auto added = std::make_shared<Account>(info.id, info.file, transcriptFileFor(info.id),
+        settings_, [this]() -> ServerSide& { return serverSide(); });
+    {
+        const std::lock_guard<std::mutex> lock(accountsMutex_);
+        accounts_[info.id] = added;
+    }
+    log::info("account {} added as a {}", info.id, accountKindName(kind));
+    added->open(passphrase);
+    return info.id;
+}
+
+std::string Runtime::createAccount(
+    const std::string& name, const std::string& passphrase, const Settings::AccountKind kind)
+{
+    return adopt(manager_.create(name, passphrase), passphrase, kind);
+}
+
+std::string Runtime::importAccount(const Bytes& bundle, const std::string& bundlePassphrase,
+    const std::string& passphrase, const Settings::AccountKind kind)
+{
+    return adopt(manager_.import(std::string(), bundle, bundlePassphrase, passphrase), passphrase,
+        kind);
+}
+
+void Runtime::removeAccount(const std::string& id)
+{
+    const std::shared_ptr<Account> removed = account(id);
+    if (!removed->running()) {
+        throw std::runtime_error("open the account first: its server copy is closed from inside it");
+    }
+    const std::string fingerprint = removed->fingerprint();
+    removed->closeOnServer();
+    {
+        const std::lock_guard<std::mutex> lock(accountsMutex_);
+        accounts_.erase(id);
+    }
+    removed->close();
+    serverSide().forget(fingerprint);
+    manager_.remove(id);
+    const fs::path transcript = transcriptFileFor(id);
+    client::accountkey::forget(transcript);
+    std::error_code ignored;
+    fs::remove(transcript, ignored);
+    fs::remove(client::accountkey::sidecarFor(transcript), ignored);
+    settings_.forgetAccount(id);
+    log::info("account {} removed", id);
+}
+
+void Runtime::startPairingImport(
+    const std::string& link, const std::string& passphrase, const Settings::AccountKind kind)
+{
+    const PairLink parsed = parsePairLink(link);
+    const std::shared_ptr<PairingSlot> slot = pairing_;
+    const auto cancel = std::make_shared<std::atomic<bool>>(false);
+    {
+        const std::lock_guard<std::mutex> lock(slot->mutex);
+        if (slot->state.active) {
+            throw std::runtime_error("an account is already being received");
+        }
+        slot->state = {};
+        slot->state.active = true;
+        slot->state.stage = "reaching";
+        slot->cancel = cancel;
+        slot->endpoint.reset();
+        slot->dest = parsed.dest;
+        slot->passphrase = passphrase;
+        slot->kind = kind;
+    }
+    const fs::path i2pDir = config_.stateDir / kI2pDirectory;
+    runPairWorker([this, slot, cancel, parsed, i2pDir]() {
+        const auto settle = [&slot, &cancel](const std::string& error,
+                                std::shared_ptr<i2p::Endpoint> endpoint) {
+            const std::lock_guard<std::mutex> lock(slot->mutex);
+            if (slot->cancel != cancel) {
+                return;
+            }
+            if (!error.empty()) {
+                slot->state.active = false;
+                slot->state.stage = "failed";
+                slot->state.error = error;
+                slot->cancel.reset();
+                return;
+            }
+            slot->endpoint = std::move(endpoint);
+            slot->state.stage = "code";
+            slot->state.needsCode = true;
+        };
         try {
-            bringUp(passphrase);
+            client::applyLinkReseed(i2pDir, parsed.reseeds);
+            i2p::Router& shared = router();
+            if (client::bootstrapI2pRouter(i2pDir) == client::I2pBootstrap::eEmpty) {
+                settle("no reseed answered: this host has no network database", nullptr);
+                return;
+            }
+            const std::shared_ptr<i2p::Endpoint> endpoint
+                = client::openPairLink(shared, client::tunnelPrivacy(), client::kPairingOwner);
+            const auto deadline = std::chrono::steady_clock::now()
+                + std::chrono::seconds(client::kPairOwnTunnelsSeconds);
+            bool ready = false;
+            while (!cancel->load() && !ready) {
+                ready = endpoint->waitReady(std::chrono::seconds(kPairPollSeconds));
+                if (!ready && std::chrono::steady_clock::now() >= deadline) {
+                    break;
+                }
+            }
+            if (cancel->load()) {
+                endpoint->stop();
+                return;
+            }
+            if (!ready) {
+                endpoint->stop();
+                settle("this host could not build I2P tunnels", nullptr);
+                return;
+            }
+            const std::unique_ptr<i2p::Stream> reached
+                = endpoint->connect(parsed.dest, std::chrono::seconds(client::kPairDialSeconds));
+            if (!reached) {
+                endpoint->stop();
+                settle("cannot reach the other device", nullptr);
+                return;
+            }
+            reached->close();
+            settle({}, endpoint);
         } catch (const std::exception& error) {
-            log::error("cannot bring the account up: {}", error.what());
-            const std::lock_guard<std::mutex> lock(sessionMutex_);
-            status_ = std::string("failed: ") + error.what();
+            settle(error.what(), nullptr);
         }
     });
 }
 
-void Runtime::bringUp(const std::string& passphrase)
+void Runtime::submitPairCode(const std::string& code)
 {
+    if (!client::isPairCode(code)) {
+        throw std::runtime_error("the code is the digits shown on the other device");
+    }
+    const std::shared_ptr<PairingSlot> slot = pairing_;
+    std::shared_ptr<std::atomic<bool>> cancel;
+    std::shared_ptr<i2p::Endpoint> endpoint;
+    std::string dest;
+    std::string passphrase;
+    Settings::AccountKind kind = Settings::AccountKind::eBot;
     {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        status_ = "starting";
-    }
-
-    client::setI2pEnabled(true);
-    if (settings_.transport() == Settings::Transport::eSam) {
-        client::setSamTransport(settings_.samHost(), settings_.samPort());
-        log::info("transport: SAM at {}:{}", settings_.samHost(), settings_.samPort());
-    } else {
-        log::info("transport: a router of our own under {}",
-            (config_.stateDir / "i2p").string());
-    }
-    i2p::Router& router = client::sharedI2pRouter(config_.stateDir / "i2p");
-
-    log::info("transport up; starting the server");
-    mailbox_ = std::make_unique<ServerSide>(config_.stateDir, settings_.privacy(), &router);
-    mailbox_->start();
-
-    log::info("opening the account");
-    auto session = std::make_unique<client::Session>(client::Session::open(accountFile(), passphrase));
-
-    const std::string destination = mailbox_->serveDestinationFor(session->fingerprint());
-    log::info("destination {}", destination.empty() ? "still building" : destination);
-
-    client::ServerEndpoint endpoint;
-    endpoint.serverFingerprint = mailbox_->fingerprint();
-    endpoint.facades.push_back(client::Facade{false, mailbox_->host(), mailbox_->port(), {}});
-    log::info("subscribing to the server at {}:{}", mailbox_->host(), mailbox_->port());
-    session->connectServer(endpoint);
-    session->registerSelfHosted();
-    log::info("registered; the account is up");
-    const client::Session::ContactFetchContext waiterContext = session->contactFetchContext();
-
-    auto transcript = std::make_unique<Transcript>(
-        config_.stateDir / kTranscriptFile, passphrase);
-
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        session_ = std::move(session);
-        transcript_ = std::move(transcript);
-        status_ = "running";
-    }
-    stopping_ = false;
-    cardCarriesDestination_ = false;
-    aliasesAsked_ = false;
-    maintainer_ = std::thread([this]() { maintain(); });
-    eventWaiter_ = std::thread([this, waiterContext]() { waitForEvents(waiterContext); });
-}
-
-Runtime::PendingRouting Runtime::pendingRouting() const
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    if (session_ == nullptr) {
-        return {};
-    }
-    const client::Session::RoutingFanout queued = session_->routingFanout();
-    return {queued.contacts, queued.registry};
-}
-
-void Runtime::retryRouting(const std::string& peer)
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    openSession().retryRoutingTo(peer);
-}
-
-client::Session& Runtime::openSession() const
-{
-    if (session_ == nullptr) {
-        throw std::runtime_error("the account is not open");
-    }
-    return *session_;
-}
-
-void Runtime::maintain()
-{
-    while (!stopping_) {
-        if (mailbox_->destinationNeedsRenewal(bazarish::nowSeconds())) {
-            try {
-                const std::lock_guard<std::mutex> lock(sessionMutex_);
-                if (session_ != nullptr) {
-                    mailbox_->serveDestinationFor(session_->fingerprint());
-                    log::info("delegation re-issued for {}", mailbox_->destination());
-                }
-            } catch (const std::exception& error) {
-                log::warn("delegation not re-issued: {}", error.what());
-            }
+        const std::lock_guard<std::mutex> lock(slot->mutex);
+        if (!slot->state.needsCode || slot->endpoint == nullptr) {
+            throw std::runtime_error("no device is waiting for a code");
         }
-
+        slot->state.needsCode = false;
+        slot->state.stage = "receiving";
+        cancel = slot->cancel;
+        endpoint = slot->endpoint;
+        dest = slot->dest;
+        passphrase = slot->passphrase;
+        kind = slot->kind;
+    }
+    runPairWorker([this, slot, cancel, endpoint, dest, code, passphrase, kind]() {
+        std::string error;
+        std::string id;
+        client::PairFetchResult got;
         try {
-            const std::lock_guard<std::mutex> lock(sessionMutex_);
-            if (session_ != nullptr) {
-                session_->flushPendingEchoes();
-                session_->serviceRoutingFanout();
+            const client::PairProgressFn onProgress
+                = [&slot, &cancel](const std::uint64_t done, const std::uint64_t total) {
+                      const std::lock_guard<std::mutex> lock(slot->mutex);
+                      if (slot->cancel == cancel) {
+                          slot->state.done = done;
+                          slot->state.total = total;
+                      }
+                  };
+            got = client::fetchPairBundle(*endpoint, dest, code, onProgress, *cancel);
+            if (!got.wrongCode && !cancel->load()) {
+                id = importAccount(got.bundle, code, passphrase, kind);
             }
-        } catch (const std::exception& error) {
-            log::warn("the fan-out after the address change will try again: {}", error.what());
+        } catch (const std::exception& failure) {
+            error = failure.what();
         }
-
-        if (!aliasesAsked_) {
-            aliasesAsked_ = true;
-            try {
-                const std::lock_guard<std::mutex> lock(sessionMutex_);
-                if (session_ != nullptr && !session_->refreshAliasStatus()) {
-                    log::info("this build has no alias registry to ask");
-                }
-            } catch (const std::exception& error) {
-                log::warn("the name service was not reached: {}", error.what());
-            }
-        }
-
-        if (!cardCarriesDestination_ && !mailbox_->destination().empty()) {
-            try {
-                const std::lock_guard<std::mutex> lock(sessionMutex_);
-                if (session_ != nullptr) {
-                    session_->refreshOwnCard();
-                    cardCarriesDestination_ = true;
-                    log::info("card re-issued with the destination {}", mailbox_->destination());
-                    if (announceRoutingWhenCardIsOut_.exchange(false)) {
-                        session_->announceNewRouting();
-                    } else {
-                        session_->runRoutingFanout();
-                    }
-                }
-            } catch (const std::exception& error) {
-                log::warn("card not re-issued yet: {}", error.what());
-            }
-        }
-
-        std::unique_lock<std::mutex> lock(waitMutex_);
-        waiters_.wait_for(lock, std::chrono::seconds(kMaintenanceSeconds),
-            [this]() { return stopping_.load(); });
-    }
-}
-
-void Runtime::waitForEvents(const client::Session::ContactFetchContext& context)
-{
-    drainMailbox();
-    std::unique_ptr<client::Client> waiter;
-    while (!stopping_) {
-        std::vector<client::PendingEntry> waiting;
-        try {
-            if (waiter == nullptr) {
-                waiter = client::Session::makeEventClient(context);
-            }
-            waiting = client::Session::waitForMail(*waiter, kEventWaitSeconds);
-        } catch (const std::exception& error) {
-            log::info("mail wait failed, asking again: {}", error.what());
-            continue;
-        }
-        if (stopping_) {
+        const std::lock_guard<std::mutex> lock(slot->mutex);
+        if (slot->cancel != cancel) {
             return;
         }
-        if (!waiting.empty()) {
-            drainMailbox();
-        }
-    }
-}
-
-void Runtime::drainMailbox()
-{
-    std::vector<client::IncomingMessage> arrived;
-    try {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        if (session_ == nullptr) {
+        if (got.wrongCode) {
+            slot->state.stage = "code";
+            slot->state.needsCode = true;
+            slot->state.triesLeft = got.triesLeft;
             return;
         }
-        arrived = session_->sync();
-    } catch (const std::exception& error) {
-        log::warn("mailbox: {}", error.what());
-    }
+        endpoint->stop();
+        slot->endpoint.reset();
+        slot->cancel.reset();
+        slot->passphrase.clear();
+        slot->state.active = false;
+        slot->state.needsCode = false;
+        if (!error.empty()) {
+            slot->state.stage = "failed";
+            slot->state.error = error;
+            return;
+        }
+        slot->state.stage = "done";
+        slot->state.account = id;
+    });
+}
 
-    bool wrote = false;
-    for (const client::IncomingMessage& item : arrived) {
-        try {
-            const std::lock_guard<std::mutex> lock(sessionMutex_);
-            if (transcript_ == nullptr) {
-                continue;
-            }
-            if (item.contentType == "edit") {
-                wrote = transcript_->applyEdit(item.fromFingerprint, item.refId, item.text,
-                            item.keyboardJson, item.sentByUs)
-                    || wrote;
-                continue;
-            }
-            if (item.contentType == "delete") {
-                wrote = transcript_->applyDelete(
-                            item.fromFingerprint, item.refId, item.sentByUs)
-                    || wrote;
-                continue;
-            }
-            if (item.contentType == "reaction") {
-                transcript_->applyReaction(item.fromFingerprint, item.refId,
-                    item.sentByUs ? std::string("me") : item.fromFingerprint, item.text);
-                wrote = true;
-                continue;
-            }
-            if (item.contentType == "receipt") {
-                transcript_->applyReceipt(item.fromFingerprint, item.refId);
-                wrote = true;
-                continue;
-            }
-            if (item.contentType == "chat.clear") {
-                transcript_->clearPeer(item.fromFingerprint);
-                wrote = true;
-                continue;
-            }
-            if (item.contentType != "text" && item.contentType != "file"
-                && item.contentType != "image" && item.contentType != "audio"
-                && item.contentType != "bot.command" && item.contentType != "bot.callback"
-                && item.contentType != "contact.request") {
-                continue;
-            }
-            Line line;
-            line.peer = item.fromFingerprint;
-            line.outgoing = item.sentByUs;
-            line.type = item.contentType;
-            line.e2eId = item.e2eId;
-            line.text = item.contentType == "bot.callback" ? item.callbackData : item.text;
-            line.keyboard = item.keyboardJson;
-            line.replyTo = item.contentType == "bot.callback" ? item.refId : item.replyTo;
-            line.sentAt = item.sentAt;
-            if (transcript_->append(line) != 0) {
-                wrote = true;
-            }
-        } catch (const std::exception& error) {
-            log::warn("transcript: {}", error.what());
+void Runtime::runPairWorker(std::function<void()> work)
+{
+    const std::lock_guard<std::mutex> lock(pairWorkerMutex_);
+    if (pairWorker_.joinable()) {
+        pairWorker_.join();
+    }
+    pairWorker_ = std::thread(std::move(work));
+}
+
+void Runtime::cancelPairingImport()
+{
+    const std::lock_guard<std::mutex> lock(pairing_->mutex);
+    if (pairing_->cancel) {
+        pairing_->cancel->store(true);
+    }
+    if (pairing_->endpoint) {
+        pairing_->endpoint->stop();
+    }
+    pairing_->cancel.reset();
+    pairing_->endpoint.reset();
+    pairing_->passphrase.clear();
+    pairing_->state = {};
+}
+
+Runtime::PairingImport Runtime::pairingImport() const
+{
+    const std::lock_guard<std::mutex> lock(pairing_->mutex);
+    return pairing_->state;
+}
+
+void Runtime::openAll()
+{
+    std::vector<std::shared_ptr<Account>> held;
+    {
+        const std::lock_guard<std::mutex> lock(accountsMutex_);
+        for (const auto& [id, account] : accounts_) {
+            held.push_back(account);
         }
     }
-
-    if (wrote) {
-        waiters_.notify_all();
+    for (const std::shared_ptr<Account>& account : held) {
+        try {
+            account->open({});
+        } catch (const std::exception& error) {
+            log::info("account {} stays closed: {}", account->id(), error.what());
+        }
     }
 }
 
 void Runtime::stop()
 {
-    stopping_ = true;
-    if (starter_.joinable()) {
-        starter_.join();
-    }
-    waiters_.notify_all();
-    if (maintainer_.joinable()) {
-        maintainer_.join();
-    }
-    if (eventWaiter_.joinable()) {
-        eventWaiter_.join();
-    }
-    std::unique_ptr<client::Session> session;
+    cancelPairingImport();
     {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        session = std::move(session_);
-        transcript_.reset();
-        status_ = hasAccount() ? "closed" : "no account";
+        const std::lock_guard<std::mutex> lock(pairWorkerMutex_);
+        if (pairWorker_.joinable()) {
+            pairWorker_.join();
+        }
     }
-    session.reset();
+    std::map<std::string, std::shared_ptr<Account>> closing;
+    {
+        const std::lock_guard<std::mutex> lock(accountsMutex_);
+        closing.swap(accounts_);
+    }
+    for (auto& [id, account] : closing) {
+        account->close();
+    }
+    closing.clear();
+    const std::lock_guard<std::mutex> lock(hostMutex_);
     if (mailbox_) {
         mailbox_->stop();
         mailbox_.reset();
     }
-}
-
-std::string Runtime::destination() const
-{
-    return mailbox_ ? mailbox_->destination() : std::string();
-}
-
-std::string Runtime::fingerprint() const
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    return session_ == nullptr ? std::string() : session_->fingerprint();
-}
-
-std::string Runtime::displayName() const
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    return session_ == nullptr ? std::string() : session_->displayName();
-}
-
-std::string Runtime::inviteUri() const
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    return openSession().inviteUri();
-}
-
-std::vector<Runtime::Peer> Runtime::contacts() const
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    client::Session& session = openSession();
-    std::vector<Peer> peers;
-    for (const std::string& fingerprint : session.contactFingerprints()) {
-        peers.push_back({fingerprint, session.contactDisplayName(fingerprint),
-            session.contactIsPending(fingerprint), session.canWriteTo(fingerprint)});
-    }
-    return peers;
-}
-
-std::vector<Line> Runtime::conversation(
-    const std::string& peer, const std::int64_t before, const int limit) const
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    if (transcript_ == nullptr) {
-        throw std::runtime_error("the account is not open");
-    }
-    return transcript_->conversation(peer, before, limit);
-}
-
-std::vector<Line> Runtime::chats() const
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    if (transcript_ == nullptr) {
-        throw std::runtime_error("the account is not open");
-    }
-    return transcript_->latestPerPeer();
-}
-
-Runtime::Sent Runtime::sendText(const std::string& peer, const std::string& text)
-{
-    Line line;
-    line.e2eId = freshMessageId();
-    bool confirmed = false;
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        client::Session& session = openSession();
-        client::DeliveryWatch watch;
-        const std::string messageId = line.e2eId;
-        watch.onOutcome = [this, peer, messageId](const client::OutboundCourier::Outcome& outcome) {
-            const std::string status = outcome.stored
-                ? std::string("delivered")
-                : "failed: "
-                    + (outcome.errorMessage.empty() ? outcome.errorCode : outcome.errorMessage);
-            try {
-                const std::lock_guard<std::mutex> held(sessionMutex_);
-                if (transcript_ != nullptr) {
-                    transcript_->setStatus(peer, messageId, status);
-                }
-            } catch (const std::exception& error) {
-                log::warn("transcript: {}", error.what());
-            }
-            waiters_.notify_all();
-        };
-        confirmed = session.sendMessage(peer, text, line.e2eId, watch);
-        line.status = "sending";
-        line.peer = peer;
-        line.outgoing = true;
-        line.type = "text";
-        line.text = text;
-        line.sentAt = static_cast<std::int64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count());
-        transcript_->append(line);
-    }
-    waiters_.notify_all();
-    return {line.e2eId, confirmed};
-}
-
-Runtime::Sent Runtime::sendKeyboard(
-    const std::string& peer, const std::string& text, const std::string& keyboardJson)
-{
-    client::InlineKeyboard keyboard;
-    for (const nlohmann::json& row : nlohmann::json::parse(keyboardJson)) {
-        std::vector<client::InlineButton> buttons;
-        for (const nlohmann::json& button : row) {
-            buttons.push_back({button.value("text", std::string()),
-                button.value("data", std::string()), button.value("command", std::string())});
-        }
-        keyboard.push_back(std::move(buttons));
-    }
-    Line line;
-    line.e2eId = freshMessageId();
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        client::Session& session = openSession();
-        session.sendInteractive(peer, text, keyboard, line.e2eId);
-        line.status = "sending";
-        line.peer = peer;
-        line.outgoing = true;
-        line.type = "text";
-        line.text = text;
-        line.keyboard = client::inlineKeyboardJson(keyboard);
-        line.sentAt = static_cast<std::int64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count());
-        transcript_->append(line);
-    }
-    waiters_.notify_all();
-    return {line.e2eId, false};
-}
-
-void Runtime::clearChat(const std::string& peer)
-{
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        client::Session& session = openSession();
-        session.sendChatClear(peer);
-        transcript_->clearPeer(peer);
-    }
-    waiters_.notify_all();
-}
-
-void Runtime::acceptContact(const std::string& peer)
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    openSession().acceptContactRequest(peer);
-}
-
-std::string Runtime::addByInvite(const std::string& invite, const std::string& text)
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    return openSession().addByInvite(invite, text);
-}
-
-void Runtime::editMessage(
-    const std::string& peer, const std::string& messageId, const std::string& text)
-{
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        client::Session& session = openSession();
-        if (!transcript_->applyEdit(peer, messageId, text, {}, true)) {
-            throw std::runtime_error("no message of ours by that id in this conversation");
-        }
-        (void)session.sendEdit(peer, messageId, text);
-    }
-    waiters_.notify_all();
-}
-
-void Runtime::deleteMessage(const std::string& peer, const std::string& messageId)
-{
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        client::Session& session = openSession();
-        if (!transcript_->applyDelete(peer, messageId, true)) {
-            throw std::runtime_error("no message of ours by that id in this conversation");
-        }
-        session.sendDelete(peer, messageId);
-    }
-    waiters_.notify_all();
-}
-
-void Runtime::react(
-    const std::string& peer, const std::string& messageId, const std::string& emoji)
-{
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        client::Session& session = openSession();
-        session.sendReaction(peer, messageId, emoji);
-        transcript_->applyReaction(peer, messageId, "me", emoji);
-    }
-    waiters_.notify_all();
-}
-
-void Runtime::confirmReceipt(const std::string& peer, const std::string& messageId)
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    openSession().sendReceipt(peer, messageId);
-}
-
-std::int64_t Runtime::lastEventId() const
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    return transcript_ == nullptr ? 0 : transcript_->lastEventId();
-}
-
-std::vector<Event> Runtime::await(const std::int64_t sinceId, const int seconds) const
-{
-    const auto ready = [this, sinceId]() {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        return transcript_ != nullptr && transcript_->lastEventId() > sinceId;
-    };
-    if (!ready()) {
-        const int wait = seconds > kMaxWaitSeconds ? kMaxWaitSeconds : seconds;
-        std::unique_lock<std::mutex> lock(waitMutex_);
-        waiters_.wait_for(lock, std::chrono::seconds(wait < 0 ? 0 : wait),
-            [&ready, this]() { return stopping_.load() || ready(); });
-    }
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    if (transcript_ == nullptr) {
-        return {};
-    }
-    return transcript_->since(sinceId, 0);
 }
 
 }  // namespace bazarish::bot

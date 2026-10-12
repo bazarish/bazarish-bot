@@ -23,6 +23,7 @@ add_subdirectory(${BAZARISH_SERVER_DIR}/facade-http bazarish-facade-http)
 find_package(Threads REQUIRED)
 
 add_library(bazarish_bot_lib STATIC
+    src/Account.cpp
     src/Config.cpp
     src/HttpFace.cpp
     src/Password.cpp

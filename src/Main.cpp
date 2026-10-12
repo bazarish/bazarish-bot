@@ -9,7 +9,6 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
-#include <exception>
 #include <filesystem>
 #include <mutex>
 #include <string>
@@ -34,9 +33,9 @@ void onSignal(int)
 void usage()
 {
     std::printf("bazarish-bot %s\n\n"
-                "A Bazarish account that runs as a service: a REST API for automation\n"
-                "and a web interface for the operator. Everything else is set in that\n"
-                "interface.\n\n"
+                "Bazarish accounts that run as a service: bots and groups on one I2P\n"
+                "router, a REST API for automation and a web interface for the operator.\n"
+                "Everything else is set in that interface.\n\n"
                 "Usage:\n"
                 "  bazarish-bot --config <path>\n",
         kVersion);
@@ -82,19 +81,13 @@ int main(int argc, char** argv)
     bazarish::log::setLevel(*level);
 
     bazarish::bot::Runtime runtime(config);
-    if (runtime.hasAccount()) {
-        try {
-            runtime.start({});
-        } catch (const std::exception& error) {
-            bazarish::log::info("the account stays closed: {}", error.what());
-        }
-    }
+    runtime.openAll();
 
     bazarish::bot::HttpFace face(runtime, webDirectory(argv[0]));
     const int port = face.start();
     bazarish::log::info("bazarish-bot {} on http://{}:{}", kVersion, config.listenHost, port);
     if (!runtime.settings().hasPassword()) {
-        bazarish::log::info("open that address to set the password and the account");
+        bazarish::log::info("open that address to set the password and add accounts");
     }
 
     std::signal(SIGINT, onSignal);

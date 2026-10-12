@@ -18,7 +18,9 @@
 #include <bazarish/I2p.hpp>
 
 #include <cstdint>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 
 namespace bazarish::bot {
@@ -40,10 +42,11 @@ public:
     const std::string& fingerprint() const { return fingerprint_; }
     Bytes card() const;
 
-    std::string serveDestinationFor(const std::string& accountFingerprint);
-    bool destinationNeedsRenewal(std::int64_t now) const;
-    std::string replaceDestinationFor(const std::string& accountFingerprint);
-    std::string destination() const;
+    std::string serveDestinationFor(const std::string& account);
+    bool destinationNeedsRenewal(const std::string& account, std::int64_t now) const;
+    std::string replaceDestinationFor(const std::string& account);
+    std::string destination(const std::string& account) const;
+    void forget(const std::string& account);
 
 private:
     std::filesystem::path stateDir_;
@@ -71,8 +74,10 @@ private:
     std::unique_ptr<service::AccountApi> accounts_;
     std::unique_ptr<facade::Facade> facade_;
 
-    std::string account_;
-    std::int64_t destinationExpires_ = 0;
+    std::filesystem::path keyFileFor(const std::string& account) const;
+
+    mutable std::mutex expiresMutex_;
+    std::map<std::string, std::int64_t> destinationExpires_;
 };
 
 }  // namespace bazarish::bot

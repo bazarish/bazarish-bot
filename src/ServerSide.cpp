@@ -246,10 +246,14 @@ Bytes ServerSide::card() const
     return card_;
 }
 
-std::string ServerSide::serveDestinationFor(const std::string& accountFingerprint)
+fs::path ServerSide::keyFileFor(const std::string& account) const
 {
-    account_ = accountFingerprint;
-    const fs::path keyFile = stateDir_ / "server" / "destination.key";
+    return stateDir_ / "server" / "destinations" / (account + ".key");
+}
+
+std::string ServerSide::serveDestinationFor(const std::string& account)
+{
+    const fs::path keyFile = keyFileFor(account);
     std::string blob;
     if (fs::exists(keyFile)) {
         blob = readFileText(keyFile);
@@ -262,32 +266,58 @@ std::string ServerSide::serveDestinationFor(const std::string& accountFingerprin
     }
     const bazarish::i2p::Keys delegated
         = bazarish::i2p::Keys::fromBlob(fromBase64(blob)).issueTransient(kOwnDelegationDays);
-    destinationExpires_ = delegated.transientExpires();
-    destinations_->provision(account_, toBase64(delegated.blob()), destinationExpires_);
-    return destinations_->assignmentFor(account_, nowSeconds()).dest;
+    {
+        const std::lock_guard<std::mutex> lock(expiresMutex_);
+        destinationExpires_[account] = delegated.transientExpires();
+    }
+    destinations_->provision(account, toBase64(delegated.blob()), delegated.transientExpires());
+    return destinations_->assignmentFor(account, nowSeconds()).dest;
 }
 
-bool ServerSide::destinationNeedsRenewal(const std::int64_t now) const
+bool ServerSide::destinationNeedsRenewal(const std::string& account, const std::int64_t now) const
 {
-    if (account_.empty() || destinationExpires_ == 0) {
-        return false;
+    std::int64_t expires = 0;
+    {
+        const std::lock_guard<std::mutex> lock(expiresMutex_);
+        const auto found = destinationExpires_.find(account);
+        if (found == destinationExpires_.end()) {
+            return false;
+        }
+        expires = found->second;
     }
     const std::int64_t term = kOwnDelegationDays * bazarish::kSecondsPerDay;
-    return now > destinationExpires_
+    return now > expires
         - static_cast<std::int64_t>(static_cast<double>(term) * bazarish::kDelegationRenewAtFraction);
 }
 
-std::string ServerSide::replaceDestinationFor(const std::string& accountFingerprint)
+std::string ServerSide::replaceDestinationFor(const std::string& account)
 {
     std::error_code ignored;
-    fs::remove(stateDir_ / "server" / "destination.key", ignored);
-    return serveDestinationFor(accountFingerprint);
+    fs::remove(keyFileFor(account), ignored);
+    return serveDestinationFor(account);
 }
 
-std::string ServerSide::destination() const
+std::string ServerSide::destination(const std::string& account) const
 {
-    return account_.empty() ? std::string()
-                            : destinations_->assignmentFor(account_, nowSeconds()).dest;
+    {
+        const std::lock_guard<std::mutex> lock(expiresMutex_);
+        if (destinationExpires_.count(account) == 0) {
+            return {};
+        }
+    }
+    return destinations_->assignmentFor(account, nowSeconds()).dest;
+}
+
+void ServerSide::forget(const std::string& account)
+{
+    {
+        const std::lock_guard<std::mutex> lock(expiresMutex_);
+        destinationExpires_.erase(account);
+    }
+    destinations_->revoke(account);
+    storage_->forgetUser(account);
+    std::error_code ignored;
+    fs::remove(keyFileFor(account), ignored);
 }
 
 }  // namespace bazarish::bot

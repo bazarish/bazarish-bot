@@ -39,13 +39,17 @@ int main()
     const fs::path file = fs::temp_directory_path() / "bz-bot-settings.json";
     fs::remove(file);
 
+    const std::string first = "0123456789abcdef";
+    const std::string second = "fedcba9876543210";
+
     {
         Settings settings(file);
         CHECK(settings.transport() == Settings::Transport::eEmbedded);
         CHECK(!settings.hasPassword());
-        CHECK(settings.tokens().empty());
+        CHECK(settings.tokens(first).empty());
         CHECK(!settings.passwordMatches(""));
         CHECK(!settings.passwordMatches("anything"));
+        CHECK(settings.kind(first) == Settings::AccountKind::eBot);
     }
 
     {
@@ -53,9 +57,14 @@ int main()
         settings.setTransport(Settings::Transport::eSam, "127.0.0.1", 7656);
         settings.setPrivacy(bazarish::i2p::Privacy::eMinimal);
         settings.setPassword("correct horse");
-        const auto token = settings.issueToken("nightly-report");
+        CHECK_THROWS(settings.setKind(second, Settings::AccountKind::eGroup));
+        settings.rememberAccount(first, "fp-first", Settings::AccountKind::eBot);
+        settings.rememberAccount(second, "fp-second", Settings::AccountKind::eBot);
+        settings.setKind(second, Settings::AccountKind::eGroup);
+        const auto token = settings.issueToken(first, "nightly-report");
         CHECK(token.secret.size() == 64);
         CHECK(token.createdAt > 0);
+        CHECK(token.account == first);
     }
     {
         Settings settings(file);
@@ -67,22 +76,40 @@ int main()
         CHECK(settings.passwordMatches("correct horse"));
         CHECK(!settings.passwordMatches("correct horse "));
         CHECK(!settings.passwordMatches(""));
-        CHECK(settings.tokens().size() == 1);
+        CHECK(settings.kind(first) == Settings::AccountKind::eBot);
+        CHECK(settings.kind(second) == Settings::AccountKind::eGroup);
+        CHECK(settings.accountWithFingerprint("fp-second") == second);
+        CHECK(settings.accountWithFingerprint("fp-third").empty());
+        CHECK(settings.fingerprintOf(first) == "fp-first");
+        CHECK(settings.fingerprintOf("unknown").empty());
+        CHECK(settings.tokens(first).size() == 1);
+        CHECK(settings.tokens(second).empty());
 
-        const std::string secret = settings.tokens().front().secret;
-        CHECK(settings.tokenNameFor(secret) == "nightly-report");
-        CHECK(settings.tokenNameFor("").empty());
-        CHECK(settings.tokenNameFor(secret.substr(0, secret.size() - 1)).empty());
-        CHECK(settings.tokenNameFor(std::string(secret.size(), 'a')).empty());
+        const std::string secret = settings.tokens(first).front().secret;
+        CHECK(settings.tokenFor(secret)->name == "nightly-report");
+        CHECK(settings.tokenFor(secret)->account == first);
+        CHECK(!settings.tokenFor(""));
+        CHECK(!settings.tokenFor(secret.substr(0, secret.size() - 1)));
+        CHECK(!settings.tokenFor(std::string(secret.size(), 'a')));
 
-        CHECK_THROWS(settings.issueToken("nightly-report"));
-        CHECK(settings.issueToken("deploy-hook").secret != secret);
-        CHECK(settings.tokens().size() == 2);
+        CHECK_THROWS(settings.issueToken(first, "nightly-report"));
+        const auto other = settings.issueToken(second, "nightly-report");
+        CHECK(other.secret != secret);
+        CHECK(settings.tokenFor(other.secret)->account == second);
+        CHECK(settings.issueToken(first, "deploy-hook").secret != secret);
+        CHECK(settings.tokens(first).size() == 2);
 
-        CHECK(settings.revokeToken("nightly-report"));
-        CHECK(!settings.revokeToken("nightly-report"));
-        CHECK(settings.tokenNameFor(secret).empty());
-        CHECK(settings.tokens().size() == 1);
+        CHECK(!settings.revokeToken(second, "deploy-hook"));
+        CHECK(settings.revokeToken(first, "nightly-report"));
+        CHECK(!settings.revokeToken(first, "nightly-report"));
+        CHECK(!settings.tokenFor(secret));
+        CHECK(settings.tokens(first).size() == 1);
+
+        settings.forgetAccount(second);
+        CHECK(!settings.tokenFor(other.secret));
+        CHECK(settings.kind(second) == Settings::AccountKind::eBot);
+        CHECK(settings.accountWithFingerprint("fp-second").empty());
+        CHECK(settings.tokens(first).size() == 1);
     }
 
     {

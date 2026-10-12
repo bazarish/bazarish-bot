@@ -21,8 +21,10 @@ public:
     void stop();
 
 private:
-    void routes();
-    std::string tokenFor(const http::Request& request) const;
+    void apiRoutes();
+    void operatorRoutes();
+    void accountRoutes();
+    std::shared_ptr<Account> accountForToken(const http::Request& request) const;
     bool signedIn(const http::Request& request) const;
 
     Runtime& runtime_;

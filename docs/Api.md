@@ -1,7 +1,7 @@
 # The REST API
 
-Everything a bot does, it does here. The daemon holds the account; the automation
-holds a token.
+Everything a bot does, it does here. The daemon holds the accounts; the
+automation holds a token, and a token opens the one account it was issued for.
 
 ## Opening it
 
@@ -11,7 +11,8 @@ Every call carries the token in the Authorization header:
 Authorization: Bearer <token>
 ```
 
-Tokens are issued in the web interface, under a name, and shown once. A call
+Tokens are issued in the web interface, per account, under a name, and shown
+once. The routes below have no account in them: the token says which. A call
 with no token and a call with a token that is not one of this daemon's are told
 apart, because those are different mistakes:
 
@@ -27,7 +28,7 @@ the status in it: `{"error": "the account is not open: starting"}`.
 
 | Route | What it does |
 |---|---|
-| `GET /v1/status` | the account's fingerprint, name, address and the id of the last event |
+| `GET /v1/status` | the account's fingerprint, name, kind (`bot` or `group`), address and the id of the last event |
 | `GET /v1/invite` | the invite URI to hand out to be added as a contact |
 | `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted and `writable` for whether this account holds the pass that admits it to their mailbox |
 | `POST /v1/contacts` | `{"invite": "...", "text": "..."}` adds one; `{"accept": "<fingerprint>"}` accepts a request |

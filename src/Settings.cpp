@@ -22,9 +22,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-// The SAM port i2pd serves by default.
-constexpr int kDefaultSamPort = 7656;
-constexpr const char* kDefaultSamHost = "127.0.0.1";
 constexpr std::size_t kTokenBytes = 32;
 
 std::string transportName(const Settings::Transport transport)
@@ -38,6 +35,22 @@ std::int64_t nowSeconds()
 }
 
 }  // namespace
+
+std::string accountKindName(const Settings::AccountKind kind)
+{
+    return kind == Settings::AccountKind::eGroup ? "group" : "bot";
+}
+
+std::optional<Settings::AccountKind> accountKindFromName(const std::string& name)
+{
+    if (name == "bot") {
+        return Settings::AccountKind::eBot;
+    }
+    if (name == "group") {
+        return Settings::AccountKind::eGroup;
+    }
+    return std::nullopt;
+}
 
 Settings::Settings(fs::path file)
     : file_(std::move(file))
@@ -69,12 +82,21 @@ void Settings::load()
     passwordHash_ = document.value("passwordHash", std::string());
     for (const nlohmann::json& entry : document.value("tokens", nlohmann::json::array())) {
         ApiToken token;
+        token.account = entry.value("account", std::string());
         token.name = entry.value("name", std::string());
         token.secret = entry.value("secret", std::string());
         token.createdAt = entry.value("createdAt", std::int64_t{0});
-        if (!token.name.empty() && !token.secret.empty()) {
+        if (!token.account.empty() && !token.name.empty() && !token.secret.empty()) {
             tokens_.push_back(std::move(token));
         }
+    }
+    const nlohmann::json accounts = document.value("accounts", nlohmann::json::object());
+    for (const auto& [account, entry] : accounts.items()) {
+        const auto kind = accountKindFromName(entry.value("kind", std::string()));
+        if (!kind) {
+            throw std::runtime_error("settings: account " + account + " has no kind");
+        }
+        accounts_[account] = {entry.value("fingerprint", std::string()), *kind};
     }
 }
 
@@ -82,8 +104,13 @@ void Settings::save() const
 {
     nlohmann::json tokens = nlohmann::json::array();
     for (const ApiToken& token : tokens_) {
-        tokens.push_back({{"name", token.name}, {"secret", token.secret},
-            {"createdAt", token.createdAt}});
+        tokens.push_back({{"account", token.account}, {"name", token.name},
+            {"secret", token.secret}, {"createdAt", token.createdAt}});
+    }
+    nlohmann::json accounts = nlohmann::json::object();
+    for (const auto& [account, entry] : accounts_) {
+        accounts[account]
+            = {{"fingerprint", entry.fingerprint}, {"kind", accountKindName(entry.kind)}};
     }
     const nlohmann::json document = {
         {"transport", transportName(transport_)},
@@ -93,6 +120,7 @@ void Settings::save() const
         {"passwordSalt", passwordSalt_},
         {"passwordHash", passwordHash_},
         {"tokens", tokens},
+        {"accounts", accounts},
     };
     const std::string text = document.dump(2);
     fs::create_directories(file_.parent_path());
@@ -175,26 +203,35 @@ bool Settings::passwordMatches(const std::string& password) const
     return bot::passwordMatches(record, password);
 }
 
-std::vector<ApiToken> Settings::tokens() const
+std::vector<ApiToken> Settings::tokens(const std::string& account) const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    return tokens_;
+    std::vector<ApiToken> held;
+    for (const ApiToken& token : tokens_) {
+        if (token.account == account) {
+            held.push_back(token);
+        }
+    }
+    return held;
 }
 
-ApiToken Settings::issueToken(const std::string& name)
+ApiToken Settings::issueToken(const std::string& account, const std::string& name)
 {
     Bytes secret(kTokenBytes);
     if (RAND_bytes(secret.data(), static_cast<int>(secret.size())) != 1) {
         throw std::runtime_error("token: no randomness available");
     }
     ApiToken token;
+    token.account = account;
     token.name = name;
     token.secret = toHex(secret);
     token.createdAt = nowSeconds();
 
     const std::lock_guard<std::mutex> lock(mutex_);
     const auto same = std::find_if(tokens_.begin(), tokens_.end(),
-        [&name](const ApiToken& held) { return held.name == name; });
+        [&account, &name](const ApiToken& held) {
+            return held.account == account && held.name == name;
+        });
     if (same != tokens_.end()) {
         throw std::runtime_error("a token named \"" + name + "\" is already issued");
     }
@@ -203,11 +240,13 @@ ApiToken Settings::issueToken(const std::string& name)
     return token;
 }
 
-bool Settings::revokeToken(const std::string& name)
+bool Settings::revokeToken(const std::string& account, const std::string& name)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     const auto found = std::find_if(tokens_.begin(), tokens_.end(),
-        [&name](const ApiToken& held) { return held.name == name; });
+        [&account, &name](const ApiToken& held) {
+            return held.account == account && held.name == name;
+        });
     if (found == tokens_.end()) {
         return false;
     }
@@ -216,19 +255,73 @@ bool Settings::revokeToken(const std::string& name)
     return true;
 }
 
-std::string Settings::tokenNameFor(const std::string& secret) const
+std::optional<ApiToken> Settings::tokenFor(const std::string& secret) const
 {
     if (secret.empty()) {
-        return {};
+        return std::nullopt;
     }
     const std::lock_guard<std::mutex> lock(mutex_);
     for (const ApiToken& token : tokens_) {
         if (token.secret.size() == secret.size()
             && CRYPTO_memcmp(token.secret.data(), secret.data(), secret.size()) == 0) {
-            return token.name;
+            return token;
+        }
+    }
+    return std::nullopt;
+}
+
+void Settings::rememberAccount(
+    const std::string& account, const std::string& fingerprint, const AccountKind kind)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    accounts_[account] = {fingerprint, kind};
+    save();
+}
+
+std::string Settings::accountWithFingerprint(const std::string& fingerprint) const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto& [account, entry] : accounts_) {
+        if (entry.fingerprint == fingerprint) {
+            return account;
         }
     }
     return {};
+}
+
+std::string Settings::fingerprintOf(const std::string& account) const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = accounts_.find(account);
+    return found == accounts_.end() ? std::string() : found->second.fingerprint;
+}
+
+Settings::AccountKind Settings::kind(const std::string& account) const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = accounts_.find(account);
+    return found == accounts_.end() ? AccountKind::eBot : found->second.kind;
+}
+
+void Settings::setKind(const std::string& account, const AccountKind kind)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = accounts_.find(account);
+    if (found == accounts_.end()) {
+        throw std::runtime_error("no account " + account + " to set the kind of");
+    }
+    found->second.kind = kind;
+    save();
+}
+
+void Settings::forgetAccount(const std::string& account)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    accounts_.erase(account);
+    tokens_.erase(std::remove_if(tokens_.begin(), tokens_.end(),
+                      [&account](const ApiToken& held) { return held.account == account; }),
+        tokens_.end());
+    save();
 }
 
 }  // namespace bazarish::bot

@@ -1,9 +1,9 @@
 {
-  // Where this daemon keeps its account, its mailbox and its I2P state.
+  // Where this daemon keeps its accounts, their mailboxes and its I2P state.
   "state": "/var/lib/bazarish/bot",
 
   // Where the web interface and the REST API answer. Everything else - the
-  // transport, the account, the tokens that open the API - is set in that
+  // transport, the accounts, the tokens that open the API - is set in that
   // interface, not here. Keep this on loopback unless something else terminates
   // TLS in front of it: what is served here opens the account.
   "listen": {"host": "127.0.0.1", "port": 8440},

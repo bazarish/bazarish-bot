@@ -9,8 +9,9 @@
 
 #include <ctime>
 #include <functional>
-#include <thread>
+#include <memory>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 
 namespace bazarish::bot {
@@ -23,6 +24,7 @@ constexpr const char* kOperator = "operator";
 constexpr const char* kSessionCookie = "bazarish_bot";
 constexpr int kDefaultWaitSeconds = 30;
 constexpr int kDefaultPage = 50;
+constexpr const char* kAccountPath = "/ui/accounts/([0-9a-f]+)";
 
 std::string sessionSecret()
 {
@@ -139,6 +141,53 @@ nlohmann::json linesJson(const std::vector<Line>& lines)
     return array;
 }
 
+nlohmann::json peersJson(const std::vector<Account::Peer>& peers)
+{
+    nlohmann::json array = nlohmann::json::array();
+    for (const Account::Peer& peer : peers) {
+        array.push_back({{"fingerprint", peer.fingerprint}, {"name", peer.name},
+            {"pending", peer.pending}, {"writable", peer.writable}});
+    }
+    return array;
+}
+
+nlohmann::json pairingJson(const Account::Pairing& pairing)
+{
+    return {
+        {"active", pairing.active},
+        {"uri", pairing.uri},
+        {"code", pairing.code},
+        {"stage", pairing.stage},
+        {"done", pairing.done},
+        {"total", pairing.total},
+        {"wrongCodes", pairing.wrongCodes},
+        {"error", pairing.error},
+    };
+}
+
+nlohmann::json pairingImportJson(const Runtime::PairingImport& pairing)
+{
+    return {
+        {"active", pairing.active},
+        {"needsCode", pairing.needsCode},
+        {"stage", pairing.stage},
+        {"done", pairing.done},
+        {"total", pairing.total},
+        {"triesLeft", pairing.triesLeft},
+        {"error", pairing.error},
+        {"account", pairing.account},
+    };
+}
+
+Settings::AccountKind kindParam(const nlohmann::json& body)
+{
+    const auto kind = accountKindFromName(body.value("kind", std::string("bot")));
+    if (!kind) {
+        throw std::runtime_error("an account is a \"bot\" or a \"group\"");
+    }
+    return *kind;
+}
+
 int intParam(const http::Request& request, const std::string& key, const int fallback)
 {
     const std::string text = request.query(key);
@@ -165,6 +214,45 @@ std::int64_t longParam(const http::Request& request, const std::string& key)
     }
 }
 
+void answerEvents(const std::shared_ptr<Account>& account, const http::Request& request,
+    http::Responder respond)
+{
+    const std::int64_t since = longParam(request, "since");
+    const int wait = intParam(request, "wait", kDefaultWaitSeconds);
+    std::thread([account, since, wait, respond = std::move(respond)]() {
+        try {
+            const std::vector<Event> events = account->await(since, wait);
+            respond(json({{"events", eventsJson(events)},
+                {"lastEventId", events.empty() ? since : events.back().id}}));
+        } catch (const std::exception& error) {
+            respond(failure(503, error.what()));
+        }
+    }).detach();
+}
+
+nlohmann::json accountJson(Account& account, Settings& settings)
+{
+    nlohmann::json tokens = nlohmann::json::array();
+    for (const ApiToken& token : settings.tokens(account.id())) {
+        tokens.push_back({{"name", token.name}, {"createdAt", token.createdAt}});
+    }
+    const bool running = account.running();
+    const Account::PendingRouting owed = account.pendingRouting();
+    return {
+        {"id", account.id()},
+        {"kind", accountKindName(account.kind())},
+        {"fingerprint", running ? account.fingerprint() : settings.fingerprintOf(account.id())},
+        {"name", account.displayName()},
+        {"destination", account.destination()},
+        {"invite", running ? account.inviteUri() : std::string()},
+        {"running", running},
+        {"status", account.status()},
+        {"pendingRouting", owed.contacts},
+        {"pendingRegistry", owed.registry},
+        {"tokens", tokens},
+    };
+}
+
 }  // namespace
 
 HttpFace::HttpFace(Runtime& runtime, std::filesystem::path assets)
@@ -179,14 +267,14 @@ HttpFace::~HttpFace()
     stop();
 }
 
-std::string HttpFace::tokenFor(const http::Request& request) const
+std::shared_ptr<Account> HttpFace::accountForToken(const http::Request& request) const
 {
     const std::string header = request.header("authorization");
     static const std::string kBearer = "Bearer ";
     if (header.size() <= kBearer.size() || header.compare(0, kBearer.size(), kBearer) != 0) {
-        return {};
+        return nullptr;
     }
-    return runtime_.settings().tokenNameFor(header.substr(kBearer.size()));
+    return runtime_.accountForToken(header.substr(kBearer.size()));
 }
 
 bool HttpFace::signedIn(const http::Request& request) const
@@ -208,7 +296,9 @@ int HttpFace::start()
     options.host = runtime_.config().listenHost;
     options.port = runtime_.config().listenPort;
     server_ = std::make_unique<http::Server>(options);
-    routes();
+    apiRoutes();
+    operatorRoutes();
+    accountRoutes();
     const int bound = server_->start();
     if (bound == 0) {
         throw std::runtime_error("cannot answer on " + options.host + ":"
@@ -225,154 +315,151 @@ void HttpFace::stop()
     }
 }
 
-void HttpFace::routes()
+void HttpFace::apiRoutes()
 {
-    const auto guarded = [this](const http::Request& request,
-                             const std::function<http::Response(const http::Request&)>& handler) {
-        if (tokenFor(request).empty()) {
+    using Handler = std::function<http::Response(Account&, const http::Request&)>;
+    const auto guarded = [this](const http::Request& request, const Handler& handler) {
+        const std::shared_ptr<Account> account = accountForToken(request);
+        if (account == nullptr) {
             return failure(401, request.hasHeader("authorization")
                     ? "this token does not open the API"
                     : "the API is opened by a token in the Authorization header");
         }
-        if (!runtime_.running()) {
-            return failure(503, "the account is not open: " + runtime_.status());
+        if (!account->running()) {
+            return failure(503, "the account is not open: " + account->status());
         }
         try {
-            return handler(request);
+            return handler(*account, request);
         } catch (const std::exception& error) {
             return failure(400, error.what());
         }
     };
 
-    server_->get("/v1/status", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request&) {
+    server_->get("/v1/status", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request&) {
             return json({
-                {"fingerprint", runtime_.fingerprint()},
-                {"name", runtime_.displayName()},
-                {"destination", runtime_.destination()},
-                {"status", runtime_.status()},
-                {"lastEventId", runtime_.lastEventId()},
+                {"fingerprint", account.fingerprint()},
+                {"name", account.displayName()},
+                {"kind", accountKindName(account.kind())},
+                {"destination", account.destination()},
+                {"status", account.status()},
+                {"lastEventId", account.lastEventId()},
             });
         });
     });
 
-    server_->get("/v1/invite", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request&) {
-            return json({{"invite", runtime_.inviteUri()}});
+    server_->get("/v1/invite", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request&) {
+            return json({{"invite", account.inviteUri()}});
         });
     });
 
-    server_->get("/v1/contacts", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request&) {
-            nlohmann::json array = nlohmann::json::array();
-            for (const Runtime::Peer& peer : runtime_.contacts()) {
-                array.push_back({{"fingerprint", peer.fingerprint}, {"name", peer.name},
-                    {"pending", peer.pending}, {"writable", peer.writable}});
-            }
-            return json(array);
+    server_->get("/v1/contacts", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request&) {
+            return json(peersJson(account.contacts()));
         });
     });
 
-    server_->post("/v1/contacts", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request& call) {
+    server_->post("/v1/contacts", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
             const nlohmann::json body = nlohmann::json::parse(call.body);
             if (body.contains("invite")) {
                 return json({{"fingerprint",
-                    runtime_.addByInvite(body.at("invite").get<std::string>(),
+                    account.addByInvite(body.at("invite").get<std::string>(),
                         body.value("text", std::string()))}});
             }
             if (body.contains("accept")) {
-                runtime_.acceptContact(body.at("accept").get<std::string>());
+                account.acceptContact(body.at("accept").get<std::string>());
                 return json({{"accepted", body.at("accept")}});
             }
             return failure(400, "a contact is added by an \"invite\" or accepted by \"accept\"");
         });
     });
 
-    server_->get("/v1/chats", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request&) {
-            return json(linesJson(runtime_.chats()));
+    server_->get("/v1/chats", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request&) {
+            return json(linesJson(account.chats()));
         });
     });
 
-    server_->get("/v1/messages", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request& call) {
+    server_->get("/v1/messages", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
             const std::string peer = call.query("peer");
             if (peer.empty()) {
                 return failure(400, "\"peer\" names whose conversation to read");
             }
-            return json(linesJson(runtime_.conversation(peer, longParam(call, "before"),
+            return json(linesJson(account.conversation(peer, longParam(call, "before"),
                 intParam(call, "limit", kDefaultPage))));
         });
     });
 
-    server_->post("/v1/messages", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request& call) {
+    server_->post("/v1/messages", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
             const nlohmann::json body = nlohmann::json::parse(call.body);
             const std::string peer = body.value("peer", std::string());
             const std::string text = body.value("text", std::string());
             if (peer.empty() || text.empty()) {
                 return failure(400, "a message is a \"peer\" and a \"text\"");
             }
-            const Runtime::Sent sent = body.contains("keyboard")
-                ? runtime_.sendKeyboard(peer, text, body.at("keyboard").dump())
-                : runtime_.sendText(peer, text);
+            const Account::Sent sent = body.contains("keyboard")
+                ? account.sendKeyboard(peer, text, body.at("keyboard").dump())
+                : account.sendText(peer, text);
             return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
         });
     });
 
-    server_->post("/v1/messages/([0-9a-f]+)", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request& call) {
+    server_->post("/v1/messages/([0-9a-f]+)", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
             const nlohmann::json body = nlohmann::json::parse(call.body);
             const std::string peer = body.value("peer", std::string());
             if (peer.empty()) {
                 return failure(400, "\"peer\" names whose conversation the message is in");
             }
-            runtime_.editMessage(peer, call.captures.at(0), body.value("text", std::string()));
+            account.editMessage(peer, call.captures.at(0), body.value("text", std::string()));
             return json({{"edited", call.captures.at(0)}});
         });
     });
 
-    server_->del("/v1/messages/([0-9a-f]+)", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request& call) {
+    server_->del("/v1/messages/([0-9a-f]+)", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
             const std::string peer = call.query("peer");
             if (peer.empty()) {
                 return failure(400, "\"peer\" names whose conversation the message is in");
             }
-            runtime_.deleteMessage(peer, call.captures.at(0));
+            account.deleteMessage(peer, call.captures.at(0));
             return json({{"deleted", call.captures.at(0)}});
         });
     });
 
-    server_->post("/v1/reactions", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request& call) {
+    server_->post("/v1/reactions", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
             const nlohmann::json body = nlohmann::json::parse(call.body);
             const std::string peer = body.value("peer", std::string());
             const std::string messageId = body.value("messageId", std::string());
             if (peer.empty() || messageId.empty()) {
                 return failure(400, "a reaction is a \"peer\", a \"messageId\" and an \"emoji\"");
             }
-            runtime_.react(peer, messageId, body.value("emoji", std::string()));
+            account.react(peer, messageId, body.value("emoji", std::string()));
             return json({{"ok", true}});
         });
     });
 
-    server_->post("/v1/chats/([a-z2-7]+)/clear", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request& call) {
-            runtime_.clearChat(call.captures.at(0));
+    server_->post("/v1/chats/([a-z2-7]+)/clear", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            account.clearChat(call.captures.at(0));
             return json({{"cleared", call.captures.at(0)}});
         });
     });
 
-    server_->post("/v1/receipts", [this, guarded](const http::Request& request) {
-        return guarded(request, [this](const http::Request& call) {
+    server_->post("/v1/receipts", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
             const nlohmann::json body = nlohmann::json::parse(call.body);
             const std::string peer = body.value("peer", std::string());
             const std::string messageId = body.value("messageId", std::string());
             if (peer.empty() || messageId.empty()) {
                 return failure(400, "a receipt is a \"peer\" and a \"messageId\"");
             }
-            runtime_.confirmReceipt(peer, messageId);
+            account.confirmReceipt(peer, messageId);
             return json({{"ok", true}});
         });
     });
@@ -380,28 +467,22 @@ void HttpFace::routes()
     server_->getAsync("/v1/events",
         [this](const http::Request& request, http::Responder respond)
             -> std::optional<http::Response> {
-            if (tokenFor(request).empty()) {
+            const std::shared_ptr<Account> account = accountForToken(request);
+            if (account == nullptr) {
                 return failure(401, "the API is opened by a token in the Authorization header");
             }
-            if (!runtime_.running()) {
-                return failure(503, "the account is not open: " + runtime_.status());
+            if (!account->running()) {
+                return failure(503, "the account is not open: " + account->status());
             }
-            const std::int64_t since = longParam(request, "since");
-            const int wait = intParam(request, "wait", kDefaultWaitSeconds);
-            std::thread([this, since, wait, respond = std::move(respond)]() {
-                try {
-                    const std::vector<Event> events = runtime_.await(since, wait);
-                    respond(json({{"events", eventsJson(events)},
-                        {"lastEventId", events.empty() ? since : events.back().id}}));
-                } catch (const std::exception& error) {
-                    respond(failure(503, error.what()));
-                }
-            }).detach();
+            answerEvents(account, request, std::move(respond));
             return std::nullopt;
         });
+}
 
-    const auto operatorOnly = [this](const http::Request& request,
-                                  const std::function<http::Response(const http::Request&)>& handler) {
+void HttpFace::operatorRoutes()
+{
+    using Handler = std::function<http::Response(const http::Request&)>;
+    const auto operatorOnly = [this](const http::Request& request, const Handler& handler) {
         if (!signedIn(request)) {
             return failure(401, "sign in first");
         }
@@ -416,9 +497,6 @@ void HttpFace::routes()
         return json({
             {"hasPassword", runtime_.settings().hasPassword()},
             {"signedIn", signedIn(request)},
-            {"hasAccount", runtime_.hasAccount()},
-            {"running", runtime_.running()},
-            {"status", runtime_.status()},
         });
     });
 
@@ -470,20 +548,17 @@ void HttpFace::routes()
     server_->get("/ui/settings", [this, operatorOnly](const http::Request& request) {
         return operatorOnly(request, [this](const http::Request&) {
             Settings& settings = runtime_.settings();
-            nlohmann::json tokens = nlohmann::json::array();
-            for (const ApiToken& token : settings.tokens()) {
-                tokens.push_back({{"name", token.name}, {"createdAt", token.createdAt}});
+            bool anyRunning = false;
+            for (const Runtime::Summary& summary : runtime_.accounts()) {
+                anyRunning = anyRunning || summary.running;
             }
             return json({
                 {"transport", settings.transport() == Settings::Transport::eSam ? "sam"
                                                                                 : "embedded"},
                 {"samHost", settings.samHost()},
                 {"samPort", settings.samPort()},
-                {"privacy", settings.privacy() == i2p::Privacy::eMinimal ? "minimal"
-                        : settings.privacy() == i2p::Privacy::eMax       ? "max"
-                                                                        : "middle"},
-                {"tokens", tokens},
-                {"restartNeeded", runtime_.running()},
+                {"privacy", std::string(privacyName(settings.privacy()))},
+                {"restartNeeded", anyRunning},
             });
         });
     });
@@ -498,8 +573,8 @@ void HttpFace::routes()
                 }
                 runtime_.settings().setTransport(
                     named == "sam" ? Settings::Transport::eSam : Settings::Transport::eEmbedded,
-                    body.value("samHost", std::string("127.0.0.1")),
-                    body.value("samPort", 7656));
+                    body.value("samHost", std::string(kDefaultSamHost)),
+                    body.value("samPort", kDefaultSamPort));
             }
             if (body.contains("privacy")) {
                 const auto parsed = i2p::privacyFromString(body.at("privacy").get<std::string>());
@@ -512,198 +587,67 @@ void HttpFace::routes()
         });
     });
 
-    server_->post("/ui/tokens", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            const std::string name = body.value("name", std::string());
-            if (name.empty()) {
-                return failure(400, "a token is issued under a name");
-            }
-            const ApiToken token = runtime_.settings().issueToken(name);
-            return json({{"name", token.name}, {"token", token.secret},
-                {"createdAt", token.createdAt}});
-        });
-    });
-
-    server_->del("/ui/tokens/([^/]+)", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request& call) {
-            if (!runtime_.settings().revokeToken(call.captures.at(0))) {
-                return failure(404, "no token by that name");
-            }
-            return json({{"ok", true}});
-        });
-    });
-
-    server_->post("/ui/account", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            const std::string action = body.value("action", std::string());
-            const std::string passphrase = body.value("passphrase", std::string());
-            if (action == "create") {
-                runtime_.createAccount(body.value("name", std::string()), passphrase);
-                return json({{"status", runtime_.status()}});
-            }
-            if (action == "import") {
-                return json({{"status", [&]() {
-                    runtime_.importAccount(fromBase64(body.value("bundle", std::string())),
-                        body.value("bundlePassphrase", std::string()), passphrase);
-                    return runtime_.status();
-                }()}});
-            }
-            if (action == "rename") {
-                runtime_.rename(body.value("name", std::string()));
-                return json({{"name", body.value("name", std::string())}});
-            }
-            if (action == "new-address") {
-                runtime_.newAddress();
-                return json({{"address", runtime_.destination()}});
-            }
-            if (action == "retry-routing") {
-                runtime_.retryRouting(body.value("peer", std::string()));
-                return json({{"sending", true}});
-            }
-            if (action == "open") {
-                runtime_.start(passphrase);
-                return json({{"status", runtime_.status()}});
-            }
-            return failure(400,
-                "the action is create, import, open, rename, new-address or retry-routing");
-        });
-    });
-
-    server_->post("/ui/account/export", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            const Bytes bundle = runtime_.exportAccount(
-                body.value("bundlePassphrase", std::string()));
-            http::Response response;
-            response.contentType = "application/octet-stream";
-            response.headers["Content-Disposition"]
-                = "attachment; filename=\"" + backupFileName(runtime_.displayName()) + "\"";
-            response.body.assign(bundle.begin(), bundle.end());
-            return response;
-        });
-    });
-
-    server_->get("/ui/account", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request&) {
-            const Runtime::PendingRouting owed = runtime_.pendingRouting();
-            return json({
-                {"fingerprint", runtime_.fingerprint()},
-                {"name", runtime_.displayName()},
-                {"destination", runtime_.destination()},
-                {"invite", runtime_.running() ? runtime_.inviteUri() : std::string()},
-                {"status", runtime_.status()},
-                {"pendingRouting", owed.contacts},
-                {"pendingRegistry", owed.registry},
-            });
-        });
-    });
-
-    server_->get("/ui/contacts", [this, operatorOnly](const http::Request& request) {
+    server_->get("/ui/accounts", [this, operatorOnly](const http::Request& request) {
         return operatorOnly(request, [this](const http::Request&) {
             nlohmann::json array = nlohmann::json::array();
-            for (const Runtime::Peer& peer : runtime_.contacts()) {
-                array.push_back({{"fingerprint", peer.fingerprint}, {"name", peer.name},
-                    {"pending", peer.pending}, {"writable", peer.writable}});
+            for (const Runtime::Summary& summary : runtime_.accounts()) {
+                array.push_back({
+                    {"id", summary.id},
+                    {"name", summary.name},
+                    {"fingerprint", summary.fingerprint},
+                    {"kind", accountKindName(summary.kind)},
+                    {"running", summary.running},
+                    {"status", summary.status},
+                });
             }
             return json(array);
         });
     });
 
-    server_->get("/ui/chats", [this, operatorOnly](const http::Request& request) {
+    server_->post("/ui/accounts", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string action = body.value("action", std::string());
+            const std::string passphrase = body.value("passphrase", std::string());
+            if (action == "create") {
+                return json({{"id", runtime_.createAccount(body.value("name", std::string()),
+                                        passphrase, kindParam(body))}});
+            }
+            if (action == "import") {
+                return json({{"id",
+                    runtime_.importAccount(fromBase64(body.value("bundle", std::string())),
+                        body.value("bundlePassphrase", std::string()), passphrase,
+                        kindParam(body))}});
+            }
+            return failure(400, "the action is create or import");
+        });
+    });
+
+    server_->get("/ui/pairing", [this, operatorOnly](const http::Request& request) {
         return operatorOnly(request, [this](const http::Request&) {
-            return json(linesJson(runtime_.chats()));
+            return json(pairingImportJson(runtime_.pairingImport()));
         });
     });
 
-    server_->get("/ui/messages", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request& call) {
-            const std::string peer = call.query("peer");
-            if (peer.empty()) {
-                return failure(400, "\"peer\" names whose conversation to read");
-            }
-            return json(linesJson(runtime_.conversation(peer, longParam(call, "before"),
-                intParam(call, "limit", kDefaultPage))));
-        });
-    });
-
-    server_->post("/ui/messages", [this, operatorOnly](const http::Request& request) {
+    server_->post("/ui/pairing", [this, operatorOnly](const http::Request& request) {
         return operatorOnly(request, [this](const http::Request& call) {
             const nlohmann::json body = nlohmann::json::parse(call.body);
-            const std::string peer = body.value("peer", std::string());
-            const std::string text = body.value("text", std::string());
-            if (peer.empty() || text.empty()) {
-                return failure(400, "a message is a \"peer\" and a \"text\"");
+            if (body.contains("code")) {
+                runtime_.submitPairCode(body.at("code").get<std::string>());
+            } else {
+                runtime_.startPairingImport(body.value("link", std::string()),
+                    body.value("passphrase", std::string()), kindParam(body));
             }
-            const Runtime::Sent sent = runtime_.sendText(peer, text);
-            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
+            return json(pairingImportJson(runtime_.pairingImport()));
         });
     });
 
-    server_->post("/ui/contacts", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            if (body.contains("invite")) {
-                return json({{"fingerprint",
-                    runtime_.addByInvite(body.at("invite").get<std::string>(),
-                        body.value("text", std::string()))}});
-            }
-            if (body.contains("accept")) {
-                runtime_.acceptContact(body.at("accept").get<std::string>());
-                return json({{"accepted", body.at("accept")}});
-            }
-            return failure(400, "a contact is added by an \"invite\" or accepted by \"accept\"");
-        });
-    });
-
-    server_->post("/ui/messages/([0-9a-f]+)", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            runtime_.editMessage(body.value("peer", std::string()), call.captures.at(0),
-                body.value("text", std::string()));
-            return json({{"edited", call.captures.at(0)}});
-        });
-    });
-
-    server_->del("/ui/messages/([0-9a-f]+)", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request& call) {
-            runtime_.deleteMessage(call.query("peer"), call.captures.at(0));
-            return json({{"deleted", call.captures.at(0)}});
-        });
-    });
-
-    server_->post("/ui/reactions", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            runtime_.react(body.value("peer", std::string()),
-                body.value("messageId", std::string()), body.value("emoji", std::string()));
+    server_->del("/ui/pairing", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request&) {
+            runtime_.cancelPairingImport();
             return json({{"ok", true}});
         });
     });
-
-    server_->getAsync("/ui/events",
-        [this](const http::Request& request, http::Responder respond)
-            -> std::optional<http::Response> {
-            if (!signedIn(request)) {
-                return failure(401, "sign in first");
-            }
-            if (!runtime_.running()) {
-                return failure(503, "the account is not open: " + runtime_.status());
-            }
-            const std::int64_t since = longParam(request, "since");
-            const int wait = intParam(request, "wait", kDefaultWaitSeconds);
-            std::thread([this, since, wait, respond = std::move(respond)]() {
-                try {
-                    const std::vector<Event> events = runtime_.await(since, wait);
-                    respond(json({{"events", eventsJson(events)},
-                        {"lastEventId", events.empty() ? since : events.back().id}}));
-                } catch (const std::exception& error) {
-                    respond(failure(503, error.what()));
-                }
-            }).detach();
-            return std::nullopt;
-        });
 
     server_->get("/", [this](const http::Request& request) {
         http::Response response;
@@ -722,6 +666,219 @@ void HttpFace::routes()
             return failure(404, "no such file");
         }
     });
+}
+
+void HttpFace::accountRoutes()
+{
+    using Handler = std::function<http::Response(Account&, const http::Request&)>;
+    const auto forAccount = [this](const http::Request& request, const Handler& handler) {
+        if (!signedIn(request)) {
+            return failure(401, "sign in first");
+        }
+        try {
+            const std::shared_ptr<Account> account = runtime_.account(request.captures.at(0));
+            return handler(*account, request);
+        } catch (const std::exception& error) {
+            return failure(400, error.what());
+        }
+    };
+    const std::string base = kAccountPath;
+
+    server_->get(base, [this, forAccount](const http::Request& request) {
+        return forAccount(request, [this](Account& account, const http::Request&) {
+            return json(accountJson(account, runtime_.settings()));
+        });
+    });
+
+    server_->post(base, [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string action = body.value("action", std::string());
+            if (action == "open") {
+                account.open(body.value("passphrase", std::string()));
+                return json({{"status", account.status()}});
+            }
+            if (action == "kind") {
+                account.setKind(kindParam(body));
+                return json({{"kind", accountKindName(account.kind())}});
+            }
+            if (action == "rename") {
+                account.rename(body.value("name", std::string()));
+                return json({{"name", body.value("name", std::string())}});
+            }
+            if (action == "new-address") {
+                account.newAddress();
+                return json({{"address", account.destination()}});
+            }
+            if (action == "retry-routing") {
+                account.retryRouting(body.value("peer", std::string()));
+                return json({{"sending", true}});
+            }
+            return failure(400, "the action is open, kind, rename, new-address or retry-routing");
+        });
+    });
+
+    server_->del(base, [this](const http::Request& request) {
+        if (!signedIn(request)) {
+            return failure(401, "sign in first");
+        }
+        try {
+            runtime_.removeAccount(request.captures.at(0));
+            return json({{"ok", true}});
+        } catch (const std::exception& error) {
+            return failure(400, error.what());
+        }
+    });
+
+    server_->post(base + "/export", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const Bytes bundle = account.exportBundle(body.value("bundlePassphrase", std::string()));
+            http::Response response;
+            response.contentType = "application/octet-stream";
+            response.headers["Content-Disposition"]
+                = "attachment; filename=\"" + backupFileName(account.displayName()) + "\"";
+            response.body.assign(bundle.begin(), bundle.end());
+            return response;
+        });
+    });
+
+    server_->get(base + "/pairing", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            return json(pairingJson(account.pairing()));
+        });
+    });
+
+    server_->post(base + "/pairing", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            return json(pairingJson(account.startPairing()));
+        });
+    });
+
+    server_->del(base + "/pairing", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            account.stopPairing();
+            return json({{"ok", true}});
+        });
+    });
+
+    server_->post(base + "/tokens", [this, forAccount](const http::Request& request) {
+        return forAccount(request, [this](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string name = body.value("name", std::string());
+            if (name.empty()) {
+                return failure(400, "a token is issued under a name");
+            }
+            const ApiToken token = runtime_.settings().issueToken(account.id(), name);
+            return json({{"name", token.name}, {"token", token.secret},
+                {"createdAt", token.createdAt}});
+        });
+    });
+
+    server_->del(base + "/tokens/([^/]+)", [this, forAccount](const http::Request& request) {
+        return forAccount(request, [this](Account& account, const http::Request& call) {
+            if (!runtime_.settings().revokeToken(account.id(), call.captures.at(1))) {
+                return failure(404, "no token by that name");
+            }
+            return json({{"ok", true}});
+        });
+    });
+
+    server_->get(base + "/contacts", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            return json(peersJson(account.contacts()));
+        });
+    });
+
+    server_->post(base + "/contacts", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            if (body.contains("invite")) {
+                return json({{"fingerprint",
+                    account.addByInvite(body.at("invite").get<std::string>(),
+                        body.value("text", std::string()))}});
+            }
+            if (body.contains("accept")) {
+                account.acceptContact(body.at("accept").get<std::string>());
+                return json({{"accepted", body.at("accept")}});
+            }
+            return failure(400, "a contact is added by an \"invite\" or accepted by \"accept\"");
+        });
+    });
+
+    server_->get(base + "/chats", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            return json(linesJson(account.chats()));
+        });
+    });
+
+    server_->get(base + "/messages", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const std::string peer = call.query("peer");
+            if (peer.empty()) {
+                return failure(400, "\"peer\" names whose conversation to read");
+            }
+            return json(linesJson(account.conversation(peer, longParam(call, "before"),
+                intParam(call, "limit", kDefaultPage))));
+        });
+    });
+
+    server_->post(base + "/messages", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string peer = body.value("peer", std::string());
+            const std::string text = body.value("text", std::string());
+            if (peer.empty() || text.empty()) {
+                return failure(400, "a message is a \"peer\" and a \"text\"");
+            }
+            const Account::Sent sent = account.sendText(peer, text);
+            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
+        });
+    });
+
+    server_->post(base + "/messages/([0-9a-f]+)", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            account.editMessage(body.value("peer", std::string()), call.captures.at(1),
+                body.value("text", std::string()));
+            return json({{"edited", call.captures.at(1)}});
+        });
+    });
+
+    server_->del(base + "/messages/([0-9a-f]+)", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            account.deleteMessage(call.query("peer"), call.captures.at(1));
+            return json({{"deleted", call.captures.at(1)}});
+        });
+    });
+
+    server_->post(base + "/reactions", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            account.react(body.value("peer", std::string()),
+                body.value("messageId", std::string()), body.value("emoji", std::string()));
+            return json({{"ok", true}});
+        });
+    });
+
+    server_->getAsync(base + "/events",
+        [this](const http::Request& request, http::Responder respond)
+            -> std::optional<http::Response> {
+            if (!signedIn(request)) {
+                return failure(401, "sign in first");
+            }
+            std::shared_ptr<Account> account;
+            try {
+                account = runtime_.account(request.captures.at(0));
+            } catch (const std::exception& error) {
+                return failure(404, error.what());
+            }
+            if (!account->running()) {
+                return failure(503, "the account is not open: " + account->status());
+            }
+            answerEvents(account, request, std::move(respond));
+            return std::nullopt;
+        });
 }
 
 }  // namespace bazarish::bot

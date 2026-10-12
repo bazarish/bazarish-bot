@@ -648,6 +648,10 @@ textarea.field {
     cursor: default;
 }
 
+.btn[hidden] {
+    display: none;
+}
+
 .btn-quiet {
     background: transparent;
     border-color: var(--bz-line-2);
@@ -719,39 +723,50 @@ textarea.field {
     min-height: 5.5rem;
 }
 
-.rail {
-    margin-bottom: 1.5rem;
-    padding: 0.7rem 0.8rem;
-    background: var(--bz-surface);
-    border: 1px solid var(--bz-line);
-    border-radius: var(--bz-radius-sm);
-    font-size: 0.7rem;
+.accounts {
+    margin: 0 0 1.25rem;
+    padding: 0;
+    list-style: none;
 }
 
-.rail-line {
+.accounts a {
     display: flex;
     align-items: center;
     gap: 0.45rem;
+    padding: 0.45rem 0.6rem;
+    margin-bottom: 0.2rem;
+    border: 1px solid transparent;
+    border-radius: var(--bz-radius-sm);
     color: var(--bz-ink-dim);
-}
-
-.rail-line + .rail-line {
-    margin-top: 0.4rem;
-}
-
-.rail-name {
-    color: var(--bz-ink);
+    text-decoration: none;
     font-size: 0.78rem;
+}
+
+.accounts a:hover {
+    background: var(--bz-surface);
+    color: var(--bz-ink);
+}
+
+.accounts a.is-current {
+    background: var(--bz-surface);
+    border-color: var(--bz-line);
+    color: var(--bz-ink);
+}
+
+.account-name {
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.rail-addr {
-    color: var(--bz-ink-faint);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+.pair-code {
+    margin: 0.75rem 0;
+    color: var(--bz-green);
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: 0.3em;
 }
 
 .chat {

@@ -3,9 +3,37 @@
 ## The job
 
 An operator writes automation. They should not have to learn sealed envelopes,
-delivery passes, destinations or leasesets to do it. So the daemon holds one
-Bazarish account and offers two faces over it: a REST API for the automation,
+delivery passes, destinations or leasesets to do it. So the daemon holds
+Bazarish accounts and offers two faces over them: a REST API for the automation,
 and a web interface for the human who runs it.
+
+## Many accounts, one router
+
+The daemon is shaped like the desktop client: one I2P router for the process,
+and as many accounts on it as the operator adds. One server side - mailbox,
+account node, facade - serves all of them, and each account still federates on
+a destination of its own, so the accounts here are no easier to tie together
+than accounts on any other server. An API token opens the one account it was
+issued for; the web interface is the operator's and sees every account.
+
+## Bot and group
+
+Every account is one of two kinds, set when it is added and changeable later.
+They differ only in how they send.
+
+- A **bot** sends the way every client does: from an outbound address held for
+  that one correspondent, never reused for another.
+- A **group** sends `content` to all its members from one outbound address. A
+  group relays every post to every member, so building and holding an address
+  per member is what limits it; with one address the cost is paid once. The
+  price is that a server holding several members sees one sender in their
+  mailboxes and learns they share a group, though not which. The protocol
+  allows this for a group host and nobody else (`docs-main`,
+  `api/Federation.md`).
+
+Contact requests leave from an address of their own in both kinds. The shared
+address lives by the same rule as any other: an hour at most, and closed after
+ten minutes without a delivery.
 
 Everything that makes a conversation a *bot* conversation - commands, inline
 keyboards, callbacks - is end-to-end content and nothing else. The
@@ -30,15 +58,15 @@ server publish the address as an **encrypted** leaseset without holding the
 master signing key, and the server refuses a delegation that has none: a bare
 master would build tunnels and then never publish.
 
-So the daemon keeps its master on disk and issues a delegation to its own server
-side, re-issuing it from that master well before the term runs out. Two things
-follow:
+So the daemon keeps each account's master on disk and issues a delegation to its
+own server side, re-issuing it from that master well before the term runs out.
+Two things follow:
 
 - The address is the blinded b33 of an encrypted leaseset, like every other
   destination in the project. Nothing is forced back to a plain b32.
 - The SAM transport asks an external router for the same encrypted leaseset, so
-  borrowing a router stays possible - which is what makes many accounts on one
-  host cheap: many processes, one router. It needs i2pd >= 2.61.0, and the one
+  borrowing a router already running on the host stays possible. It needs
+  i2pd >= 2.61.0, and the one
   thing SAM will not do is swap a live transient in place: a re-issue there
   rebuilds the session, which keeps the address because the master is unchanged.
 
@@ -54,11 +82,13 @@ transport is chosen at runtime, and there is one shape of the library.
 
 ## What it is not
 
-- **Not multi-device.** One account, one process, one place. The desktop client
+- **Not multi-device.** Each account lives in one place. The desktop client
   synchronises devices; a service does not need to and paying for it here would
-  buy nothing. An account is moved by the same password-protected `.bazarish`
-  backup the desktop client writes - the same file restores it in either - and
-  moving is not sharing: two daemons cannot serve one account.
+  buy nothing. An account is moved the two ways the desktop client moves one:
+  the password-protected `.bazarish` backup - the same file restores it in
+  either - or pairing, which carries that same bundle over I2P, sealed under a
+  short code, to whoever opens the link. Moving is not sharing: two places
+  cannot serve one account.
 - **Not a second protocol.** Where the REST API names a thing, it names the
   thing the protocol already has.
 

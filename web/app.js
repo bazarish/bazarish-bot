@@ -4,13 +4,30 @@
 const el = (id) => document.getElementById(id);
 const content = () => el("content");
 
+let accounts = [];
+let accountId = null;
 let peer = null;
 let names = {};
 let lastEventId = 0;
-let watching = false;
+let watched = null;
 let editing = null;
+let polling = 0;
 
 const kReactions = ["\u{1F44D}", "❤️", "\u{1F602}", "\u{1F389}", "\u{1F440}", "✅"];
+const kPollMs = 1000;
+const kEventWaitSeconds = 45;
+const kRetryMs = 3000;
+const kKinds = [
+    ["bot", "Bot"],
+    ["group", "Group"],
+];
+const kAccountViews = [
+    ["overview", "Overview"],
+    ["chats", "Chats"],
+    ["contacts", "Contacts"],
+    ["api", "API"],
+    ["account", "Account"],
+];
 
 async function call(method, path, body) {
     const options = {method, headers: {}};
@@ -29,6 +46,14 @@ async function call(method, path, body) {
         throw new Error(parsed.error || answer.statusText);
     }
     return parsed;
+}
+
+function base() {
+    return "/ui/accounts/" + accountId;
+}
+
+function go(account, name) {
+    location.hash = account ? "#/" + account + "/" + name : "#/" + name;
 }
 
 function node(tag, className, text) {
@@ -90,45 +115,114 @@ function when(milliseconds) {
     return milliseconds ? new Date(milliseconds).toLocaleString() : "";
 }
 
-async function refreshRail() {
-    const state = await call("GET", "/ui/state");
-    const running = state.running;
-    el("railDot").className = "dot " + (running ? "is-up" : "is-down");
-    if (!running) {
-        el("railName").textContent = state.hasAccount ? "account closed" : "no account yet";
-        el("railTransport").textContent = state.status;
-        return state;
+function labelOf(account) {
+    return account.name || account.fingerprint.slice(0, 16) || account.id;
+}
+
+function kindPicker(value) {
+    const picker = node("select", "field");
+    for (const [kind, label] of kKinds) {
+        const option = node("option", null, label);
+        option.value = kind;
+        picker.append(option);
     }
-    const [account, settings] = await Promise.all([
-        call("GET", "/ui/account"), call("GET", "/ui/settings")]);
-    el("railName").textContent = account.name || "unnamed account";
-    el("railTransport").textContent = settings.transport === "sam"
-        ? "sam " + settings.samHost + ":" + settings.samPort
-        : "own router";
-    return state;
+    picker.value = value || "bot";
+    return picker;
+}
+
+function kindHint() {
+    return node("p", "hint",
+        "A bot sends to every contact from an address of its own, like any client. "
+        + "A group sends to all its members from one address: a post reaches them "
+        + "faster, and a server holding several members can tell they share a group.");
+}
+
+function progressText(done, total) {
+    return total > 0 ? Math.round(done * 100 / total) + "% of " + total + " bytes" : "";
+}
+
+function poll(step) {
+    const mine = ++polling;
+    const tick = async () => {
+        if (mine !== polling) {
+            return;
+        }
+        if (await step()) {
+            setTimeout(tick, kPollMs);
+        }
+    };
+    tick();
+}
+
+async function drawSidebar() {
+    accounts = await call("GET", "/ui/accounts");
+    const list = el("accounts");
+    list.textContent = "";
+    for (const account of accounts) {
+        const item = node("li");
+        const link = node("a", account.id === accountId ? "is-current" : "");
+        link.href = "#/" + account.id + "/overview";
+        link.append(node("span", "dot " + (account.running ? "is-up" : "is-down")));
+        link.append(node("span", "account-name", labelOf(account)));
+        link.append(node("span", "tag" + (account.kind === "group" ? " is-live" : ""),
+            account.kind));
+        item.append(link);
+        list.append(item);
+    }
+
+    const nav = el("nav");
+    nav.textContent = "";
+    const route = currentRoute();
+    if (accountId) {
+        for (const [name, label] of kAccountViews) {
+            const item = node("li");
+            const link = node("a", route.view === name ? "is-current" : "", label);
+            link.href = "#/" + accountId + "/" + name;
+            item.append(link);
+            nav.append(item);
+        }
+    }
+    for (const [name, label] of [["add", "Add account"], ["settings", "Settings"]]) {
+        const item = node("li");
+        const link = node("a", route.view === name ? "is-current" : "", label);
+        link.href = "#/" + name;
+        item.append(link);
+        nav.append(item);
+    }
+}
+
+function currentRoute() {
+    const parts = (location.hash || "").replace(/^#\/?/, "").split("/");
+    if (parts[0] === "add" || parts[0] === "settings") {
+        return {account: null, view: parts[0]};
+    }
+    const known = accounts.some((account) => account.id === parts[0]);
+    if (known) {
+        const view = kAccountViews.some(([name]) => name === parts[1]) ? parts[1] : "overview";
+        return {account: parts[0], view};
+    }
+    if (accounts.length > 0) {
+        return {account: accounts[0].id, view: "overview"};
+    }
+    return {account: null, view: "add"};
 }
 
 async function viewOverview() {
-    const state = await call("GET", "/ui/state");
+    const account = await call("GET", base());
     const view = node("section", "view");
-    view.append(node("h1", "view-title", "Overview"));
+    view.append(node("h1", "view-title", labelOf(account)));
 
-    if (!state.hasAccount) {
-        view.append(accountSetup());
-        return view;
-    }
-    if (!state.running) {
-        view.append(unlockCard(state));
+    if (!account.running) {
+        view.append(unlockCard(account));
         return view;
     }
 
-    const account = await call("GET", "/ui/account");
     const cards = node("div", "cards is-stacked");
-
     const identity = node("article", "card");
     const head = node("div", "card-head");
     head.append(node("span", "dot is-up"));
     head.append(node("span", "card-name", account.name || "unnamed account"));
+    head.append(node("span", "tag" + (account.kind === "group" ? " is-live" : ""), account.kind));
     identity.append(head);
     identity.append(facts([
         ["Fingerprint", account.fingerprint],
@@ -141,30 +235,42 @@ async function viewOverview() {
     inviteHead.append(node("span", "card-name", "Invite"));
     invite.append(inviteHead);
     invite.append(node("p", "hint", "Hand this to whoever should be able to write to this account."));
-    const line = node("pre", "copy", account.invite || "");
-    invite.append(line);
+    invite.append(node("pre", "copy", account.invite || ""));
     cards.append(invite);
 
     view.append(cards);
     return view;
 }
 
-function unlockCard(state) {
+function unlockCard(account) {
     const card = node("article", "panel-box");
+    if (account.status === "starting") {
+        card.append(node("p", "view-title", "Starting"));
+        card.append(node("p", "step-note",
+            "The account is coming up: its server side, its address and its tunnels."));
+        poll(async () => {
+            const now = await call("GET", base());
+            if (now.status === "starting") {
+                return true;
+            }
+            await render();
+            return false;
+        });
+        return card;
+    }
     card.append(node("p", "view-title", "The account is closed"));
     card.append(node("p", "step-note",
         "It is encrypted at rest, so it waits for its passphrase at every start. "
-        + "Status: " + state.status));
+        + "Status: " + account.status));
     const field = node("input", "field");
     field.type = "password";
-    field.id = "unlockPassphrase";
     card.append(node("label", "field-label", "Passphrase"));
     card.append(field);
     const footer = node("p", "form-footer");
     const open = node("button", "btn", "Open");
     open.onclick = async () => {
         try {
-            await call("POST", "/ui/account", {action: "open", passphrase: field.value});
+            await call("POST", base(), {action: "open", passphrase: field.value});
             await render();
         } catch (error) {
             footer.append(node("span", "hint", error.message));
@@ -175,76 +281,179 @@ function unlockCard(state) {
     return card;
 }
 
-function accountSetup() {
-    const card = node("article", "panel-box");
-    card.append(node("p", "view-title", "No account yet"));
-    card.append(node("p", "step-note",
-        "One account per daemon, and it is that account's own server. An account "
-        + "here does not synchronise with a second device: there is nowhere to "
-        + "synchronise from."));
+async function viewAdd() {
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", "Add account"));
+    view.append(node("p", "step-note",
+        "Every account here shares this host's I2P router and is its own server: "
+        + "it federates on its own address and keeps its own mailbox."));
 
+    const common = node("article", "panel-box");
+    common.append(node("p", "block-title", "What it is"));
+    const kind = kindPicker("bot");
+    common.append(node("label", "field-label", "Kind"), kind, kindHint());
+    const passphrase = node("input", "field");
+    passphrase.type = "password";
+    common.append(node("label", "field-label", "Passphrase for the account file (optional)"));
+    common.append(passphrase);
+    common.append(node("p", "hint",
+        "Empty, and the account opens by itself at every start. Set one, and it is "
+        + "encrypted at rest and unlocked here after every restart."));
+    view.append(common);
+
+    const opened = async (id) => {
+        await drawSidebar();
+        go(id, "overview");
+    };
+
+    const create = node("article", "panel-box");
+    create.style.marginTop = "1rem";
+    create.append(node("p", "block-title", "Create"));
     const name = node("input", "field");
     name.type = "text";
     name.placeholder = "what this account calls itself";
-    card.append(node("label", "field-label", "Name"));
-    card.append(name);
+    create.append(node("label", "field-label", "Name"), name);
+    const created = node("p", "hint");
+    const createFooter = node("p", "form-footer");
+    const make = node("button", "btn", "Create");
+    make.onclick = async () => {
+        try {
+            const answer = await call("POST", "/ui/accounts", {action: "create",
+                name: name.value, passphrase: passphrase.value, kind: kind.value});
+            await opened(answer.id);
+        } catch (error) {
+            created.textContent = error.message;
+        }
+    };
+    createFooter.append(make);
+    create.append(createFooter, created);
+    view.append(create);
 
-    const passphrase = node("input", "field");
-    passphrase.type = "password";
-    card.append(node("label", "field-label", "Passphrase for the account file (optional)"));
-    card.append(passphrase);
-    card.append(node("p", "hint",
-        "Empty, and the daemon opens the account by itself at every start. Set one, "
-        + "and it is encrypted at rest and unlocked here after every restart."));
-
+    const restore = node("article", "panel-box");
+    restore.style.marginTop = "1rem";
+    restore.append(node("p", "block-title", "Restore a backup"));
+    restore.append(node("p", "hint",
+        "A .bazarish backup from the desktop client or from this panel."));
     const bundle = node("input", "field");
     bundle.type = "file";
     bundle.accept = ".bazarish";
     const bundlePassword = node("input", "field");
     bundlePassword.type = "password";
-
-    const footer = node("p", "form-footer");
-    const create = node("button", "btn", "Create");
-    const importing = node("button", "btn btn-quiet", "Restore a backup");
-    footer.append(create, importing);
-    card.append(footer);
-
-    const importBlock = node("div", "block");
-    importBlock.hidden = true;
-    importBlock.append(node("p", "block-title", "Import"));
-    importBlock.append(node("label", "field-label", "Backup file (.bazarish)"));
-    importBlock.append(bundle);
-    importBlock.append(node("label", "field-label", "The backup's password"));
-    importBlock.append(bundlePassword);
-    const importFooter = node("p", "form-footer");
-    const doImport = node("button", "btn", "Import");
-    importFooter.append(doImport);
-    importBlock.append(importFooter);
-    card.append(importBlock);
-
-    const failure = node("p", "hint");
-    card.append(failure);
-
-    const start = async (body) => {
-        try {
-            await call("POST", "/ui/account", body);
-            await render();
-        } catch (error) {
-            failure.textContent = error.message;
-        }
-    };
-    create.onclick = () => start({action: "create", name: name.value,
-        passphrase: passphrase.value});
-    importing.onclick = () => { importBlock.hidden = false; };
-    doImport.onclick = async () => {
+    restore.append(node("label", "field-label", "Backup file (.bazarish)"), bundle);
+    restore.append(node("label", "field-label", "The backup's password"), bundlePassword);
+    const restored = node("p", "hint");
+    const restoreFooter = node("p", "form-footer");
+    const doRestore = node("button", "btn", "Import");
+    doRestore.onclick = async () => {
         const file = bundle.files && bundle.files[0];
         if (!file) {
-            failure.textContent = "Pick the bundle file first.";
+            restored.textContent = "Pick the backup file first.";
             return;
         }
-        await start({action: "import", bundle: await base64Of(file),
-            bundlePassphrase: bundlePassword.value, passphrase: passphrase.value});
+        try {
+            const answer = await call("POST", "/ui/accounts", {action: "import",
+                bundle: await base64Of(file), bundlePassphrase: bundlePassword.value,
+                passphrase: passphrase.value, kind: kind.value});
+            await opened(answer.id);
+        } catch (error) {
+            restored.textContent = error.message;
+        }
     };
+    restoreFooter.append(doRestore);
+    restore.append(restoreFooter, restored);
+    view.append(restore);
+
+    view.append(receiveCard(passphrase, kind, opened));
+    return view;
+}
+
+function receiveCard(passphrase, kind, opened) {
+    const card = node("article", "panel-box");
+    card.style.marginTop = "1rem";
+    card.append(node("p", "block-title", "Receive from another device"));
+    card.append(node("p", "hint",
+        "On the other device, start pairing for the account: it shows a link and a "
+        + "code. The account comes over I2P, sealed under that code."));
+    const link = node("input", "field");
+    link.type = "text";
+    link.placeholder = "bazarish://pair?…";
+    card.append(node("label", "field-label", "Pairing link"), link);
+    const status = node("p", "hint");
+    const codeBlock = node("div", "block");
+    codeBlock.hidden = true;
+    const code = node("input", "field");
+    code.type = "text";
+    code.inputMode = "numeric";
+    code.autocomplete = "off";
+    codeBlock.append(node("label", "field-label", "Code from the other device"), code);
+    const codeFooter = node("p", "form-footer");
+    const sendCode = node("button", "btn", "Receive");
+    codeFooter.append(sendCode);
+    codeBlock.append(codeFooter);
+
+    const footer = node("p", "form-footer");
+    const start = node("button", "btn", "Connect");
+    const cancel = node("button", "btn btn-quiet", "Cancel");
+    cancel.hidden = true;
+    footer.append(start, cancel);
+    card.append(footer, codeBlock, status);
+
+    const show = (state) => {
+        start.hidden = state.active;
+        cancel.hidden = !state.active;
+        codeBlock.hidden = !state.needsCode;
+        if (state.stage === "reaching") {
+            status.textContent = "Reaching the other device over I2P…";
+        } else if (state.stage === "code") {
+            status.textContent = state.triesLeft > 0
+                ? "Wrong code. " + state.triesLeft + " tries left."
+                : "Enter the code shown on the other device.";
+        } else if (state.stage === "receiving") {
+            status.textContent = "Receiving the account " + progressText(state.done, state.total);
+        } else if (state.stage === "failed") {
+            status.textContent = state.error;
+        } else {
+            status.textContent = "";
+        }
+    };
+    const follow = () => poll(async () => {
+        const state = await call("GET", "/ui/pairing");
+        if (state.stage === "done" && state.account) {
+            await opened(state.account);
+            return false;
+        }
+        show(state);
+        return state.active;
+    });
+
+    start.onclick = async () => {
+        try {
+            show(await call("POST", "/ui/pairing",
+                {link: link.value, passphrase: passphrase.value, kind: kind.value}));
+            follow();
+        } catch (error) {
+            status.textContent = error.message;
+        }
+    };
+    sendCode.onclick = async () => {
+        try {
+            show(await call("POST", "/ui/pairing", {code: code.value.trim()}));
+            code.value = "";
+            follow();
+        } catch (error) {
+            status.textContent = error.message;
+        }
+    };
+    cancel.onclick = async () => {
+        await call("DELETE", "/ui/pairing");
+        show({active: false, needsCode: false, stage: ""});
+    };
+    call("GET", "/ui/pairing").then((state) => {
+        if (state.active) {
+            show(state);
+            follow();
+        }
+    }, () => {});
     return card;
 }
 
@@ -268,7 +477,7 @@ async function drawChats() {
     if (!list) {
         return;
     }
-    const chats = await call("GET", "/ui/chats");
+    const chats = await call("GET", base() + "/chats");
     list.textContent = "";
     if (chats.length === 0) {
         list.append(node("p", "empty", "No conversations yet."));
@@ -311,7 +520,7 @@ async function drawThread() {
     thread.append(head);
 
     const log = node("div", "log");
-    const lines = await call("GET", "/ui/messages?peer=" + encodeURIComponent(peer) + "&limit=100");
+    const lines = await call("GET", base() + "/messages?peer=" + encodeURIComponent(peer) + "&limit=100");
     for (const line of lines.slice().reverse()) {
         log.append(lineNode(line));
     }
@@ -338,9 +547,9 @@ async function drawThread() {
         if (editing) {
             const target = editing;
             editing = null;
-            await call("POST", "/ui/messages/" + target.messageId, {peer, text});
+            await call("POST", base() + "/messages/" + target.messageId, {peer, text});
         } else {
-            await call("POST", "/ui/messages", {peer, text});
+            await call("POST", base() + "/messages", {peer, text});
         }
         await drawThread();
         await drawChats();
@@ -401,7 +610,7 @@ function toolsFor(line) {
         button.type = "button";
         button.title = mine ? "take it back" : "react";
         button.onclick = async () => {
-            await call("POST", "/ui/reactions",
+            await call("POST", base() + "/reactions",
                 {peer, messageId: line.messageId, emoji: mine ? "" : emoji});
             await drawThread();
         };
@@ -414,7 +623,7 @@ function toolsFor(line) {
         const drop = node("button", "line-tool", "delete");
         drop.type = "button";
         drop.onclick = async () => {
-            await call("DELETE", "/ui/messages/" + line.messageId
+            await call("DELETE", base() + "/messages/" + line.messageId
                 + "?peer=" + encodeURIComponent(peer));
             await drawThread();
             await drawChats();
@@ -429,7 +638,7 @@ async function viewContacts() {
     view.append(node("h1", "view-title", "Contacts"));
 
     const rows = node("div", "rows");
-    const contacts = await call("GET", "/ui/contacts");
+    const contacts = await call("GET", base() + "/contacts");
     if (contacts.length === 0) {
         rows.append(node("p", "empty", "Nobody yet."));
     }
@@ -448,12 +657,12 @@ async function viewContacts() {
         row.append(node("span", "row-quota", contact.pending ? "accept" : "open"));
         row.onclick = async () => {
             if (contact.pending) {
-                await call("POST", "/ui/contacts", {accept: contact.fingerprint});
+                await call("POST", base() + "/contacts", {accept: contact.fingerprint});
                 await render();
                 return;
             }
             peer = contact.fingerprint;
-            location.hash = "#/chats";
+            go(accountId, "chats");
         };
         rows.append(row);
     }
@@ -475,7 +684,7 @@ async function viewContacts() {
     const send = node("button", "btn", "Send request");
     send.onclick = async () => {
         try {
-            await call("POST", "/ui/contacts", {invite: invite.value, text: intro.value});
+            await call("POST", base() + "/contacts", {invite: invite.value, text: intro.value});
             await render();
         } catch (error) {
             failure.textContent = error.message;
@@ -488,19 +697,19 @@ async function viewContacts() {
 }
 
 async function viewApi() {
-    const settings = await call("GET", "/ui/settings");
+    const account = await call("GET", base());
     const view = node("section", "view");
     view.append(node("h1", "view-title", "API"));
     view.append(node("p", "hint",
         "Automation opens the API with a token in the Authorization header. A token "
-        + "is shown once, when it is issued: it is not kept anywhere it could be "
-        + "shown again."));
+        + "opens this account and no other, and it is shown once, when it is issued: "
+        + "it is not kept anywhere it could be shown again."));
 
     const rows = node("div", "rows");
-    if (settings.tokens.length === 0) {
+    if (account.tokens.length === 0) {
         rows.append(node("p", "empty", "No tokens issued."));
     }
-    for (const token of settings.tokens) {
+    for (const token of account.tokens) {
         const row = node("div", "row");
         const keys = node("span", "row-keys");
         keys.append(node("span", "row-key", token.name));
@@ -509,7 +718,7 @@ async function viewApi() {
         row.append(keys, node("span", "row-tags"));
         const revoke = node("button", "btn btn-danger btn-copy", "Revoke");
         revoke.onclick = async () => {
-            await call("DELETE", "/ui/tokens/" + encodeURIComponent(token.name));
+            await call("DELETE", base() + "/tokens/" + encodeURIComponent(token.name));
             await render();
         };
         row.append(revoke);
@@ -526,17 +735,22 @@ async function viewApi() {
     issue.append(node("label", "field-label", "Name"), name);
     const shown = node("pre", "copy");
     shown.hidden = true;
+    const failure = node("p", "hint");
     const footer = node("p", "form-footer");
     const make = node("button", "btn", "Issue");
     make.onclick = async () => {
-        const token = await call("POST", "/ui/tokens", {name: name.value});
-        shown.hidden = false;
-        shown.textContent = token.token;
-        decorateCopies(issue);
-        await drawRailAndNav();
+        try {
+            const token = await call("POST", base() + "/tokens", {name: name.value});
+            shown.hidden = false;
+            shown.textContent = token.token;
+            failure.textContent = "";
+            decorateCopies(issue);
+        } catch (error) {
+            failure.textContent = error.message;
+        }
     };
     footer.append(make);
-    issue.append(footer, shown);
+    issue.append(footer, shown, failure);
     view.append(issue);
 
     const how = node("article", "panel-box");
@@ -549,6 +763,270 @@ async function viewApi() {
     return view;
 }
 
+async function viewAccount() {
+    const account = await call("GET", base());
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", "Account"));
+
+    if (!account.running) {
+        view.append(node("p", "empty",
+            "The account is not open yet (" + account.status + "). Overview says what to do."));
+        return view;
+    }
+
+    const identity = node("article", "panel-box");
+    identity.append(node("p", "block-title", "Name"));
+    const name = node("input", "field");
+    name.type = "text";
+    name.value = account.name || "";
+    identity.append(name);
+    identity.append(node("p", "hint",
+        "What this account calls itself, in its invite and in this panel. A contact "
+        + "keeps their own name for it, so this is not sent to anybody."));
+    const renamed = node("p", "hint");
+    const nameFooter = node("p", "form-footer");
+    const saveName = node("button", "btn", "Save");
+    saveName.onclick = async () => {
+        try {
+            await call("POST", base(), {action: "rename", name: name.value});
+            renamed.textContent = "Saved.";
+            await drawSidebar();
+        } catch (error) {
+            renamed.textContent = error.message;
+        }
+    };
+    nameFooter.append(saveName);
+    identity.append(nameFooter, renamed);
+    view.append(identity);
+
+    const kindBox = node("article", "panel-box");
+    kindBox.style.marginTop = "1rem";
+    kindBox.append(node("p", "block-title", "Kind"));
+    const kind = kindPicker(account.kind);
+    kindBox.append(kind, kindHint());
+    const kindSaid = node("p", "hint");
+    const kindFooter = node("p", "form-footer");
+    const saveKind = node("button", "btn", "Save");
+    saveKind.onclick = async () => {
+        try {
+            await call("POST", base(), {action: "kind", kind: kind.value});
+            kindSaid.textContent = "Saved. The next delivery leaves the new way.";
+            await drawSidebar();
+        } catch (error) {
+            kindSaid.textContent = error.message;
+        }
+    };
+    kindFooter.append(saveKind);
+    kindBox.append(kindFooter, kindSaid);
+    view.append(kindBox);
+
+    const keys = node("article", "panel-box");
+    keys.style.marginTop = "1rem";
+    keys.append(node("p", "block-title", "Keys"));
+    keys.append(node("p", "hint",
+        "A new address throws this account's destination key away and raises "
+        + "another. Every invite link already handed out stops working, the old "
+        + "address stops answering at once, and the contacts are sent the new "
+        + "card."));
+    const keyResult = node("p", "hint");
+    const keyFooter = node("p", "form-footer");
+    const fresh = node("button", "btn btn-danger", "New address");
+    fresh.onclick = async () => {
+        if (!window.confirm("The old address stops answering. Continue?")) {
+            return;
+        }
+        keyResult.textContent = "Raising a new address…";
+        try {
+            await call("POST", base(), {action: "new-address"});
+            keyResult.textContent = "Raised. It is published as soon as its tunnels are up.";
+        } catch (error) {
+            keyResult.textContent = error.message;
+        }
+    };
+    keyFooter.append(fresh);
+    keys.append(keyFooter, keyResult);
+
+    const owed = account.pendingRouting || [];
+    if (owed.length > 0 || account.pendingRegistry) {
+        const stuck = node("div", "block");
+        stuck.append(node("p", "block-title", "The new card has not reached everybody"));
+        if (account.pendingRegistry) {
+            stuck.append(node("p", "hint",
+                "The alias registry has not taken the new address. It is asked again "
+                + "every ten seconds until it does."));
+        }
+        for (const owedPeer of owed) {
+            const row = node("p", "form-footer");
+            row.append(node("span", "hint", owedPeer));
+            const said = node("p", "hint");
+            const again = node("button", "btn btn-quiet", "Retry");
+            again.onclick = async () => {
+                said.textContent = "Sending…";
+                try {
+                    await call("POST", base(), {action: "retry-routing", peer: owedPeer});
+                    said.textContent = "On its way. This list clears when it lands.";
+                } catch (error) {
+                    said.textContent = error.message;
+                }
+            };
+            row.append(again);
+            stuck.append(row, said);
+        }
+        keys.append(stuck);
+    }
+    view.append(keys);
+
+    view.append(exportCard(), pairCard(), removeCard());
+    return view;
+}
+
+function exportCard() {
+    const move = node("article", "panel-box");
+    move.style.marginTop = "1rem";
+    move.append(node("p", "block-title", "Back this account up"));
+    move.append(node("p", "hint",
+        "The same .bazarish backup the desktop client writes, and the same file "
+        + "restores it in either. It moves an account; it does not share one: only "
+        + "one place may serve an account, because this host is that account's "
+        + "server."));
+    const bundlePassword = node("input", "field");
+    bundlePassword.type = "password";
+    move.append(node("label", "field-label", "Password for the backup"), bundlePassword);
+    const wrote = node("p", "hint");
+    const exportFooter = node("p", "form-footer");
+    const run = node("button", "btn", "Export");
+    run.onclick = async () => {
+        wrote.textContent = "";
+        try {
+            const answer = await fetch(base() + "/export", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({bundlePassphrase: bundlePassword.value}),
+            });
+            if (!answer.ok) {
+                throw new Error((await answer.json()).error || answer.statusText);
+            }
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(await answer.blob());
+            const named = /filename="([^"]+)"/.exec(
+                answer.headers.get("Content-Disposition") || "");
+            link.download = named ? named[1] : "bazarish.bazarish";
+            link.click();
+            URL.revokeObjectURL(link.href);
+            wrote.textContent = "Downloaded.";
+        } catch (error) {
+            wrote.textContent = error.message;
+        }
+    };
+    exportFooter.append(run);
+    move.append(exportFooter, wrote);
+    return move;
+}
+
+function pairCard() {
+    const card = node("article", "panel-box");
+    card.style.marginTop = "1rem";
+    card.append(node("p", "block-title", "Send to another device"));
+    card.append(node("p", "hint",
+        "Pairing hands the account over I2P to a desktop client or another panel: "
+        + "open the link there and type the code. Like a backup, it moves the "
+        + "account; it does not share it."));
+    const offer = node("div");
+    offer.hidden = true;
+    const link = node("pre", "copy");
+    const code = node("p", "pair-code");
+    offer.append(link, code);
+    const status = node("p", "hint");
+    const footer = node("p", "form-footer");
+    const start = node("button", "btn", "Start pairing");
+    const stop = node("button", "btn btn-quiet", "Stop");
+    stop.hidden = true;
+    footer.append(start, stop);
+    card.append(footer, offer, status);
+
+    const show = (state) => {
+        start.hidden = state.active;
+        stop.hidden = !state.active;
+        offer.hidden = !state.active;
+        if (state.active) {
+            link.textContent = state.uri;
+            code.textContent = state.code;
+            decorateCopies(card);
+        }
+        if (state.stage === "publishing") {
+            status.textContent = "Publishing the pairing address…";
+        } else if (state.stage === "waiting") {
+            status.textContent = "Waiting for the other device.";
+        } else if (state.stage === "wrong-code") {
+            status.textContent = "A wrong code was tried " + state.wrongCodes + " times.";
+        } else if (state.stage === "sending") {
+            status.textContent = "Sending the account " + progressText(state.done, state.total);
+        } else if (state.stage === "done") {
+            status.textContent = "The account is on the other device.";
+        } else if (state.stage === "refused") {
+            status.textContent = "Too many wrong codes: pairing stopped.";
+        } else if (state.stage === "failed") {
+            status.textContent = state.error;
+        } else {
+            status.textContent = "";
+        }
+    };
+    const follow = () => poll(async () => {
+        const state = await call("GET", base() + "/pairing");
+        show(state);
+        return state.active;
+    });
+
+    start.onclick = async () => {
+        try {
+            show(await call("POST", base() + "/pairing"));
+            follow();
+        } catch (error) {
+            status.textContent = error.message;
+        }
+    };
+    stop.onclick = async () => {
+        await call("DELETE", base() + "/pairing");
+        show({active: false, stage: ""});
+    };
+    call("GET", base() + "/pairing").then((state) => {
+        if (state.active) {
+            show(state);
+            follow();
+        }
+    }, () => {});
+    return card;
+}
+
+function removeCard() {
+    const card = node("article", "panel-box");
+    card.style.marginTop = "1rem";
+    card.append(node("p", "block-title", "Remove this account"));
+    card.append(node("p", "hint",
+        "Closes the account on its server, which is this host, and deletes its file, "
+        + "its mailbox, its conversations and its tokens. Export it first if it is to "
+        + "live on somewhere else."));
+    const said = node("p", "hint");
+    const footer = node("p", "form-footer");
+    const drop = node("button", "btn btn-danger", "Remove");
+    drop.onclick = async () => {
+        if (!window.confirm("The account and everything it holds here is deleted. Continue?")) {
+            return;
+        }
+        try {
+            await call("DELETE", base());
+            accountId = null;
+            await drawSidebar();
+            go(null, "add");
+        } catch (error) {
+            said.textContent = error.message;
+        }
+    };
+    footer.append(drop);
+    card.append(footer, said);
+    return card;
+}
+
 async function viewSettings() {
     const settings = await call("GET", "/ui/settings");
     const view = node("section", "view");
@@ -557,9 +1035,9 @@ async function viewSettings() {
     const transport = node("article", "panel-box");
     transport.append(node("p", "block-title", "Transport"));
     transport.append(node("p", "hint",
-        "A router in this process is one thing to install; a router that is already "
-        + "running is what makes several daemons on one host cheap. Either takes "
-        + "effect at the next start."));
+        "One router carries every account here. A router in this process is one thing "
+        + "to install; a router that is already running can be shared with other "
+        + "programs. Either takes effect at the next start."));
     const which = node("select", "field");
     for (const [value, label] of [["embedded", "A router in this process"],
         ["sam", "A router already running, over SAM"]]) {
@@ -604,7 +1082,6 @@ async function viewSettings() {
                 privacy: privacy.value,
             });
             saved.textContent = "Saved. It takes effect at the next start.";
-            await drawRailAndNav();
         } catch (error) {
             saved.textContent = error.message;
         }
@@ -612,129 +1089,6 @@ async function viewSettings() {
     footer.append(save);
     transport.append(footer, saved);
     view.append(transport);
-
-    const identity = node("article", "panel-box");
-    identity.style.marginTop = "1rem";
-    identity.append(node("p", "block-title", "This account"));
-    const who = await call("GET", "/ui/account");
-    const name = node("input", "field");
-    name.type = "text";
-    name.value = who.name || "";
-    identity.append(node("label", "field-label", "Name"), name);
-    identity.append(node("p", "hint",
-        "What this account calls itself, in its invite and in this panel. A contact "
-        + "keeps their own name for it, so this is not sent to anybody."));
-    const renamed = node("p", "hint");
-    const nameFooter = node("p", "form-footer");
-    const saveName = node("button", "btn", "Save");
-    saveName.onclick = async () => {
-        try {
-            await call("POST", "/ui/account", {action: "rename", name: name.value});
-            renamed.textContent = "Saved.";
-            await drawRailAndNav();
-        } catch (error) {
-            renamed.textContent = error.message;
-        }
-    };
-    nameFooter.append(saveName);
-    identity.append(nameFooter, renamed);
-
-    const keys = node("div", "block");
-    keys.append(node("p", "block-title", "Keys"));
-    keys.append(node("p", "hint",
-        "A new address throws this account's destination key away and raises "
-        + "another. Every invite link already handed out stops working, the old "
-        + "address stops answering at once, and the contacts are sent the new "
-        + "card."));
-    const keyResult = node("p", "hint");
-    const keyFooter = node("p", "form-footer");
-    const fresh = node("button", "btn btn-danger", "New address");
-    fresh.onclick = async () => {
-        if (!window.confirm("The old address stops answering. Continue?")) {
-            return;
-        }
-        keyResult.textContent = "Raising a new address…";
-        try {
-            await call("POST", "/ui/account", {action: "new-address"});
-            keyResult.textContent = "Raised. It is published as soon as its tunnels are up.";
-            await drawRailAndNav();
-        } catch (error) {
-            keyResult.textContent = error.message;
-        }
-    };
-    keyFooter.append(fresh);
-    keys.append(keyFooter, keyResult);
-    identity.append(keys);
-
-    const owed = who.pendingRouting || [];
-    if (owed.length > 0 || who.pendingRegistry) {
-        const stuck = node("div", "block");
-        stuck.append(node("p", "block-title", "The new card has not reached everybody"));
-        if (who.pendingRegistry) {
-            stuck.append(node("p", "hint",
-                "The alias registry has not taken the new address. It is asked again "
-                + "every ten seconds until it does."));
-        }
-        for (const peer of owed) {
-            const row = node("p", "form-footer");
-            row.append(node("span", "hint", peer));
-            const said = node("p", "hint");
-            const again = node("button", "btn btn-quiet", "Retry");
-            again.onclick = async () => {
-                said.textContent = "Sending…";
-                try {
-                    await call("POST", "/ui/account", {action: "retry-routing", peer: peer});
-                    said.textContent = "On its way. This list clears when it lands.";
-                } catch (error) {
-                    said.textContent = error.message;
-                }
-            };
-            row.append(again);
-            stuck.append(row, said);
-        }
-        identity.append(stuck);
-    }
-
-    const move = node("div", "block");
-    move.append(node("p", "block-title", "Back this account up"));
-    move.append(node("p", "hint",
-        "The same .bazarish backup the desktop client writes, and the same file "
-        + "restores it in either. It moves an account; it does not share one - "
-        + "only one daemon may serve an account, because the daemon is that "
-        + "account's server."));
-    const bundlePassword = node("input", "field");
-    bundlePassword.type = "password";
-    move.append(node("label", "field-label", "Password for the backup"), bundlePassword);
-    const wrote = node("p", "hint");
-    const exportFooter = node("p", "form-footer");
-    const run = node("button", "btn", "Export");
-    run.onclick = async () => {
-        wrote.textContent = "";
-        try {
-            const answer = await fetch("/ui/account/export", {
-                method: "POST",
-                headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({bundlePassphrase: bundlePassword.value}),
-            });
-            if (!answer.ok) {
-                throw new Error((await answer.json()).error || answer.statusText);
-            }
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(await answer.blob());
-            const named = /filename="([^"]+)"/.exec(
-                answer.headers.get("Content-Disposition") || "");
-            link.download = named ? named[1] : "bazarish.bazarish";
-            link.click();
-            URL.revokeObjectURL(link.href);
-            wrote.textContent = "Downloaded.";
-        } catch (error) {
-            wrote.textContent = error.message;
-        }
-    };
-    exportFooter.append(run);
-    move.append(exportFooter, wrote);
-    identity.append(move);
-    view.append(identity);
 
     const password = node("article", "panel-box");
     password.style.marginTop = "1rem";
@@ -780,36 +1134,36 @@ const views = {
     chats: viewChats,
     contacts: viewContacts,
     api: viewApi,
+    account: viewAccount,
+    add: viewAdd,
     settings: viewSettings,
 };
 
-function current() {
-    const name = (location.hash || "#/overview").replace("#/", "");
-    return views[name] ? name : "overview";
-}
-
-async function drawRailAndNav() {
-    const state = await refreshRail();
-    for (const link of document.querySelectorAll(".nav a")) {
-        link.classList.toggle("is-current", link.dataset.view === current());
-    }
-    return state;
-}
-
 async function render() {
-    const state = await drawRailAndNav();
-    const name = current();
+    polling++;
     try {
-        if (name !== "overview" && !state.running) {
+        accounts = await call("GET", "/ui/accounts");
+        const route = currentRoute();
+        if (route.account !== accountId) {
+            accountId = route.account;
+            peer = null;
+            editing = null;
+            names = {};
+            lastEventId = 0;
+        }
+        await drawSidebar();
+        const summary = accounts.find((account) => account.id === accountId);
+        const needsOpen = ["chats", "contacts", "api"].includes(route.view);
+        if (needsOpen && summary && !summary.running) {
             const waiting = node("section", "view");
-            waiting.append(node("h1", "view-title", name));
+            waiting.append(node("h1", "view-title", route.view));
             waiting.append(node("p", "empty",
-                "The account is not open yet (" + state.status + "). Overview says what to do."));
+                "The account is not open yet (" + summary.status + "). Overview says what to do."));
             content().replaceChildren(waiting);
             return;
         }
-        if (state.running) {
-            const contacts = await call("GET", "/ui/contacts");
+        if (summary && summary.running) {
+            const contacts = await call("GET", base() + "/contacts");
             names = {};
             for (const contact of contacts) {
                 if (contact.name) {
@@ -817,15 +1171,14 @@ async function render() {
                 }
             }
         }
-        content().replaceChildren(await views[name]());
-        if (name === "chats") {
+        content().replaceChildren(await views[route.view]());
+        if (route.view === "chats") {
             await drawChats();
             await drawThread();
         }
         decorateCopies(content());
-        if (state.running && !watching) {
-            watching = true;
-            watch();
+        if (summary && summary.running && watched !== accountId) {
+            watch(accountId);
         }
     } catch (error) {
         const failed = node("section", "view");
@@ -835,17 +1188,22 @@ async function render() {
     }
 }
 
-async function watch() {
-    while (watching) {
+async function watch(account) {
+    watched = account;
+    while (watched === account) {
         try {
-            const answer = await call("GET", "/ui/events?since=" + lastEventId + "&wait=45");
+            const answer = await call("GET", "/ui/accounts/" + account + "/events?since="
+                + lastEventId + "&wait=" + kEventWaitSeconds);
+            if (watched !== account) {
+                return;
+            }
             lastEventId = answer.lastEventId || lastEventId;
-            if (answer.events.length > 0 && current() === "chats") {
+            if (answer.events.length > 0 && currentRoute().view === "chats") {
                 await drawChats();
                 await drawThread();
             }
         } catch (error) {
-            await new Promise((resume) => setTimeout(resume, 3000));
+            await new Promise((resume) => setTimeout(resume, kRetryMs));
         }
     }
 }
