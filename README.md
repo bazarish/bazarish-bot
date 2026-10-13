@@ -6,8 +6,9 @@ a bot is written against `POST /v1/messages`, not against sealed envelopes,
 delivery passes and destinations.
 
 One daemon holds any number of accounts on one I2P router, like the desktop
-client does. Each account is a **bot** or a **group**; the two differ in how
-they send (see [docs/Design.md](docs/Design.md)).
+client does. Each account is a **bot** or a **group**. A group account is a
+group or channel host (`docs-main/Groups.md`), run from the web interface; a
+bot account is driven by the REST API (see [docs/Design.md](docs/Design.md)).
 
 It is self-hosting. The daemon carries the accounts' mailboxes and federates on
 each account's own destination, so a bot depends on no one else's server for its
@@ -37,7 +38,7 @@ that is tried.
 
 ```
 apt install build-essential cmake git libssl-dev zlib1g-dev libboost-all-dev \
-            libsqlcipher-dev libqrencode-dev libopus-dev
+            libsqlcipher-dev libqrencode-dev libopus-dev libicu-dev
 git clone --recursive https://github.com/bazarish/bazarish-bot
 cmake -S bazarish-bot -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j4

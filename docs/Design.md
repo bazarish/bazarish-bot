@@ -18,8 +18,8 @@ issued for; the web interface is the operator's and sees every account.
 
 ## Bot and group
 
-Every account is one of two kinds, set when it is added and changeable later.
-They differ only in how they send.
+Every account is one of two kinds, chosen when it is added and fixed from then
+on: a group with members cannot meaningfully become a bot again.
 
 - A **bot** sends the way every client does: from an outbound address held for
   that one correspondent, never reused for another.
@@ -34,6 +34,36 @@ They differ only in how they send.
 Contact requests leave from an address of their own in both kinds. The shared
 address lives by the same rule as any other: an hour at most, and closed after
 ten minutes without a delivery.
+
+## The group host
+
+A group account runs the protocol of `docs-main/Groups.md` itself; nothing of
+it goes through the REST API, which refuses a group account outright. Its
+state - settings, members, posts, the relay log, reactions, requests - lives in
+a database of its own, `groups/<id>.db`, encrypted like the transcripts and
+apart from them: a post is relayed under its author's id to everyone, which the
+transcript's one-id-one-row rule would not hold.
+
+- **Relaying is a log.** Every post, edit, delete and batch of reaction counts
+  is a row; every member has a cursor into it. A pump sends each member the next
+  row once the previous one is stored, so a post always arrives before its edit,
+  and the log survives a restart: a post to a thousand members that takes an
+  hour is not lost by stopping halfway. A refusal from the member's server
+  (`DELIVERY_REJECTED`) marks the member gone, keeping the name and the cursor;
+  anything else is tried again a minute later.
+- **History is a cursor.** A newcomer's cursor starts N posts back, so the last
+  N arrive as ordinary relays, built from each post's current state.
+- **Names** are checked with ICU: case folding, NFKC, and the UTS #39 confusable
+  skeleton as the uniqueness key, with names mixing scripts refused. A name is
+  never freed.
+- **Locks.** The block is filled in under the account's session lock, so the
+  order is the session first, then the engine, never the reverse: the engine
+  decides under its own lock and sends after releasing it.
+- **One device.** A group cannot be paired to a second device, and the backup
+  carries the account alone: members, posts and settings stay on this host.
+
+The chat texts the host sends come in the group's own language, one of five,
+chosen by the owner.
 
 Everything that makes a conversation a *bot* conversation - commands, inline
 keyboards, callbacks - is end-to-end content and nothing else. The

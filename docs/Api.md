@@ -42,6 +42,9 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `POST /v1/chats/{fingerprint}/clear` | asks the peer to drop the conversation, and drops this side of it |
 | `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds |
 
+A group account answers `GET /v1/status` and refuses every other route with
+`409`: it relays its members itself, and nothing else may write in its name.
+
 ### Sending
 
 ```bash
