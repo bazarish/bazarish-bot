@@ -1,5 +1,6 @@
 // Bazarish project (c) 2026
 #include "ServerSide.hpp"
+#include "Version.hpp"
 
 #include <bazarish/Auth.hpp>
 #include <bazarish/Bytes.hpp>
@@ -28,7 +29,6 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr const char* kVersion = "0.0.1";
 constexpr const char* kMailboxHost = "127.0.0.1";
 constexpr int kOwnDelegationDays = static_cast<int>(bazarish::kMaxDelegationDays);
 constexpr int kOwnDestTunnelQuantity = 3;
@@ -226,6 +226,11 @@ void ServerSide::start()
 
     log::info("server up on {}: mailbox {}, accounts {}, facade {}", host_, mailboxPort_,
         nodePort_, facadePort_);
+}
+
+void ServerSide::endMailWait(const std::string& account)
+{
+    gate_->notify(account);
 }
 
 void ServerSide::stop()

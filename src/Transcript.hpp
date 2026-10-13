@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -63,6 +64,7 @@ public:
     std::vector<Line> conversation(
         const std::string& peer, std::int64_t before, int limit) const;
     std::vector<Line> latestPerPeer() const;
+    std::optional<Line> find(const std::string& peer, const std::string& messageId) const;
     std::vector<Event> since(std::int64_t id, int limit) const;
     std::int64_t lastEventId() const;
 

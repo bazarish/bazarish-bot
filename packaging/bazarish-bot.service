@@ -7,18 +7,18 @@ Wants=network-online.target
 Type=simple
 User=bazarish
 Group=bazarish
-ExecStart=/opt/bazarish/bazarish-bot/bazarish-bot --config /etc/bazarish/bot.json
+ExecStart=/usr/lib/bazarish-bot/bazarish-bot --config /etc/bazarish/bot.json
 Restart=on-failure
 RestartSec=5
 
-# The daemon needs its state directory and nothing else on this machine.
+# The daemon writes its state and, once, the operator it was claimed by into its config.
 StateDirectory=bazarish
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
 NoNewPrivileges=true
-ReadWritePaths=/var/lib/bazarish
+ReadWritePaths=/var/lib/bazarish /etc/bazarish
 
 [Install]
 WantedBy=multi-user.target

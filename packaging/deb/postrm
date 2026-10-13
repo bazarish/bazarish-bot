@@ -1,0 +1,12 @@
+#!/bin/sh
+# Bazarish project (c) 2026
+# Even a purge leaves /etc/bazarish/bot.json and /var/lib/bazarish: they hold the
+# accounts and the operator, and only the operator removes those.
+set -e
+
+if [ "$1" = "purge" ]; then
+    rm -f /etc/systemd/system/multi-user.target.wants/bazarish-bot.service
+fi
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+fi

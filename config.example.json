@@ -8,13 +8,13 @@
   // TLS in front of it: what is served here opens the account.
   "listen": {"host": "127.0.0.1", "port": 8440},
 
-  "logLevel": "info",
-
   // The fingerprint of the key that signs in to the web interface. Left out, the
   // first key to sign in there becomes the operator and is written here.
   // "operator": "<fingerprint>",
 
   // What a sign-in challenge names, so the operator's client shows where it is
   // signing in. Left out: "Bazarish bot", the listen address, "Operator".
-  // "consumer": {"name": "Bazarish bot", "place": ["https://bots.example"], "role": "Operator"}
+  // "consumer": {"name": "Bazarish bot", "place": ["https://bots.example"], "role": "Operator"},
+
+  "logLevel": "info"
 }

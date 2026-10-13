@@ -12,6 +12,7 @@
 #include <bazarish/I2p.hpp>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -70,6 +71,21 @@ public:
     void openAll();
     void stop();
 
+    std::int64_t uptimeSeconds() const;
+    struct RouterReport {
+        bool counted = false;
+        int inboundTunnels = 0;
+        int outboundTunnels = 0;
+        int transitTunnels = 0;
+        int knownRouters = 0;
+        int floodfills = 0;
+        std::map<std::string, int> connections;
+        int destinations = 0;
+        int readyDestinations = 0;
+    };
+    RouterReport routerReport();
+    Bytes exportEverything();
+
 private:
     ServerSide& serverSide();
     i2p::Router& router();
@@ -77,6 +93,11 @@ private:
     std::filesystem::path transcriptFileFor(const std::string& id) const;
     std::filesystem::path groupFileFor(const std::string& id) const;
     void runPairWorker(std::function<void()> work);
+    void quiesced(const std::function<void()>& work);
+    void closeAll(const std::vector<std::shared_ptr<Account>>& accounts);
+
+    const std::chrono::steady_clock::time_point startedAt_ = std::chrono::steady_clock::now();
+    std::mutex maintenanceMutex_;
 
     Config config_;
     Settings settings_;

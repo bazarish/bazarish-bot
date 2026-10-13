@@ -2,6 +2,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(bazarish-bot CXX)
 
+set(BAZARISH_BOT_VERSION "0.0.1" CACHE STRING "The version this build reports; a release sets it from its tag")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -25,6 +27,7 @@ find_package(ICU REQUIRED COMPONENTS uc i18n)
 
 add_library(bazarish_bot_lib STATIC
     src/Account.cpp
+    src/Backup.cpp
     src/Config.cpp
     src/HttpFace.cpp
     src/OperatorAuth.cpp
@@ -37,7 +40,10 @@ add_library(bazarish_bot_lib STATIC
     src/Transcript.cpp
     src/ServerSide.cpp
     src/Settings.cpp
+    src/SystemInfo.cpp
+    src/Zip.cpp
 )
+target_compile_definitions(bazarish_bot_lib PUBLIC BAZARISH_BOT_VERSION="${BAZARISH_BOT_VERSION}")
 target_include_directories(bazarish_bot_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_include_directories(bazarish_bot_lib PRIVATE ${SQLCIPHER_INCLUDE_DIR})
 target_link_libraries(bazarish_bot_lib PUBLIC
@@ -59,12 +65,14 @@ function(bazarish_bot_add_test name)
 endfunction()
 
 bazarish_bot_add_test(TestConfig)
+target_compile_definitions(TestConfig PRIVATE BAZARISH_BOT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 bazarish_bot_add_test(TestOperatorAuth)
 bazarish_bot_add_test(TestSettings)
 bazarish_bot_add_test(TestTranscript)
 bazarish_bot_add_test(TestGroupEngine)
 bazarish_bot_add_test(TestNameRules)
 bazarish_bot_add_test(TestGroupCopy)
+bazarish_bot_add_test(TestBackup)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME WebTranslations

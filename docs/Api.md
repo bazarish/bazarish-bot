@@ -32,13 +32,15 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `GET /v1/invite` | the invite URI to hand out to be added as a contact |
 | `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted, `accepting` while the acceptance is on its way, and `writable` for whether this account holds the pass that admits it to their mailbox |
 | `POST /v1/contacts` | `{"invite": "...", "text": "..."}` or `{"alias": "!name", "text": "..."}` adds one; `{"accept": "<fingerprint>"}` accepts a request |
+| `DELETE /v1/contacts/{fingerprint}` | removes a contact and revokes the pass it was issued, or declines a request; the conversation stays |
 | `GET /v1/chats` | the last line of every conversation |
 | `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first |
-| `POST /v1/messages` | `{"peer": "...", "text": "...", "keyboard": [...]}` |
+| `POST /v1/messages` | `{"peer": "...", "text": "...", "replyTo": "<messageId>", "keyboard": [...]}`; `replyTo` and `keyboard` are optional |
+| `POST /v1/forward` | `{"from": "<fingerprint>", "messageId": "...", "to": "<fingerprint>"}` sends a text message on, marked forwarded |
 | `POST /v1/messages/{id}` | `{"peer": "...", "text": "..."}` revises a message this account sent |
 | `DELETE /v1/messages/{id}?peer=` | takes a message this account sent back, on both sides |
 | `POST /v1/reactions` | `{"peer": "...", "messageId": "...", "emoji": "👍"}`; an empty emoji takes it back |
-| `POST /v1/receipts` | `{"peer": "...", "messageId": "..."}` tells the peer their message arrived |
+| `POST /v1/receipts` | `{"peer": "...", "messageId": "..."}` tells the peer their message was read, and every earlier one with it |
 | `POST /v1/chats/{fingerprint}/clear` | asks the peer to drop the conversation, and drops this side of it |
 | `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds |
 
@@ -151,7 +153,8 @@ correspondent revokes what they issued - at which point sends to them fail and
 keep failing, because only they can admit this account again.
 
 **Contact requests.** A request arrives as a `message` event whose line has the type
-`contact.request`, and `POST /v1/contacts` with `accept` answers it. A bot accepts
+`contact.request`. `POST /v1/contacts` with `accept` answers it, and
+`DELETE /v1/contacts/{fingerprint}` declines it. A bot accepts
 requests automatically as they arrive unless that is switched off in the panel.
 
 **Delivery.** `POST /v1/messages` answers as soon as the mailbox takes the
@@ -164,9 +167,10 @@ send's own wait. What became of it afterwards is on the line and in the feed:
 ```
 
 `status` is `sending` while the courier is working, `delivered` once the
-recipient's server has signed for it, or `failed: <reason>`. Every change is an
-event of kind `status` carrying the same text, so a long poll sees it without
-re-reading the conversation.
+recipient's server has signed for it, `read` once the recipient's read receipt
+covers it, or `failed: <reason>`. A change to `delivered` or `failed` is an event
+of kind `status` carrying the same text, and a read one is an event of kind
+`receipt`, so a long poll sees both without re-reading the conversation.
 
 ## Taking things back
 

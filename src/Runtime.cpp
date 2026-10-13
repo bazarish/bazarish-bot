@@ -1,6 +1,9 @@
 // Bazarish project (c) 2026
 #include "Runtime.hpp"
 
+#include "Backup.hpp"
+#include "Version.hpp"
+
 #include <AccountKey.hpp>
 #include <DevicePairing.hpp>
 #include <I2pRouter.hpp>
@@ -387,15 +390,100 @@ void Runtime::stop()
         const std::lock_guard<std::mutex> lock(accountsMutex_);
         closing.swap(accounts_);
     }
+    std::vector<std::shared_ptr<Account>> all;
     for (auto& [id, account] : closing) {
-        account->close();
+        all.push_back(account);
     }
-    closing.clear();
+    closeAll(all);
     const std::lock_guard<std::mutex> lock(hostMutex_);
     if (mailbox_) {
         mailbox_->stop();
         mailbox_.reset();
     }
+}
+
+void Runtime::closeAll(const std::vector<std::shared_ptr<Account>>& accounts)
+{
+    std::vector<std::thread> closers;
+    for (const std::shared_ptr<Account>& account : accounts) {
+        closers.emplace_back([account]() { account->close(); });
+    }
+    for (std::thread& closer : closers) {
+        closer.join();
+    }
+}
+
+std::int64_t Runtime::uptimeSeconds() const
+{
+    return std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::steady_clock::now() - startedAt_)
+        .count();
+}
+
+Runtime::RouterReport Runtime::routerReport()
+{
+    i2p::Router& engine = router();
+    RouterReport report;
+    report.counted = engine.capabilities().routerCounters;
+    if (report.counted) {
+        report.inboundTunnels = engine.inboundTunnels();
+        report.outboundTunnels = engine.outboundTunnels();
+        report.transitTunnels = engine.transitTunnels();
+        report.knownRouters = engine.knownRouters();
+        report.floodfills = engine.floodfills();
+        for (const i2p::TransportPeer& peer : engine.transportPeers()) {
+            ++report.connections[peer.transport];
+        }
+    }
+    for (const i2p::LocalDestination& destination : engine.localDestinations()) {
+        ++report.destinations;
+        report.readyDestinations += destination.ready ? 1 : 0;
+    }
+    return report;
+}
+
+void Runtime::quiesced(const std::function<void()>& work)
+{
+    const std::lock_guard<std::mutex> maintenance(maintenanceMutex_);
+    std::vector<std::shared_ptr<Account>> all;
+    {
+        const std::lock_guard<std::mutex> lock(accountsMutex_);
+        for (const auto& [id, account] : accounts_) {
+            all.push_back(account);
+        }
+    }
+    std::vector<std::shared_ptr<Account>> wereOpen;
+    for (const std::shared_ptr<Account>& account : all) {
+        if (account->live()) {
+            wereOpen.push_back(account);
+        }
+    }
+    // The server stays up: its storage writes each file whole, and only the accounts keep databases.
+    closeAll(all);
+    const auto reopen = [&wereOpen]() {
+        for (const std::shared_ptr<Account>& account : wereOpen) {
+            account->open();
+        }
+    };
+    try {
+        work();
+    } catch (...) {
+        reopen();
+        throw;
+    }
+    reopen();
+}
+
+Bytes Runtime::exportEverything()
+{
+    Bytes archive;
+    quiesced([this, &archive]() {
+        archive = exportBackup(config_.stateDir, config_.path, kVersion,
+            std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count());
+    });
+    return archive;
 }
 
 }  // namespace bazarish::bot

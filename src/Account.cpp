@@ -100,6 +100,12 @@ bool Account::running() const
     return status_ == kRunning;
 }
 
+bool Account::live() const
+{
+    const std::lock_guard<std::mutex> lock(stateMutex_);
+    return status_ == kRunning || status_ == kStarting;
+}
+
 std::string Account::status() const
 {
     const std::lock_guard<std::mutex> lock(stateMutex_);
@@ -118,6 +124,7 @@ void Account::open()
     if (starter_.joinable()) {
         starter_.join();
     }
+    stopping_ = false;
     starter_ = std::thread([this]() {
         try {
             bringUp();
@@ -165,7 +172,6 @@ void Account::bringUp()
             [engine](const std::string& peer) { return engine->blockFor(peer); });
     }
 
-    stopping_ = false;
     cardCarriesDestination_ = false;
     lastAliasErrand_ = 0;
     aliasesAnswered_ = false;
@@ -187,7 +193,9 @@ void Account::bringUp()
     }
     {
         const std::lock_guard<std::mutex> lock(stateMutex_);
-        status_ = kRunning;
+        if (!stopping_) {
+            status_ = kRunning;
+        }
     }
     maintainer_ = std::thread([this]() { maintain(); });
     eventWaiter_ = std::thread([this, waiterContext]() { waitForEvents(waiterContext); });
@@ -196,6 +204,12 @@ void Account::bringUp()
 void Account::close()
 {
     stopping_ = true;
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        if (mailbox_ != nullptr && session_ != nullptr) {
+            mailbox_->endMailWait(session_->fingerprint());
+        }
+    }
     if (starter_.joinable()) {
         starter_.join();
     }
@@ -680,7 +694,29 @@ std::vector<Line> Account::chats() const
     return transcript_->latestPerPeer();
 }
 
-Account::Sent Account::sendText(const std::string& peer, const std::string& text)
+client::DeliveryWatch Account::statusWatch(const std::string& peer, const std::string& messageId)
+{
+    client::DeliveryWatch watch;
+    watch.onOutcome = [this, peer, messageId](const client::OutboundCourier::Outcome& outcome) {
+        const std::string status = outcome.stored
+            ? std::string("delivered")
+            : "failed: "
+                + (outcome.errorMessage.empty() ? outcome.errorCode : outcome.errorMessage);
+        try {
+            const std::lock_guard<std::mutex> held(sessionMutex_);
+            if (transcript_ != nullptr) {
+                transcript_->setStatus(peer, messageId, status);
+            }
+        } catch (const std::exception& error) {
+            log::warn("account {}: transcript: {}", id_, error.what());
+        }
+        waiters_.notify_all();
+    };
+    return watch;
+}
+
+Account::Sent Account::sendText(const std::string& peer, const std::string& text,
+    const std::string& replyTo, const bool forwarded)
 {
     Line line;
     line.e2eId = freshMessageId();
@@ -688,29 +724,14 @@ Account::Sent Account::sendText(const std::string& peer, const std::string& text
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        client::DeliveryWatch watch;
-        const std::string messageId = line.e2eId;
-        watch.onOutcome = [this, peer, messageId](const client::OutboundCourier::Outcome& outcome) {
-            const std::string status = outcome.stored
-                ? std::string("delivered")
-                : "failed: "
-                    + (outcome.errorMessage.empty() ? outcome.errorCode : outcome.errorMessage);
-            try {
-                const std::lock_guard<std::mutex> held(sessionMutex_);
-                if (transcript_ != nullptr) {
-                    transcript_->setStatus(peer, messageId, status);
-                }
-            } catch (const std::exception& error) {
-                log::warn("account {}: transcript: {}", id_, error.what());
-            }
-            waiters_.notify_all();
-        };
-        confirmed = session.sendMessage(peer, text, line.e2eId, watch);
+        confirmed = session.sendMessage(
+            peer, text, line.e2eId, statusWatch(peer, line.e2eId), replyTo, forwarded);
         line.status = "sending";
         line.peer = peer;
         line.outgoing = true;
         line.type = "text";
         line.text = text;
+        line.replyTo = replyTo;
         line.sentAt = static_cast<std::int64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch())
@@ -719,6 +740,24 @@ Account::Sent Account::sendText(const std::string& peer, const std::string& text
     }
     waiters_.notify_all();
     return {line.e2eId, confirmed};
+}
+
+Account::Sent Account::forward(
+    const std::string& fromPeer, const std::string& messageId, const std::string& toPeer)
+{
+    std::optional<Line> original;
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        (void)openSession();
+        original = transcript_->find(fromPeer, messageId);
+    }
+    if (!original.has_value()) {
+        throw std::invalid_argument("no message " + messageId + " in that conversation");
+    }
+    if (original->type != "text") {
+        throw std::invalid_argument("only a text message can be forwarded");
+    }
+    return sendText(toPeer, original->text, {}, true);
 }
 
 Account::Sent Account::sendKeyboard(
@@ -738,7 +777,7 @@ Account::Sent Account::sendKeyboard(
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        session.sendInteractive(peer, text, keyboard, line.e2eId);
+        session.sendInteractive(peer, text, keyboard, line.e2eId, statusWatch(peer, line.e2eId));
         line.status = "sending";
         line.peer = peer;
         line.outgoing = true;
@@ -770,6 +809,12 @@ void Account::acceptContact(const std::string& peer)
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
     openSession().acceptContactRequest(peer);
+}
+
+void Account::removeContact(const std::string& peer)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    openSession().removeContactEverywhere(peer);
 }
 
 std::string Account::addByInvite(const std::string& invite, const std::string& text)

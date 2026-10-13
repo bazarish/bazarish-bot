@@ -33,32 +33,33 @@ daemon is built on lives in `common-cpp` and is shared with the desktop client
 ## Installing
 
 Debian 13 is the platform this is built and tested on, and the only one it is
-offered for. Nothing here is Debian-specific on purpose - it is simply the one
-that is tried.
+offered for. Every release carries a package for amd64 and arm64:
 
 ```
-apt install build-essential cmake git libssl-dev zlib1g-dev libboost-all-dev \
-            libsqlcipher-dev libqrencode-dev libopus-dev libicu-dev
+apt install ./bazarish-bot_<version>_<arch>.deb
+```
+
+The package owns the program and its unit and nothing else. On first install it
+writes `/etc/bazarish/bot.json` from the template and creates the `bazarish`
+user; an upgrade replaces the program, keeps the config and the state in
+`/var/lib/bazarish`, and restarts the service, starting it if it was stopped.
+
+To build it yourself:
+
+```
+apt install build-essential cmake ninja-build git libssl-dev zlib1g-dev \
+            libboost-dev libboost-program-options-dev libsqlcipher-dev \
+            libqrencode-dev libopus-dev libicu-dev dpkg-dev
 git clone --recursive https://github.com/bazarish/bazarish-bot
-cmake -S bazarish-bot -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j4
+cd bazarish-bot && packaging/deb/build.sh <version> out
 ```
 
 The embedded router is always built in and carries every account in the
 daemon; a daemon that would rather borrow a router already running on the host
 over SAM says so in its interface, not at build time.
 
-Then lay it out, write the one config file, and start it:
-
-```
-install -D build/bazarish-bot /opt/bazarish/bazarish-bot/bazarish-bot
-cp -r bazarish-bot/web /opt/bazarish/bazarish-bot/
-install -D bazarish-bot/config.example.json /etc/bazarish/bot.json
-install -D bazarish-bot/packaging/bazarish-bot.service \
-        /etc/systemd/system/bazarish-bot.service
-adduser --system --group --home /var/lib/bazarish bazarish
-systemctl enable --now bazarish-bot
-```
+The config listens on loopback; edit `listen` in `/etc/bazarish/bot.json` and
+restart the service to open it elsewhere.
 
 Open the address it answers on and sign the challenge it shows with your
 Bazarish account's key in the desktop client. The first key to sign in

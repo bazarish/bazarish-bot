@@ -38,6 +38,7 @@ public:
 
     const std::string& id() const { return id_; }
     bool running() const;
+    bool live() const;
     std::string status() const;
 
     void open();
@@ -87,7 +88,10 @@ public:
         bool confirmed = false;
     };
 
-    Sent sendText(const std::string& peer, const std::string& text);
+    Sent sendText(const std::string& peer, const std::string& text,
+        const std::string& replyTo = {}, bool forwarded = false);
+    Sent forward(const std::string& fromPeer, const std::string& messageId,
+        const std::string& toPeer);
     Sent sendKeyboard(
         const std::string& peer, const std::string& text, const std::string& keyboardJson);
     void editMessage(
@@ -100,6 +104,7 @@ public:
     void clearChat(const std::string& peer);
 
     void acceptContact(const std::string& peer);
+    void removeContact(const std::string& peer);
     std::string addByInvite(const std::string& inviteUri, const std::string& text);
     std::string addByAlias(const std::string& alias, const std::string& text);
 
@@ -143,6 +148,7 @@ private:
     void bringUp();
     client::Session& openSession() const;
     void applyKind(client::Session& session) const;
+    client::DeliveryWatch statusWatch(const std::string& peer, const std::string& messageId);
     GroupLink groupLink();
     void noteAliases(const client::Session& session);
     void startAliasErrand(client::Session::AliasErrandContext context, bool byHand);

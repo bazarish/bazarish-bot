@@ -8,6 +8,7 @@
 #include <bazarish/PortalSession.hpp>
 #include <bazarish/WebAssets.hpp>
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -20,6 +21,7 @@ public:
 
     int start();
     void stop();
+    void onRestoreReady(std::function<void()> restore) { restoreReady_ = std::move(restore); }
 
 private:
     void apiRoutes();
@@ -33,6 +35,7 @@ private:
     WebAssets assets_;
     service::PortalSession sessions_;
     std::unique_ptr<http::Server> server_;
+    std::function<void()> restoreReady_;
 };
 
 }  // namespace bazarish::bot

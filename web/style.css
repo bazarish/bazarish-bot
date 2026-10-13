@@ -121,6 +121,39 @@ body.centred {
     width: auto;
 }
 
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.bot-mark {
+    flex: 0 0 auto;
+    height: 1.75rem;
+    width: auto;
+    fill: none;
+    stroke: var(--bz-ink-dim);
+    stroke-width: 1.1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    overflow: visible;
+}
+
+.bot-eye {
+    transition: fill 0.25s ease, stroke 0.25s ease, filter 0.25s ease;
+}
+
+.bot-mark:hover .bot-eye.is-red {
+    fill: var(--bz-err);
+    stroke: var(--bz-err);
+    filter: drop-shadow(0 0 1.5px var(--bz-err)) drop-shadow(0 0 4px var(--bz-err));
+}
+
+.version {
+    color: var(--bz-ink-faint);
+    letter-spacing: 0.08em;
+}
+
 .sidebar-note {
     margin: 0.6rem 0 2rem;
     color: var(--bz-ink-faint);
@@ -271,6 +304,10 @@ body.centred {
     gap: 0.25rem 1rem;
     padding: 0.3rem 0;
     border-bottom: 1px dashed var(--bz-line);
+}
+
+.block-title + .facts {
+    margin-top: 0.8rem;
 }
 
 .facts li:last-child {
@@ -585,9 +622,64 @@ body.centred {
     flex-wrap: wrap;
     align-items: center;
     gap: 0.75rem;
-    margin-top: 1.5rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--bz-line-2);
+    margin-top: 1.1rem;
+}
+
+.view > :is(.panel-box, .rows, .stack-section, .tabbed) + :is(.panel-box, .rows, .stack-section, .tabbed) {
+    margin-top: 1rem;
+}
+
+.tab-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin: -0.25rem 0 1.1rem;
+    border-bottom: 1px solid var(--bz-line);
+}
+
+.tab {
+    padding: 0.55rem 0.8rem;
+    margin-bottom: -1px;
+    background: transparent;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    color: var(--bz-ink-dim);
+    font: inherit;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    cursor: pointer;
+}
+
+.tab:hover {
+    color: var(--bz-ink);
+}
+
+.tab.is-on {
+    color: var(--bz-ink);
+    border-bottom-color: var(--bz-key);
+}
+
+.tab:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bz-key);
+    border-radius: var(--bz-radius-sm);
+}
+
+.tab-panel > :first-child {
+    margin-top: 0;
+}
+
+a.btn {
+    text-decoration: none;
+}
+
+.block-title + pre.copy {
+    margin-top: 0.7rem;
+}
+
+.stack-section > .block-title {
+    margin-bottom: 0.6rem;
 }
 
 .form-footer .btn {
@@ -846,10 +938,18 @@ textarea.field {
     letter-spacing: 0.3em;
 }
 
+.view.is-chat {
+    display: flex;
+    flex-direction: column;
+    max-width: 1280px;
+    height: calc(100vh - 2 * clamp(1.25rem, 3vw, 2.5rem));
+}
+
 .chat {
     display: flex;
+    flex: 1 1 auto;
     gap: 1rem;
-    height: clamp(20rem, 56vh, 32rem);
+    min-height: 0;
 }
 
 .chat-list {
@@ -973,6 +1073,24 @@ textarea.field {
 
 .line-meta .edited {
     color: var(--bz-ink-dim);
+}
+
+.delivery {
+    margin-inline-start: 0.4rem;
+    letter-spacing: 0;
+}
+
+.delivery.is-delivered {
+    color: var(--bz-ink-dim);
+}
+
+.delivery.is-read {
+    color: var(--bz-key);
+}
+
+.delivery.is-failed {
+    color: var(--bz-err);
+    font-weight: 700;
 }
 
 .reactions {
@@ -1353,7 +1471,8 @@ textarea.field {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .line-tools {
+    .line-tools,
+    .bot-eye {
         transition: none;
     }
 }
@@ -1434,9 +1553,11 @@ textarea.field {
         top: 1.1rem;
         inset-inline-end: 1.25rem;
     }
+    .view.is-chat {
+        height: auto;
+    }
     .chat {
         flex-direction: column;
-        height: auto;
     }
     .chat-list {
         flex: 0 0 12rem;

@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <map>
 #include <string>
 
 #define CHECK(condition)                                                            \
@@ -111,11 +112,27 @@ int main()
         CHECK(kinds
             == "message message message edit reaction reaction reaction reaction delete "
                "message status status ");
+
+        for (const char* const id : {"d1", "d2", "d3"}) {
+            transcript.append(lineFor("dave", id, id, true, 60));
+        }
+        transcript.setStatus("dave", "d1", "delivered");
+        transcript.setStatus("dave", "d2", "delivered");
+        transcript.setStatus("dave", "d3", "sending");
+        transcript.applyReceipt("dave", "d2");
+        transcript.setStatus("dave", "d1", "delivered");
+        std::map<std::string, std::string> states;
+        for (const Line& line : transcript.conversation("dave", 0, 10)) {
+            states[line.e2eId] = line.status;
+        }
+        CHECK(states["d1"] == "read");
+        CHECK(states["d2"] == "read");
+        CHECK(states["d3"] == "sending");
     }
 
     {
         Transcript transcript(file, "pw");
-        CHECK(transcript.latestPerPeer().size() == 3);
+        CHECK(transcript.latestPerPeer().size() == 4);
         CHECK(transcript.conversation("bob", 0, 10).size() == 1);
     }
 

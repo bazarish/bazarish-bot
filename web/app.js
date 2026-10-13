@@ -105,7 +105,7 @@ function decorateCopies(root) {
     if (!marks) {
         return;
     }
-    for (const block of root.querySelectorAll("pre.copy:not([data-copyable])")) {
+    for (const block of root.querySelectorAll("pre.copy:not([data-copyable]):not([hidden])")) {
         block.dataset.copyable = "yes";
         block.parentNode.insertBefore(
             marks.button(t("Copy"), () => block.textContent), block.nextSibling);
@@ -116,14 +116,16 @@ function decorateCopies(root) {
     }
 }
 
-function facts(pairs) {
+function facts(pairs, copyable = true) {
     const list = node("ul", "facts");
     for (const [label, value] of pairs) {
         const row = node("li");
         row.append(node("span", "fact-label", label));
         const held = node("b");
         const inner = node("span", "fact-value", value);
-        inner.dataset.copy = value;
+        if (copyable) {
+            inner.dataset.copy = value;
+        }
         held.append(inner);
         row.append(held);
         list.append(row);
@@ -216,7 +218,8 @@ async function drawSidebar() {
     const nav = el("nav");
     nav.textContent = "";
     const route = currentRoute();
-    for (const [name, label] of [["add", N_("Add account")], ["settings", N_("Settings")]]) {
+    for (const [name, label] of [["add", N_("Add account")], ["settings", N_("Settings")],
+        ["system", N_("System")]]) {
         const item = node("li");
         const link = node("a", route.view === name ? "is-current" : "", t(label));
         link.href = "#/" + name;
@@ -249,7 +252,7 @@ function viewLabel(name) {
 
 function currentRoute() {
     const parts = (location.hash || "").replace(/^#\/?/, "").split("/");
-    if (parts[0] === "add" || parts[0] === "settings") {
+    if (["add", "settings", "system"].includes(parts[0])) {
         return {account: null, view: parts[0]};
     }
     const known = accounts.find((account) => account.id === parts[0]);
@@ -351,7 +354,6 @@ async function viewAdd() {
     };
 
     const create = node("article", "panel-box");
-    create.style.marginTop = "1rem";
     create.append(node("p", "block-title", t("Create")));
     const name = node("input", "field");
     name.type = "text";
@@ -371,10 +373,8 @@ async function viewAdd() {
     };
     createFooter.append(make);
     create.append(createFooter, created);
-    view.append(create);
 
     const restore = node("article", "panel-box");
-    restore.style.marginTop = "1rem";
     restore.append(node("p", "block-title", t("Restore a backup")));
     restore.append(node("p", "hint",
         t("A backup from the desktop client or from this panel.")));
@@ -405,15 +405,57 @@ async function viewAdd() {
     };
     restoreFooter.append(doRestore);
     restore.append(restoreFooter, restored);
-    view.append(restore);
 
-    view.append(receiveCard(kind, opened));
+    view.append(tabbed([create, restore, receiveCard(kind, opened)]));
     return view;
+}
+
+function tabbed(cards) {
+    const box = node("article", "panel-box tabbed");
+    const bar = node("div", "tab-bar");
+    bar.setAttribute("role", "tablist");
+    const tabs = [];
+    const panels = [];
+    const choose = (chosen) => {
+        tabs.forEach((tab, index) => {
+            const on = index === chosen;
+            tab.classList.toggle("is-on", on);
+            tab.setAttribute("aria-selected", String(on));
+            tab.tabIndex = on ? 0 : -1;
+            panels[index].hidden = !on;
+        });
+    };
+    cards.forEach((card, index) => {
+        const title = card.querySelector(".block-title");
+        const tab = node("button", "tab", title.textContent);
+        tab.type = "button";
+        tab.setAttribute("role", "tab");
+        tab.onclick = () => choose(index);
+        tab.onkeydown = (event) => {
+            const step = {ArrowRight: 1, ArrowLeft: -1}[event.key];
+            if (step === undefined) {
+                return;
+            }
+            const rtl = document.documentElement.dir === "rtl";
+            const next = (index + (rtl ? -step : step) + cards.length) % cards.length;
+            choose(next);
+            tabs[next].focus();
+        };
+        title.remove();
+        const panel = node("div", "tab-panel");
+        panel.setAttribute("role", "tabpanel");
+        panel.append(...card.childNodes);
+        tabs.push(tab);
+        panels.push(panel);
+        bar.append(tab);
+    });
+    box.append(bar, ...panels);
+    choose(0);
+    return box;
 }
 
 function receiveCard(kind, opened) {
     const card = node("article", "panel-box");
-    card.style.marginTop = "1rem";
     card.append(node("p", "block-title", t("Receive from another device")));
     card.append(node("p", "hint",
         t("Start sending the account on the other device. It shows a link and a code.")));
@@ -500,8 +542,7 @@ function receiveCard(kind, opened) {
 }
 
 async function viewChats() {
-    const view = node("section", "view");
-    view.style.maxWidth = "none";
+    const view = node("section", "view is-chat");
     view.append(node("h1", "view-title", t("Chats")));
 
     const chat = node("div", "chat");
@@ -551,6 +592,8 @@ async function drawThread() {
     if (!thread) {
         return;
     }
+    const typed = thread.querySelector(".composer .field");
+    const draft = typed && typed.dataset.peer === peer ? typed.value : "";
     thread.textContent = "";
     if (!peer) {
         thread.append(node("p", "empty", t("Pick a conversation.")));
@@ -573,9 +616,8 @@ async function drawThread() {
     field.type = "text";
     field.placeholder = editing ? t("Edit the message") : t("Write a message");
     field.autocomplete = "off";
-    if (editing) {
-        field.value = editing.text;
-    }
+    field.value = editing ? editing.text : draft;
+    field.dataset.peer = peer;
     const send = node("button", "btn", editing ? t("Save") : t("Send"));
     send.type = "submit";
     composer.append(field, send);
@@ -601,6 +643,27 @@ async function drawThread() {
     field.focus();
 }
 
+const kDeliveryMarks = {
+    sending: ["is-sending", "◷", N_("Sending")],
+    delivered: ["is-delivered", "✓", N_("Accepted by their server")],
+    read: ["is-read", "✓✓", N_("Read")],
+};
+
+function deliveryMark(status) {
+    const known = kDeliveryMarks[status];
+    if (known) {
+        const mark = node("span", "delivery " + known[0], known[1]);
+        mark.title = t(known[2]);
+        mark.setAttribute("aria-label", t(known[2]));
+        return mark;
+    }
+    const failed = node("span", "delivery is-failed", "!");
+    const reason = status.replace(/^failed:?\s*/, "");
+    failed.title = reason ? t("Not delivered: %1", reason) : t("Not delivered");
+    failed.setAttribute("aria-label", failed.title);
+    return failed;
+}
+
 function lineNode(line) {
     const isNote = line.type !== "text";
     const held = node("div", "line" + (line.outgoing ? " is-out" : "")
@@ -624,7 +687,7 @@ function lineNode(line) {
         for (const reaction of line.reactions) {
             const chip = node("span", "reaction" + (reaction.reactor === "me" ? " is-mine" : ""),
                 reaction.emoji);
-            chip.title = reaction.reactor === "me" ? "you" : nameOf(reaction.reactor);
+            chip.title = reaction.reactor === "me" ? t("you") : nameOf(reaction.reactor);
             reactions.append(chip);
         }
         held.append(reactions);
@@ -634,6 +697,9 @@ function lineNode(line) {
     meta.textContent = when(line.sentAt);
     if (line.edited) {
         meta.append(node("span", "edited", t(" · edited")));
+    }
+    if (line.outgoing && line.status) {
+        meta.append(deliveryMark(line.status));
     }
     held.append(meta);
 
@@ -740,7 +806,6 @@ async function viewContacts() {
     view.append(rows, failure);
 
     const add = node("article", "panel-box");
-    add.style.marginTop = "1rem";
     add.append(node("p", "block-title", t("Add a contact")));
     const invite = node("input", "field");
     invite.type = "text";
@@ -939,6 +1004,39 @@ async function viewSign() {
     return view;
 }
 
+const kBotDocs = "https://bazari.sh/docs/bots";
+
+function linkedText(text, href) {
+    const holder = node("span");
+    const match = /^(.*)\[(.*)\](.*)$/.exec(text);
+    if (!match) {
+        holder.textContent = text;
+        return holder;
+    }
+    const link = node("a", null, match[2]);
+    link.href = href;
+    link.target = "_blank";
+    link.rel = "noopener";
+    holder.append(match[1], link, match[3]);
+    return holder;
+}
+
+function tokenRow(token) {
+    const row = node("div", "row");
+    const keys = node("span", "row-keys");
+    keys.append(node("span", "row-key", token.name));
+    keys.append(node("span", "row-dest",
+        t("issued %1", new Date(token.createdAt * 1000).toLocaleDateString())));
+    row.append(keys, node("span", "row-tags"));
+    const revoke = node("button", "btn btn-danger btn-copy", t("Revoke"));
+    revoke.onclick = async () => {
+        await call("DELETE", base() + "/tokens/" + encodeURIComponent(token.name));
+        await render();
+    };
+    row.append(revoke);
+    return row;
+}
+
 async function viewApi() {
     const account = await call("GET", base());
     const view = node("section", "view");
@@ -947,28 +1045,14 @@ async function viewApi() {
         t("The API takes a token in the Authorization header. A token opens this account only. It is shown once, when issued.")));
 
     const rows = node("div", "rows");
-    if (account.tokens.length === 0) {
-        rows.append(node("p", "empty", t("No tokens issued.")));
-    }
+    const none = node("p", "empty", t("No tokens issued."));
+    none.hidden = account.tokens.length > 0;
+    rows.append(none);
     for (const token of account.tokens) {
-        const row = node("div", "row");
-        const keys = node("span", "row-keys");
-        keys.append(node("span", "row-key", token.name));
-        keys.append(node("span", "row-dest",
-            t("issued %1", new Date(token.createdAt * 1000).toLocaleDateString())));
-        row.append(keys, node("span", "row-tags"));
-        const revoke = node("button", "btn btn-danger btn-copy", t("Revoke"));
-        revoke.onclick = async () => {
-            await call("DELETE", base() + "/tokens/" + encodeURIComponent(token.name));
-            await render();
-        };
-        row.append(revoke);
-        rows.append(row);
+        rows.append(tokenRow(token));
     }
-    view.append(rows);
 
     const issue = node("article", "panel-box");
-    issue.style.marginTop = "1rem";
     issue.append(node("p", "block-title", t("Issue a token")));
     const name = node("input", "field");
     name.type = "text";
@@ -986,6 +1070,9 @@ async function viewApi() {
             shown.textContent = token.token;
             failure.textContent = "";
             decorateCopies(issue);
+            none.hidden = true;
+            rows.append(tokenRow({name: name.value, createdAt: Math.floor(Date.now() / 1000)}));
+            name.value = "";
         } catch (error) {
             failure.textContent = error.message;
         }
@@ -995,11 +1082,16 @@ async function viewApi() {
     view.append(issue);
 
     const how = node("article", "panel-box");
-    how.style.marginTop = "1rem";
-    how.append(node("p", "block-title", t("How a bot uses it")));
+    const howTitle = node("p", "block-title");
+    howTitle.append(linkedText(t("Example request, more in the [documentation]"), kBotDocs));
+    how.append(howTitle);
     how.append(node("pre", "copy",
         "curl -s http://" + location.host + "/v1/events?since=0\\&wait=60 \\\n  -H \"Authorization: Bearer $TOKEN\""));
     view.append(how);
+
+    const issued = node("section", "stack-section");
+    issued.append(node("p", "block-title", t("Issued tokens")), rows);
+    view.append(issued);
     return view;
 }
 
@@ -1021,7 +1113,7 @@ async function viewAccount() {
     name.value = account.name || "";
     identity.append(name);
     identity.append(node("p", "hint",
-        t("The name in the invite and in this panel. Contacts keep the names they gave.")));
+        t("The name in the invite and in this panel.")));
     const renamed = node("p", "hint");
     const nameFooter = node("p", "form-footer");
     const saveName = node("button", "btn", t("Save"));
@@ -1039,7 +1131,6 @@ async function viewAccount() {
     view.append(identity);
 
     const keys = node("article", "panel-box");
-    keys.style.marginTop = "1rem";
     keys.append(node("p", "block-title", t("Keys")));
     keys.append(node("p", "hint",
         t("A new address replaces this account's destination key. Invite links already handed out stop working. Contacts receive the new card.")));
@@ -1100,10 +1191,7 @@ async function viewAccount() {
 
 function exportCard(account) {
     const move = node("article", "panel-box");
-    move.style.marginTop = "1rem";
     move.append(node("p", "block-title", t("Back up this account")));
-    move.append(node("p", "hint",
-        t("The backup format is shared with the desktop client. An account runs in one place at a time.")));
     const bundlePassword = node("input", "field");
     bundlePassword.type = "password";
     if (account.kind === "group") {
@@ -1144,10 +1232,9 @@ function exportCard(account) {
 
 function pairCard() {
     const card = node("article", "panel-box");
-    card.style.marginTop = "1rem";
     card.append(node("p", "block-title", t("Send to another device")));
     card.append(node("p", "hint",
-        t("The account moves over I2P to a desktop client or another panel. Open the link there and enter the code.")));
+        t("Bots do not support running on several devices. This action moves the account.")));
     const offer = node("div");
     offer.hidden = true;
     const link = node("pre", "copy");
@@ -1217,7 +1304,6 @@ function pairCard() {
 
 function removeCard() {
     const card = node("article", "panel-box");
-    card.style.marginTop = "1rem";
     card.append(node("p", "block-title", t("Remove this account")));
     card.append(node("p", "hint",
         t("Closes the account and deletes its file, mailbox, conversations and tokens. To keep the account, export it first.")));
@@ -1304,7 +1390,6 @@ async function viewSettings() {
     view.append(transport);
 
     const operator = node("article", "panel-box");
-    operator.style.marginTop = "1rem";
     operator.append(node("p", "block-title", t("Administrator")));
     operator.append(node("p", "hint",
         t("The administrator fingerprint can be changed only in the configuration file, in the operator field.")));
@@ -1663,6 +1748,149 @@ async function viewPosts() {
     return view;
 }
 
+const kUploadChunkBytes = 1024 * 1024;
+const kBytesStep = 1024;
+const kByteUnits = [N_("%1 B"), N_("%1 KiB"), N_("%1 MiB"), N_("%1 GiB")];
+
+function bytesText(bytes) {
+    let value = bytes;
+    let unit = 0;
+    while (value >= kBytesStep && unit < kByteUnits.length - 1) {
+        value /= kBytesStep;
+        ++unit;
+    }
+    return t(kByteUnits[unit], unit === 0 ? value : value.toFixed(1));
+}
+
+const kSecondsPerMinute = 60;
+const kSecondsPerHour = 60 * kSecondsPerMinute;
+const kSecondsPerDay = 24 * kSecondsPerHour;
+
+function uptimeText(seconds) {
+    const days = Math.floor(seconds / kSecondsPerDay);
+    const hours = Math.floor(seconds % kSecondsPerDay / kSecondsPerHour);
+    const minutes = Math.floor(seconds % kSecondsPerHour / kSecondsPerMinute);
+    return days > 0 ? t("%1 d %2 h", days, hours) : t("%1 h %2 min", hours, minutes);
+}
+
+async function viewSystem() {
+    const system = await call("GET", "/ui/system");
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", t("System")));
+
+    const router = node("article", "panel-box");
+    router.append(node("p", "block-title", system.transport === "sam"
+        ? t("External router over SAM") : t("Built-in router")));
+    const routed = [];
+    if (system.router.counted) {
+        const links = system.router.connections || {};
+        routed.push([t("Tunnels in / out"),
+            system.router.inboundTunnels + " / " + system.router.outboundTunnels]);
+        routed.push([t("Transit tunnels"), String(system.router.transitTunnels)]);
+        routed.push([t("Known routers / floodfills"),
+            system.router.knownRouters + " / " + system.router.floodfills]);
+        routed.push([t("Connections"), Object.keys(links).length === 0
+            ? "0" : Object.entries(links).map(([kind, count]) => kind + " " + count).join(", ")]);
+    }
+    routed.push([t("Destinations ready / all"),
+        system.router.readyDestinations + " / " + system.router.destinations]);
+    router.append(facts(routed, false));
+    view.append(router);
+
+    const service = node("article", "panel-box");
+    service.append(node("p", "block-title", t("Service")));
+    service.append(facts([
+        [t("Version"), system.version],
+        [t("Uptime"), uptimeText(system.uptimeSeconds)],
+        [t("Memory now / peak"),
+            bytesText(system.memory.residentBytes) + " / " + bytesText(system.memory.peakBytes)],
+        [t("Data on disk"), bytesText(system.disk.stateBytes)],
+        [t("Free on the disk"), t("%1 of %2", bytesText(system.disk.freeBytes),
+            bytesText(system.disk.totalBytes))],
+    ], false));
+    view.append(service);
+
+    view.append(systemBackupCard());
+    return view;
+}
+
+function systemBackupCard() {
+    const box = node("article", "panel-box");
+    box.append(node("p", "block-title", t("Backup")));
+    box.append(node("p", "hint",
+        t("An archive of all bot data.")));
+    const exportFooter = node("p", "form-footer");
+    const download = node("a", "btn", t("Export"));
+    download.href = "/ui/system/backup";
+    download.setAttribute("download", "");
+    exportFooter.append(download);
+    box.append(exportFooter);
+
+    const archive = node("input", "field");
+    archive.type = "file";
+    archive.accept = ".zip";
+    box.append(node("label", "field-label", t("Archive to import")), archive);
+    box.append(node("p", "notice is-warning",
+        t("Importing replaces all bot data except the administrator fingerprint.")));
+    const state = node("p", "hint");
+    const importFooter = node("p", "form-footer");
+    const restore = node("button", "btn btn-danger", t("Import"));
+    restore.onclick = async () => {
+        const file = archive.files && archive.files[0];
+        if (!file) {
+            state.textContent = t("Pick the archive first.");
+            return;
+        }
+        if (!confirm(t("Replace all bot data?"))) {
+            return;
+        }
+        restore.disabled = true;
+        try {
+            for (let offset = 0; offset < file.size; offset += kUploadChunkBytes) {
+                const piece = await file.slice(offset, offset + kUploadChunkBytes).arrayBuffer();
+                const sent = await fetch("/ui/system/restore?offset=" + offset, {method: "POST",
+                    headers: {"Content-Type": "application/octet-stream"}, body: piece});
+                if (!sent.ok) {
+                    throw new Error((await sent.json()).error || sent.statusText);
+                }
+                state.textContent = t("Uploading %1", progressText(offset + piece.byteLength, file.size));
+            }
+        } catch (error) {
+            restore.disabled = false;
+            state.textContent = error.message;
+            return;
+        }
+        let committed = null;
+        try {
+            committed = await fetch("/ui/system/restore/commit", {method: "POST"});
+        } catch (error) {
+            committed = null;
+        }
+        if (committed && !committed.ok) {
+            restore.disabled = false;
+            state.textContent = (await committed.json()).error || committed.statusText;
+            return;
+        }
+        state.textContent = t("Restoring and restarting…");
+        let wentDown = false;
+        for (;;) {
+            await new Promise((resume) => setTimeout(resume, kRetryMs));
+            try {
+                const answered = await fetch("/ui/state");
+                if (wentDown && answered.ok) {
+                    location.reload();
+                    return;
+                }
+            } catch (error) {
+                wentDown = true;
+            }
+        }
+    };
+    importFooter.append(restore);
+    box.append(importFooter, state);
+    return box;
+}
+
 const views = {
     overview: viewOverview,
     chats: viewChats,
@@ -1677,6 +1905,7 @@ const views = {
     posts: viewPosts,
     add: viewAdd,
     settings: viewSettings,
+    system: viewSystem,
 };
 
 async function render() {
@@ -1759,3 +1988,6 @@ el("signOut").onclick = async () => {
 
 window.addEventListener("hashchange", render);
 render();
+call("GET", "/ui/state").then((state) => {
+    el("version").textContent = state.version || "";
+});

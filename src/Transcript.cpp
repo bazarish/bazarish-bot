@@ -183,7 +183,8 @@ void Transcript::setStatus(
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     Statement update(database_,
-        "UPDATE messages SET status = ? WHERE peer = ? AND e2eId = ? AND outgoing = 1");
+        "UPDATE messages SET status = ? WHERE peer = ? AND e2eId = ? AND outgoing = 1"
+        " AND status IS NOT 'read'");
     update.bind(1, status);
     update.bind(2, peer);
     update.bind(3, messageId);
@@ -197,6 +198,15 @@ void Transcript::setStatus(
 void Transcript::applyReceipt(const std::string& peer, const std::string& messageId)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
+    // A read receipt is a high-water mark: it covers every earlier line their server took.
+    Statement update(database_,
+        "UPDATE messages SET status = 'read' WHERE peer = ? AND outgoing = 1"
+        " AND status = 'delivered' AND id <= (SELECT id FROM messages"
+        " WHERE peer = ? AND e2eId = ? AND outgoing = 1)");
+    update.bind(1, peer);
+    update.bind(2, peer);
+    update.bind(3, messageId);
+    (void)update.step();
     (void)noteLocked("receipt", peer, messageId, {}, peer, 0);
 }
 
@@ -236,6 +246,19 @@ std::vector<Line> Transcript::conversation(
     }
     loadReactionsLocked(lines);
     return lines;
+}
+
+std::optional<Line> Transcript::find(const std::string& peer, const std::string& messageId) const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    Statement query(database_, std::string("SELECT ") + kLineColumns
+            + " FROM messages WHERE peer = ? AND e2eId = ? ORDER BY id DESC LIMIT 1");
+    query.bind(1, peer);
+    query.bind(2, messageId);
+    if (!query.step()) {
+        return std::nullopt;
+    }
+    return readLine(query);
 }
 
 std::vector<Line> Transcript::latestPerPeer() const

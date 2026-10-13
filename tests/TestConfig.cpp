@@ -102,6 +102,13 @@ int main()
         fs::remove(noPort);
     }
 
+    {
+        const auto shipped = readConfig(fs::path(BAZARISH_BOT_SOURCE_DIR) / "config.example.json");
+        CHECK(shipped.stateDir == "/var/lib/bazarish/bot");
+        CHECK(shipped.listenPort == 8440);
+        CHECK(shipped.operatorFingerprint.empty());
+    }
+
     CHECK_THROWS(readConfig(fs::temp_directory_path() / "bz-bot-missing.json"));
 
     std::fprintf(stderr, "TestConfig passed\n");

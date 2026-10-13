@@ -1,27 +1,33 @@
 // Bazarish project (c) 2026
+#include "Backup.hpp"
 #include "Config.hpp"
 #include "HttpFace.hpp"
 #include "Runtime.hpp"
+#include "Version.hpp"
 
 #include <bazarish/Log.hpp>
+
+#include <Restart.hpp>
 
 #include <condition_variable>
 #include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <mutex>
 #include <string>
 
 namespace {
 
-constexpr const char* kVersion = "0.0.1";
 constexpr const char* kConfigFlag = "--config";
 constexpr const char* kWebDirectory = "web";
 
 std::mutex g_stopMutex;
 std::condition_variable g_stop;
 bool g_stopping = false;
+bool g_restoring = false;
 
 void onSignal(int)
 {
@@ -38,7 +44,7 @@ void usage()
                 "Everything else is set in that interface.\n\n"
                 "Usage:\n"
                 "  bazarish-bot --config <path>\n",
-        kVersion);
+        bazarish::bot::kVersion);
 }
 
 std::filesystem::path webDirectory(const char* const argv0)
@@ -80,24 +86,45 @@ int main(int argc, char** argv)
     }
     bazarish::log::setLevel(*level);
 
-    bazarish::bot::Runtime runtime(config);
-    runtime.openAll();
-
-    bazarish::bot::HttpFace face(runtime, webDirectory(argv[0]));
-    const int port = face.start();
-    bazarish::log::info("bazarish-bot {} on http://{}:{}", kVersion, config.listenHost, port);
-    if (config.operatorFingerprint.empty()) {
-        bazarish::log::info("open that address: the first key to sign in there operates this host");
-    }
-
-    std::signal(SIGINT, onSignal);
-    std::signal(SIGTERM, onSignal);
     {
-        std::unique_lock<std::mutex> lock(g_stopMutex);
-        g_stop.wait(lock, []() { return g_stopping; });
+        bazarish::bot::Runtime runtime(config);
+        runtime.openAll();
+
+        bazarish::bot::HttpFace face(runtime, webDirectory(argv[0]));
+        face.onRestoreReady([]() {
+            const std::lock_guard<std::mutex> lock(g_stopMutex);
+            g_restoring = true;
+            g_stopping = true;
+            g_stop.notify_all();
+        });
+        const int port = face.start();
+        bazarish::log::info(
+            "bazarish-bot {} on http://{}:{}", bazarish::bot::kVersion, config.listenHost, port);
+        if (config.operatorFingerprint.empty()) {
+            bazarish::log::info(
+                "open that address: the first key to sign in there operates this host");
+        }
+
+        std::signal(SIGINT, onSignal);
+        std::signal(SIGTERM, onSignal);
+        {
+            std::unique_lock<std::mutex> lock(g_stopMutex);
+            g_stop.wait(lock, []() { return g_stopping; });
+        }
+        bazarish::log::info("stopping");
+        face.stop();
+        runtime.stop();
     }
-    bazarish::log::info("stopping");
-    face.stop();
-    runtime.stop();
-    return 0;
+    if (!g_restoring) {
+        return 0;
+    }
+    const std::filesystem::path upload = config.stateDir / bazarish::bot::kRestoreUpload;
+    std::ifstream in(upload, std::ios::binary);
+    const bazarish::Bytes archive(
+        (std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    bazarish::bot::restoreBackup(archive, config.stateDir);
+    std::filesystem::remove(upload);
+    bazarish::log::info("the backup is restored; exiting to be started again");
+    return bazarish::kRestartExitCode;
 }

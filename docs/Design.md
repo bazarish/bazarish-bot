@@ -176,6 +176,21 @@ a new address. The ask runs off the account's lock, so a registry that does not
 answer holds up nothing else; stopping the daemon waits for an ask in flight to
 come back. A contact is added by alias as well as by invite.
 
+## Backing up the whole host
+
+The System page exports one zip of the state directory and the config file,
+with a `bazarish-bot-backup.json` manifest naming the format and the version.
+Entries are stored, not deflated, and keep their file modes. While it is
+written every account is closed, so no account database is copied mid-write;
+the server stays up, since its storage replaces each file whole.
+
+An import is uploaded in pieces into `.restore-upload.zip` in the state
+directory and checked as a whole: the manifest, the checksums, and that every
+entry lands inside the state directory. The daemon then stops, replaces the
+state directory with the archive's, and exits with code 90 for systemd to start
+it again. The config file stays as it is: it names this host's address and
+administrator.
+
 ## Where the code comes from
 
 | From | What |

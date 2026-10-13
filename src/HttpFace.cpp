@@ -1,5 +1,8 @@
 // Bazarish project (c) 2026
 #include "HttpFace.hpp"
+#include "Backup.hpp"
+#include "SystemInfo.hpp"
+#include "Version.hpp"
 
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Log.hpp>
@@ -9,13 +12,18 @@
 #include <openssl/rand.h>
 
 #include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iterator>
 #include <memory>
 #include <stdexcept>
 #include <thread>
 #include <utility>
 
 namespace bazarish::bot {
+
+namespace fs = std::filesystem;
 
 namespace {
 
@@ -26,6 +34,8 @@ constexpr const char* kSessionCookie = "bazarish_bot";
 constexpr int kDefaultWaitSeconds = 30;
 constexpr int kDefaultPage = 50;
 constexpr const char* kAccountPath = "/ui/accounts/([0-9a-f]+)";
+constexpr std::uint64_t kMebibyte = 1024 * 1024;
+constexpr std::uint64_t kMaxBackupBytes = 512 * kMebibyte;
 
 std::string sessionSecret()
 {
@@ -457,6 +467,13 @@ void HttpFace::apiRoutes()
         });
     });
 
+    server_->del("/v1/contacts/([a-z2-7]+)", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            account.removeContact(call.captures.at(0));
+            return json({{"removed", call.captures.at(0)}});
+        });
+    });
+
     server_->get("/v1/chats", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request&) {
             return json(linesJson(account.chats()));
@@ -484,7 +501,21 @@ void HttpFace::apiRoutes()
             }
             const Account::Sent sent = body.contains("keyboard")
                 ? account.sendKeyboard(peer, text, body.at("keyboard").dump())
-                : account.sendText(peer, text);
+                : account.sendText(peer, text, body.value("replyTo", std::string()));
+            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
+        });
+    });
+
+    server_->post("/v1/forward", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string from = body.value("from", std::string());
+            const std::string messageId = body.value("messageId", std::string());
+            const std::string to = body.value("to", std::string());
+            if (from.empty() || messageId.empty() || to.empty()) {
+                return failure(400, "a forward is \"from\", \"messageId\" and \"to\"");
+            }
+            const Account::Sent sent = account.forward(from, messageId, to);
             return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
         });
     });
@@ -579,11 +610,16 @@ void HttpFace::operatorRoutes()
     };
 
     server_->get("/ui/state", [this](const http::Request& request) {
-        return json({
+        const bool in = signedIn(request);
+        nlohmann::json state = {
             {"claimed", operator_.claimed()},
-            {"signedIn", signedIn(request)},
+            {"signedIn", in},
             {"challenge", operator_.issueChallenge(nowSeconds())},
-        });
+        };
+        if (in) {
+            state["version"] = kVersion;
+        }
+        return json(state);
     });
 
     server_->post("/ui/login", [this](const http::Request& request) {
@@ -649,6 +685,87 @@ void HttpFace::operatorRoutes()
                 runtime_.settings().setPrivacy(*parsed);
             }
             return json({{"ok", true}});
+        });
+    });
+
+    server_->get("/ui/system", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request&) {
+            const Runtime::RouterReport router = runtime_.routerReport();
+            const MemoryUse memory = memoryUse();
+            const DiskUse disk = diskUse(runtime_.config().stateDir);
+            nlohmann::json routerJson = {{"counted", router.counted},
+                {"destinations", router.destinations},
+                {"readyDestinations", router.readyDestinations}};
+            if (router.counted) {
+                routerJson["inboundTunnels"] = router.inboundTunnels;
+                routerJson["outboundTunnels"] = router.outboundTunnels;
+                routerJson["transitTunnels"] = router.transitTunnels;
+                routerJson["knownRouters"] = router.knownRouters;
+                routerJson["floodfills"] = router.floodfills;
+                routerJson["connections"] = router.connections;
+            }
+            return json({
+                {"version", kVersion},
+                {"uptimeSeconds", runtime_.uptimeSeconds()},
+                {"transport", runtime_.settings().transport() == Settings::Transport::eSam
+                        ? "sam"
+                        : "embedded"},
+                {"router", routerJson},
+                {"memory", {{"residentBytes", memory.residentBytes},
+                               {"peakBytes", memory.peakBytes}}},
+                {"disk", {{"stateBytes", disk.stateBytes}, {"freeBytes", disk.freeBytes},
+                             {"totalBytes", disk.totalBytes}}},
+            });
+        });
+    });
+
+    server_->get("/ui/system/backup", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request&) {
+            const Bytes archive = runtime_.exportEverything();
+            http::Response response;
+            response.contentType = "application/zip";
+            response.headers["Content-Disposition"]
+                = "attachment; filename=\"bazarish-bot-backup.zip\"";
+            response.body.assign(archive.begin(), archive.end());
+            return response;
+        });
+    });
+
+    server_->post("/ui/system/restore", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request& call) {
+            const std::uint64_t offset = std::stoull(call.query("offset"));
+            const fs::path upload = runtime_.config().stateDir / kRestoreUpload;
+            const std::uint64_t held
+                = offset == 0 || !fs::exists(upload) ? 0 : fs::file_size(upload);
+            if (offset != held) {
+                return failure(409, "the upload holds " + std::to_string(held) + " bytes");
+            }
+            if (offset + call.body.size() > kMaxBackupBytes) {
+                return failure(413, "a backup is at most "
+                        + std::to_string(kMaxBackupBytes / kMebibyte) + " MiB");
+            }
+            std::ofstream out(upload, std::ios::binary
+                    | (offset == 0 ? std::ios::trunc : std::ios::app));
+            fs::permissions(upload, fs::perms::owner_read | fs::perms::owner_write);
+            out.write(call.body.data(), static_cast<std::streamsize>(call.body.size()));
+            if (!out) {
+                return failure(500, "the upload could not be written");
+            }
+            return json({{"held", offset + call.body.size()}});
+        });
+    });
+
+    server_->post("/ui/system/restore/commit", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request&) {
+            const fs::path upload = runtime_.config().stateDir / kRestoreUpload;
+            std::ifstream in(upload, std::ios::binary);
+            if (!in) {
+                return failure(409, "nothing has been uploaded");
+            }
+            checkBackup(Bytes(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()));
+            log::warn("a backup was uploaded: restoring it and restarting");
+            restoreReady_();
+            return json({{"restarting", true}});
         });
     });
 

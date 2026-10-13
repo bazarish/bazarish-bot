@@ -47,6 +47,7 @@ public:
     std::string replaceDestinationFor(const std::string& account);
     std::string destination(const std::string& account) const;
     void forget(const std::string& account);
+    void endMailWait(const std::string& account);
 
 private:
     std::filesystem::path stateDir_;
