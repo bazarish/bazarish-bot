@@ -2,9 +2,9 @@
 name: Release
 
 on:
+  # Every push walks the whole path while the packaging is being settled; only
+  # the publishing below waits for a tag.
   push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -37,18 +37,19 @@ jobs:
             build-essential cmake ninja-build git ca-certificates pkg-config python3 file \
             libssl-dev zlib1g-dev libboost-dev libboost-program-options-dev \
             libsqlcipher-dev libqrencode-dev libopus-dev libicu-dev dpkg-dev
-      # bazarish-server is private: SUBMODULES_TOKEN is a token that may read it.
       - uses: actions/checkout@v5
         with:
           submodules: recursive
           fetch-depth: 0
-          token: ${{ secrets.SUBMODULES_TOKEN }}
       - name: Build, test and pack
         run: |
           git config --global --add safe.directory '*'
           version="${{ github.event.inputs.version }}"
-          if [ -z "$version" ]; then
+          if [ -z "$version" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             version="${GITHUB_REF_NAME#v}"
+          fi
+          if [ -z "$version" ]; then
+            version="0.0.0"
           fi
           bash packaging/deb/build.sh "$version" out
       - uses: actions/upload-artifact@v4
