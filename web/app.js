@@ -1818,7 +1818,7 @@ function systemBackupCard() {
     const box = node("article", "panel-box");
     box.append(node("p", "block-title", t("Backup")));
     box.append(node("p", "hint",
-        t("An archive of all bot data.")));
+        t("An archive of all service data.")));
     const exportFooter = node("p", "form-footer");
     const download = node("a", "btn", t("Export"));
     download.href = "/ui/system/backup";
@@ -1831,7 +1831,7 @@ function systemBackupCard() {
     archive.accept = ".zip";
     box.append(node("label", "field-label", t("Archive to import")), archive);
     box.append(node("p", "notice is-warning",
-        t("Importing replaces all bot data except the administrator fingerprint.")));
+        t("Importing replaces all service data except the administrator fingerprint.")));
     const state = node("p", "hint");
     const importFooter = node("p", "form-footer");
     const restore = node("button", "btn btn-danger", t("Import"));
@@ -1841,7 +1841,7 @@ function systemBackupCard() {
             state.textContent = t("Pick the archive first.");
             return;
         }
-        if (!confirm(t("Replace all bot data?"))) {
+        if (!confirm(t("Replace all service data?"))) {
             return;
         }
         restore.disabled = true;
