@@ -84,6 +84,13 @@ Key loadOrCreateSealingKey(const fs::path& path)
     return key;
 }
 
+bool renewalDue(const std::int64_t expires, const std::int64_t now)
+{
+    const std::int64_t term = kOwnDelegationDays * bazarish::kSecondsPerDay;
+    return now > expires
+        - static_cast<std::int64_t>(static_cast<double>(term) * bazarish::kDelegationRenewAtFraction);
+}
+
 }  // namespace
 
 ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Router* const router)
@@ -259,6 +266,15 @@ fs::path ServerSide::keyFileFor(const std::string& account) const
 std::string ServerSide::serveDestinationFor(const std::string& account)
 {
     const fs::path keyFile = keyFileFor(account);
+    // Raised again, an address leaves a dead lease set that senders keep using: a live one stays.
+    const std::int64_t held = destinations_->heldUntil(account);
+    if (held > 0 && fs::exists(keyFile) && !renewalDue(held, nowSeconds())) {
+        {
+            const std::lock_guard<std::mutex> lock(expiresMutex_);
+            destinationExpires_[account] = held;
+        }
+        return destinations_->assignmentFor(account, nowSeconds()).dest;
+    }
     std::string blob;
     if (fs::exists(keyFile)) {
         blob = readFileText(keyFile);
@@ -290,9 +306,7 @@ bool ServerSide::destinationNeedsRenewal(const std::string& account, const std::
         }
         expires = found->second;
     }
-    const std::int64_t term = kOwnDelegationDays * bazarish::kSecondsPerDay;
-    return now > expires
-        - static_cast<std::int64_t>(static_cast<double>(term) * bazarish::kDelegationRenewAtFraction);
+    return renewalDue(expires, now);
 }
 
 std::string ServerSide::replaceDestinationFor(const std::string& account)

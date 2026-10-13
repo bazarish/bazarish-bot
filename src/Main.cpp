@@ -17,7 +17,9 @@
 #include <fstream>
 #include <iterator>
 #include <mutex>
+#include <stdexcept>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -29,11 +31,24 @@ std::condition_variable g_stop;
 bool g_stopping = false;
 bool g_restoring = false;
 
-void onSignal(int)
+void stopWhenAsked()
 {
     const std::lock_guard<std::mutex> lock(g_stopMutex);
     g_stopping = true;
     g_stop.notify_all();
+}
+
+// Signals land on one sigwait thread: a handler may not touch a mutex or a condition variable.
+sigset_t stopSignals()
+{
+    sigset_t set;
+    sigemptyset(&set);
+    sigaddset(&set, SIGINT);
+    sigaddset(&set, SIGTERM);
+    if (pthread_sigmask(SIG_BLOCK, &set, nullptr) != 0) {
+        throw std::runtime_error("the stop signals could not be blocked");
+    }
+    return set;
 }
 
 void usage()
@@ -86,16 +101,24 @@ int main(int argc, char** argv)
     }
     bazarish::log::setLevel(*level);
 
+    const sigset_t signals = stopSignals();
+    std::thread([signals]() {
+        int caught = 0;
+        if (sigwait(&signals, &caught) == 0) {
+            stopWhenAsked();
+        }
+    }).detach();
     {
         bazarish::bot::Runtime runtime(config);
         runtime.openAll();
 
         bazarish::bot::HttpFace face(runtime, webDirectory(argv[0]));
         face.onRestoreReady([]() {
-            const std::lock_guard<std::mutex> lock(g_stopMutex);
-            g_restoring = true;
-            g_stopping = true;
-            g_stop.notify_all();
+            {
+                const std::lock_guard<std::mutex> lock(g_stopMutex);
+                g_restoring = true;
+            }
+            stopWhenAsked();
         });
         const int port = face.start();
         bazarish::log::info(
@@ -105,8 +128,6 @@ int main(int argc, char** argv)
                 "open that address: the first key to sign in there operates this host");
         }
 
-        std::signal(SIGINT, onSignal);
-        std::signal(SIGTERM, onSignal);
         {
             std::unique_lock<std::mutex> lock(g_stopMutex);
             g_stop.wait(lock, []() { return g_stopping; });
