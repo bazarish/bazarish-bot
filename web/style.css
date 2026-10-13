@@ -112,7 +112,7 @@ body.centred {
     overflow-y: auto;
     padding: 1.5rem 1.25rem;
     background: var(--bz-deep);
-    border-right: 1px solid var(--bz-line);
+    border-inline-end: 1px solid var(--bz-line);
 }
 
 .wordmark {
@@ -143,12 +143,19 @@ body.centred {
 
 .nav {
     margin: 0;
-    padding: 0;
+    padding: 1.25rem 0 0;
     list-style: none;
     flex: 1 1 auto;
+    border-top: 1px solid var(--bz-line);
 }
 
-.nav a {
+.accounts:empty + .nav {
+    padding-top: 0;
+    border-top: 0;
+}
+
+.nav a,
+.account-nav a {
     display: block;
     padding: 0.55rem 0.7rem;
     margin-bottom: 0.25rem;
@@ -160,23 +167,27 @@ body.centred {
     text-transform: uppercase;
 }
 
-.nav a::before {
+.nav a::before,
+.account-nav a::before {
     content: "/";
     color: var(--bz-ink-faint);
-    margin-right: 0.5rem;
+    margin-inline-end: 0.5rem;
 }
 
-.nav a:hover {
+.nav a:hover,
+.account-nav a:hover {
     background: var(--bz-surface);
     color: var(--bz-ink);
 }
 
-.nav a.is-current {
+.nav a.is-current,
+.account-nav a.is-current {
     background: var(--bz-surface);
     color: var(--bz-ink);
 }
 
-.nav a.is-current::before {
+.nav a.is-current::before,
+.account-nav a.is-current::before {
     color: var(--bz-key);
 }
 
@@ -597,6 +608,10 @@ body.centred {
     color: var(--bz-ink);
 }
 
+.panel-box > .field-label:first-child {
+    margin-top: 0;
+}
+
 .field {
     width: 100%;
     padding: 0.55rem 0.7rem;
@@ -736,17 +751,19 @@ textarea.field {
 
     .sidebar {
         flex: 0 0 auto;
-        border-right: 0;
+        border-inline-end: 0;
         border-bottom: 1px solid var(--bz-line);
     }
 
-    .nav {
+    .nav,
+    .account-nav {
         display: flex;
         flex-wrap: wrap;
         gap: 0.35rem;
     }
 
-    .nav a {
+    .nav a,
+    .account-nav a {
         margin-bottom: 0;
         white-space: nowrap;
     }
@@ -767,7 +784,7 @@ textarea.field {
     list-style: none;
 }
 
-.accounts a {
+.accounts > li > a {
     display: flex;
     align-items: center;
     gap: 0.45rem;
@@ -780,15 +797,37 @@ textarea.field {
     font-size: 0.78rem;
 }
 
-.accounts a:hover {
+.accounts > li > a:hover {
     background: var(--bz-surface);
     color: var(--bz-ink);
 }
 
-.accounts a.is-current {
+.accounts > li > a.is-current {
     background: var(--bz-surface);
     border-color: var(--bz-line);
     color: var(--bz-ink);
+}
+
+.accounts > li > a.is-current::after {
+    content: "";
+    flex: 0 0 auto;
+    border-left: 0.3rem solid transparent;
+    border-right: 0.3rem solid transparent;
+    border-top: 0.34rem solid var(--bz-ink-faint);
+}
+
+.accounts > li > a.is-open::after {
+    border-top: 0;
+    border-bottom: 0.34rem solid var(--bz-ink-faint);
+}
+
+.account-nav {
+    margin: 0.35rem 0 0.6rem;
+    padding: 0;
+    padding-inline-start: 0.7rem;
+    list-style: none;
+    margin-inline-start: 0.85rem;
+    border-inline-start: 1px solid var(--bz-line);
 }
 
 .account-name {
@@ -828,10 +867,10 @@ textarea.field {
     background: transparent;
     border: 0;
     border-bottom: 1px solid var(--bz-line);
-    border-left: 2px solid transparent;
+    border-inline-start: 2px solid transparent;
     color: var(--bz-ink);
     font: inherit;
-    text-align: left;
+    text-align: start;
     cursor: pointer;
 }
 
@@ -841,7 +880,7 @@ textarea.field {
 
 .chat-item.is-current {
     background: var(--bz-surface-2);
-    border-left-color: var(--bz-accent);
+    border-inline-start-color: var(--bz-accent);
 }
 
 .chat-item .who {
@@ -1350,8 +1389,18 @@ textarea.field {
 
 .empty {
     margin: auto;
+    padding: 1rem 1.1rem;
     color: var(--bz-ink-faint);
     font-size: 0.78rem;
+}
+
+.view > .empty {
+    margin: 0;
+    padding: 0;
+}
+
+.view-title + .hint {
+    margin: -0.75rem 0 1.25rem;
 }
 
 .cards.is-stacked {

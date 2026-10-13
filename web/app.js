@@ -7,6 +7,7 @@ const content = () => el("content");
 let accounts = [];
 let accountId = null;
 let peer = null;
+let menuOpen = true;
 let names = {};
 let lastEventId = 0;
 let watched = null;
@@ -190,29 +191,31 @@ async function drawSidebar() {
     list.textContent = "";
     for (const account of accounts) {
         const item = node("li");
-        const link = node("a", account.id === accountId ? "is-current" : "");
+        const current = account.id === accountId;
+        const link = node("a", current ? "is-current" + (menuOpen ? " is-open" : "") : "");
         link.href = "#/" + account.id + "/overview";
         link.append(node("span", "dot " + (account.running ? "is-up" : "is-down")));
         link.append(node("span", "account-name", labelOf(account)));
         link.append(node("span", "tag" + (account.kind === "group" ? " is-key" : ""),
             t(account.kind === "group" ? "Group" : "Bot")));
         item.append(link);
+        if (current) {
+            link.setAttribute("aria-expanded", String(menuOpen));
+            link.onclick = (event) => {
+                event.preventDefault();
+                menuOpen = !menuOpen;
+                drawSidebar();
+            };
+            if (menuOpen) {
+                item.append(accountMenu(account));
+            }
+        }
         list.append(item);
     }
 
     const nav = el("nav");
     nav.textContent = "";
     const route = currentRoute();
-    if (accountId) {
-        const current = accounts.find((account) => account.id === accountId);
-        for (const [name, label] of viewsFor(current)) {
-            const item = node("li");
-            const link = node("a", route.view === name ? "is-current" : "", t(label));
-            link.href = "#/" + accountId + "/" + name;
-            item.append(link);
-            nav.append(item);
-        }
-    }
     for (const [name, label] of [["add", N_("Add account")], ["settings", N_("Settings")]]) {
         const item = node("li");
         const link = node("a", route.view === name ? "is-current" : "", t(label));
@@ -220,6 +223,19 @@ async function drawSidebar() {
         item.append(link);
         nav.append(item);
     }
+}
+
+function accountMenu(account) {
+    const route = currentRoute();
+    const menu = node("ul", "account-nav");
+    for (const [name, label] of viewsFor(account)) {
+        const item = node("li");
+        const link = node("a", route.view === name ? "is-current" : "", t(label));
+        link.href = "#/" + account.id + "/" + name;
+        item.append(link);
+        menu.append(item);
+    }
+    return menu;
 }
 
 function viewsFor(account) {
@@ -824,8 +840,8 @@ async function viewSign() {
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("Sign in")));
     view.append(node("p", "hint",
-        "A site that signs in with a Bazarish key shows a challenge. Paste it here and hand the signature back: the site lets you in as "
-        + labelOf(account) + "."));
+        t("A site that signs in with a Bazarish key shows a challenge. Paste it here and hand the signature back: the site lets you in as %1.",
+            labelOf(account))));
 
     const box = node("article", "panel-box");
     const challenge = node("textarea", "field");
@@ -1642,6 +1658,7 @@ async function render() {
         const route = currentRoute();
         if (route.account !== accountId) {
             accountId = route.account;
+            menuOpen = true;
             peer = null;
             editing = null;
             names = {};
