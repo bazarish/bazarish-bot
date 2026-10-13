@@ -277,6 +277,43 @@ nlohmann::json consumerJson(const std::string& challenge)
     }
 }
 
+nlohmann::json groupConfigJson(const GroupConfig& config)
+{
+    return {
+        {"kind", groupKindName(config.kind)},
+        {"joinMode", joinModeName(config.joinMode)},
+        {"historySize", config.historySize},
+        {"contactRequests", config.contactRequests},
+        {"language", config.language},
+    };
+}
+
+nlohmann::json membersJson(const std::vector<Member>& members)
+{
+    nlohmann::json rows = nlohmann::json::array();
+    for (const Member& member : members) {
+        rows.push_back({
+            {"fingerprint", member.fingerprint},
+            {"name", member.name},
+            {"state", memberStateName(member.state)},
+            {"admin", member.admin},
+            {"contactable", member.contactable},
+            {"joinedAt", member.joinedAt},
+        });
+    }
+    return rows;
+}
+
+std::string nameOf(const std::vector<Member>& members, const std::string& fingerprint)
+{
+    for (const Member& member : members) {
+        if (member.fingerprint == fingerprint) {
+            return member.name;
+        }
+    }
+    return {};
+}
+
 nlohmann::json accountJson(Account& account, Settings& settings)
 {
     nlohmann::json tokens = nlohmann::json::array();
@@ -376,6 +413,9 @@ void HttpFace::apiRoutes()
         }
         if (!account->running()) {
             return failure(503, "the account is not open: " + account->status());
+        }
+        if (account->kind() == Settings::AccountKind::eGroup && request.path != "/v1/status") {
+            return failure(409, "a group relays its members itself; the API does not write for it");
         }
         try {
             return handler(*account, request);
@@ -512,6 +552,10 @@ void HttpFace::apiRoutes()
             }
             if (!account->running()) {
                 return failure(503, "the account is not open: " + account->status());
+            }
+            if (account->kind() == Settings::AccountKind::eGroup) {
+                return failure(
+                    409, "a group relays its members itself; the API does not write for it");
             }
             answerEvents(account, request, std::move(respond));
             return std::nullopt;
@@ -714,10 +758,6 @@ void HttpFace::accountRoutes()
                 account.open();
                 return json({{"status", account.status()}});
             }
-            if (action == "kind") {
-                account.setKind(kindParam(body));
-                return json({{"kind", accountKindName(account.kind())}});
-            }
             if (action == "rename") {
                 account.rename(body.value("name", std::string()));
                 return json({{"name", body.value("name", std::string())}});
@@ -730,7 +770,7 @@ void HttpFace::accountRoutes()
                 account.retryRouting(body.value("peer", std::string()));
                 return json({{"sending", true}});
             }
-            return failure(400, "the action is open, kind, rename, new-address or retry-routing");
+            return failure(400, "the action is open, rename, new-address or retry-routing");
         });
     });
 
@@ -835,6 +875,113 @@ void HttpFace::accountRoutes()
             }
             return failure(400, "\"check\" asks the registry; \"alias\" with \"resolving\" "
                                 "points one here or nowhere");
+        });
+    });
+
+    server_->get(base + "/group", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            GroupEngine& group = account.group();
+            nlohmann::json states = nlohmann::json::object();
+            for (const Member& member : group.members()) {
+                states[memberStateName(member.state)]
+                    = states.value(memberStateName(member.state), 0) + 1;
+            }
+            return json({{"config", groupConfigJson(group.config())},
+                {"memberCount", group.memberCount()}, {"states", states},
+                {"requests", group.requests().size()}});
+        });
+    });
+
+    server_->post(base + "/group", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            GroupEngine& group = account.group();
+            GroupConfig config = group.config();
+            if (body.contains("kind")) {
+                config.kind = groupKindFromName(body.at("kind").get<std::string>());
+            }
+            if (body.contains("joinMode")) {
+                config.joinMode = joinModeFromName(body.at("joinMode").get<std::string>());
+            }
+            if (body.contains("historySize")) {
+                config.historySize = body.at("historySize").get<std::int64_t>();
+            }
+            if (body.contains("contactRequests")) {
+                config.contactRequests = body.at("contactRequests").get<bool>();
+            }
+            if (body.contains("language")) {
+                config.language = body.at("language").get<std::string>();
+            }
+            group.setConfig(config);
+            return json(groupConfigJson(group.config()));
+        });
+    });
+
+    server_->get(base + "/group/members", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            return json(membersJson(account.group().members()));
+        });
+    });
+
+    server_->post(base + "/group/members", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string fingerprint = body.value("fingerprint", std::string());
+            const std::string action = body.value("action", std::string());
+            GroupEngine& group = account.group();
+            if (action == "admin" || action == "unadmin") {
+                group.setAdmin(fingerprint, action == "admin");
+            } else if (action == "exclude") {
+                group.exclude(fingerprint);
+            } else if (action == "unban") {
+                group.unban(fingerprint);
+            } else {
+                return failure(400, "the action is admin, unadmin, exclude or unban");
+            }
+            return json(membersJson(group.members()));
+        });
+    });
+
+    server_->get(base + "/group/requests", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            GroupEngine& group = account.group();
+            const std::vector<Member> members = group.members();
+            nlohmann::json rows = nlohmann::json::array();
+            for (const JoinRequest& asked : group.requests()) {
+                rows.push_back({{"number", asked.number}, {"fingerprint", asked.fingerprint},
+                    {"name", nameOf(members, asked.fingerprint)}, {"at", asked.at}});
+            }
+            return json(rows);
+        });
+    });
+
+    server_->post(base + "/group/requests", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            account.group().decide(body.at("number").get<std::int64_t>(), body.at("allow").get<bool>());
+            return json({{"ok", true}});
+        });
+    });
+
+    server_->get(base + "/group/posts", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            GroupEngine& group = account.group();
+            const std::vector<Member> members = group.members();
+            nlohmann::json rows = nlohmann::json::array();
+            for (const Post& post : group.posts(intParam(call, "limit", kDefaultPage))) {
+                rows.push_back({{"id", post.id}, {"author", post.author},
+                    {"authorName", nameOf(members, post.author)}, {"type", post.type},
+                    {"text", post.text}, {"sentAt", post.sentAt}, {"edited", post.edited},
+                    {"deleted", post.deleted}, {"reactions", group.reactionCounts(post.id)}});
+            }
+            return json(rows);
+        });
+    });
+
+    server_->del(base + "/group/posts/([^/]+)", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            account.group().deletePost(call.captures.at(1));
+            return json({{"ok", true}});
         });
     });
 

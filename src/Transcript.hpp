@@ -1,13 +1,13 @@
 // Bazarish project (c) 2026
 #pragma once
 
+#include "Database.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <string>
 #include <vector>
-
-struct sqlite3;
 
 namespace bazarish::bot {
 
@@ -45,7 +45,6 @@ struct Event {
 class Transcript {
 public:
     Transcript(const std::filesystem::path& file, const std::string& passphrase);
-    ~Transcript();
 
     Transcript(const Transcript&) = delete;
     Transcript& operator=(const Transcript&) = delete;
@@ -73,7 +72,7 @@ private:
         std::int64_t at);
     void loadReactionsLocked(std::vector<Line>& lines) const;
 
-    sqlite3* db_ = nullptr;
+    Database database_;
     mutable std::mutex mutex_;
 };
 

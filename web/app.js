@@ -962,27 +962,6 @@ async function viewAccount() {
     identity.append(nameFooter, renamed);
     view.append(identity);
 
-    const kindBox = node("article", "panel-box");
-    kindBox.style.marginTop = "1rem";
-    kindBox.append(node("p", "block-title", "Kind"));
-    const kind = kindPicker(account.kind);
-    kindBox.append(kind, kindHint());
-    const kindSaid = node("p", "hint");
-    const kindFooter = node("p", "form-footer");
-    const saveKind = node("button", "btn", "Save");
-    saveKind.onclick = async () => {
-        try {
-            await call("POST", base(), {action: "kind", kind: kind.value});
-            kindSaid.textContent = "Saved. The next delivery leaves the new way.";
-            await drawSidebar();
-        } catch (error) {
-            kindSaid.textContent = error.message;
-        }
-    };
-    kindFooter.append(saveKind);
-    kindBox.append(kindFooter, kindSaid);
-    view.append(kindBox);
-
     const keys = node("article", "panel-box");
     keys.style.marginTop = "1rem";
     keys.append(node("p", "block-title", "Keys"));

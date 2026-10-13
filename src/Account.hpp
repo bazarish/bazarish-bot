@@ -1,6 +1,7 @@
 // Bazarish project (c) 2026
 #pragma once
 
+#include "GroupEngine.hpp"
 #include "ServerSide.hpp"
 #include "Settings.hpp"
 #include "Transcript.hpp"
@@ -29,7 +30,7 @@ public:
     using ServerSideFn = std::function<ServerSide&()>;
 
     Account(std::string id, std::filesystem::path accountFile, std::filesystem::path transcriptFile,
-        Settings& settings, ServerSideFn serverSide);
+        std::filesystem::path groupFile, Settings& settings, ServerSideFn serverSide);
     ~Account();
 
     Account(const Account&) = delete;
@@ -44,7 +45,7 @@ public:
     void closeOnServer();
 
     Settings::AccountKind kind() const;
-    void setKind(Settings::AccountKind kind);
+    GroupEngine& group() const;
 
     Bytes exportBundle(const std::string& bundlePassphrase);
 
@@ -141,6 +142,7 @@ private:
     void bringUp();
     client::Session& openSession() const;
     void applyKind(client::Session& session) const;
+    GroupLink groupLink();
     void noteAliases(const client::Session& session);
     void startAliasErrand(client::Session::AliasErrandContext context, bool byHand);
     void runAliasErrand(const client::Session::AliasErrandContext& context);
@@ -148,6 +150,7 @@ private:
     const std::string id_;
     const std::filesystem::path accountFile_;
     const std::filesystem::path transcriptFile_;
+    const std::filesystem::path groupFile_;
     Settings& settings_;
     const ServerSideFn serverSide_;
 
@@ -155,6 +158,7 @@ private:
     ServerSide* mailbox_ = nullptr;
     std::unique_ptr<client::Session> session_;
     std::unique_ptr<Transcript> transcript_;
+    std::unique_ptr<GroupEngine> group_;
 
     mutable std::mutex stateMutex_;
     std::string fingerprint_;

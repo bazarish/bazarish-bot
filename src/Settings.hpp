@@ -47,7 +47,6 @@ public:
     std::string accountWithFingerprint(const std::string& fingerprint) const;
     std::string fingerprintOf(const std::string& account) const;
     AccountKind kind(const std::string& account) const;
-    void setKind(const std::string& account, AccountKind kind);
     void forgetAccount(const std::string& account);
 
 private:

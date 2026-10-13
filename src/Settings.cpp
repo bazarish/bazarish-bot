@@ -272,17 +272,6 @@ Settings::AccountKind Settings::kind(const std::string& account) const
     return found == accounts_.end() ? AccountKind::eBot : found->second.kind;
 }
 
-void Settings::setKind(const std::string& account, const AccountKind kind)
-{
-    const std::lock_guard<std::mutex> lock(mutex_);
-    const auto found = accounts_.find(account);
-    if (found == accounts_.end()) {
-        throw std::runtime_error("no account " + account + " to set the kind of");
-    }
-    found->second.kind = kind;
-    save();
-}
-
 void Settings::forgetAccount(const std::string& account)
 {
     const std::lock_guard<std::mutex> lock(mutex_);

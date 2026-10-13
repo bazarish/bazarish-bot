@@ -75,6 +75,7 @@ private:
     i2p::Router& router();
     std::string adopt(const client::AccountInfo& info, Settings::AccountKind kind);
     std::filesystem::path transcriptFileFor(const std::string& id) const;
+    std::filesystem::path groupFileFor(const std::string& id) const;
     void runPairWorker(std::function<void()> work);
 
     Config config_;

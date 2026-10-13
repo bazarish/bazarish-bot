@@ -53,10 +53,8 @@ int main()
         Settings settings(file);
         settings.setTransport(Settings::Transport::eSam, "127.0.0.1", 7656);
         settings.setPrivacy(bazarish::i2p::Privacy::eMinimal);
-        CHECK_THROWS(settings.setKind(second, Settings::AccountKind::eGroup));
         settings.rememberAccount(first, "fp-first", Settings::AccountKind::eBot);
-        settings.rememberAccount(second, "fp-second", Settings::AccountKind::eBot);
-        settings.setKind(second, Settings::AccountKind::eGroup);
+        settings.rememberAccount(second, "fp-second", Settings::AccountKind::eGroup);
         const auto token = settings.issueToken(first, "nightly-report");
         CHECK(token.secret.size() == 64);
         CHECK(token.createdAt > 0);

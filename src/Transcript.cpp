@@ -1,11 +1,7 @@
 // Bazarish project (c) 2026
 #include "Transcript.hpp"
 
-#include <AccountKey.hpp>
-
 #include <bazarish/Bytes.hpp>
-
-#include <sqlcipher/sqlite3.h>
 
 #include <stdexcept>
 
@@ -13,81 +9,10 @@ namespace bazarish::bot {
 
 namespace {
 
-constexpr int kBusyTimeoutMs = 5000;
 constexpr int kMaxPage = 500;
 
 constexpr const char* kLineColumns
     = "id, peer, outgoing, type, e2eId, text, keyboard, replyTo, sentAt, edited, status";
-
-std::string rawKeyLiteral(const Bytes& key)
-{
-    return "x'" + toHex(key) + "'";
-}
-
-void run(sqlite3* const db, const std::string& sql)
-{
-    char* message = nullptr;
-    if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &message) != SQLITE_OK) {
-        const std::string text = message == nullptr ? "unknown" : message;
-        sqlite3_free(message);
-        throw std::runtime_error("transcript: " + text);
-    }
-}
-
-class Statement {
-public:
-    Statement(sqlite3* const db, const std::string& sql)
-    {
-        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &statement_, nullptr) != SQLITE_OK) {
-            throw std::runtime_error(
-                std::string("transcript: cannot prepare a statement: ") + sqlite3_errmsg(db));
-        }
-    }
-    ~Statement() { sqlite3_finalize(statement_); }
-
-    Statement(const Statement&) = delete;
-    Statement& operator=(const Statement&) = delete;
-
-    sqlite3_stmt* get() const { return statement_; }
-
-    void bind(const int index, const std::string& text)
-    {
-        if (sqlite3_bind_text(statement_, index, text.data(), static_cast<int>(text.size()),
-                SQLITE_TRANSIENT)
-            != SQLITE_OK) {
-            throw std::runtime_error("transcript: cannot bind a value");
-        }
-    }
-    void bind(const int index, const std::int64_t value)
-    {
-        if (sqlite3_bind_int64(statement_, index, value) != SQLITE_OK) {
-            throw std::runtime_error("transcript: cannot bind a value");
-        }
-    }
-    bool step()
-    {
-        const int outcome = sqlite3_step(statement_);
-        if (outcome == SQLITE_ROW) {
-            return true;
-        }
-        if (outcome != SQLITE_DONE) {
-            throw std::runtime_error("transcript: a statement did not complete");
-        }
-        return false;
-    }
-    std::string text(const int index) const
-    {
-        const unsigned char* const value = sqlite3_column_text(statement_, index);
-        return value == nullptr ? std::string() : reinterpret_cast<const char*>(value);
-    }
-    std::int64_t number(const int index) const
-    {
-        return sqlite3_column_int64(statement_, index);
-    }
-
-private:
-    sqlite3_stmt* statement_ = nullptr;
-};
 
 Line readLine(const Statement& statement)
 {
@@ -109,49 +34,33 @@ Line readLine(const Statement& statement)
 }  // namespace
 
 Transcript::Transcript(const std::filesystem::path& file, const std::string& passphrase)
+    : database_(file, passphrase, "transcript")
 {
-    std::filesystem::create_directories(file.parent_path());
-    const Bytes key = client::accountkey::keyFor(file, passphrase);
-    if (sqlite3_open(file.string().c_str(), &db_) != SQLITE_OK) {
-        sqlite3_close(db_);
-        db_ = nullptr;
-        throw std::runtime_error("transcript: cannot open " + file.string());
-    }
-    sqlite3_exec(db_, "PRAGMA cipher_log_level = NONE", nullptr, nullptr, nullptr);
-    run(db_, "PRAGMA key = \"" + rawKeyLiteral(key) + "\"");
-    sqlite3_busy_timeout(db_, kBusyTimeoutMs);
-    run(db_,
+    database_.run(
         "CREATE TABLE IF NOT EXISTS messages ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "peer TEXT NOT NULL, outgoing INTEGER NOT NULL, type TEXT, e2eId TEXT,"
         "text TEXT, keyboard TEXT, replyTo TEXT, sentAt INTEGER,"
         "edited INTEGER NOT NULL DEFAULT 0, status TEXT)");
-    run(db_, "CREATE UNIQUE INDEX IF NOT EXISTS messages_e2e ON messages(e2eId)"
+    database_.run("CREATE UNIQUE INDEX IF NOT EXISTS messages_e2e ON messages(e2eId)"
              " WHERE e2eId IS NOT NULL AND e2eId <> ''");
-    run(db_, "CREATE INDEX IF NOT EXISTS messages_peer ON messages(peer, id)");
-    run(db_,
+    database_.run("CREATE INDEX IF NOT EXISTS messages_peer ON messages(peer, id)");
+    database_.run(
         "CREATE TABLE IF NOT EXISTS reactions ("
         "peer TEXT NOT NULL, messageId TEXT NOT NULL, reactor TEXT NOT NULL, emoji TEXT,"
         " PRIMARY KEY (peer, messageId, reactor))");
-    run(db_,
+    database_.run(
         "CREATE TABLE IF NOT EXISTS events ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "kind TEXT NOT NULL, peer TEXT NOT NULL, messageId TEXT, text TEXT,"
         " actor TEXT, at INTEGER)");
 }
 
-Transcript::~Transcript()
-{
-    if (db_ != nullptr) {
-        sqlite3_close(db_);
-    }
-}
-
 std::int64_t Transcript::noteLocked(const std::string& kind, const std::string& peer,
     const std::string& messageId, const std::string& text, const std::string& actor,
     const std::int64_t at)
 {
-    Statement insert(db_,
+    Statement insert(database_,
         "INSERT INTO events (kind, peer, messageId, text, actor, at)"
         " VALUES (?, ?, ?, ?, ?, ?)");
     insert.bind(1, kind);
@@ -161,13 +70,13 @@ std::int64_t Transcript::noteLocked(const std::string& kind, const std::string& 
     insert.bind(5, actor);
     insert.bind(6, at);
     (void)insert.step();
-    return sqlite3_last_insert_rowid(db_);
+    return database_.lastInsertId();
 }
 
 std::int64_t Transcript::append(const Line& line)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement insert(db_,
+    Statement insert(database_,
         "INSERT OR IGNORE INTO messages"
         " (peer, outgoing, type, e2eId, text, keyboard, replyTo, sentAt, status)"
         " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
@@ -181,10 +90,10 @@ std::int64_t Transcript::append(const Line& line)
     insert.bind(8, line.sentAt);
     insert.bind(9, line.status);
     (void)insert.step();
-    if (sqlite3_changes(db_) == 0) {
+    if (database_.changes() == 0) {
         return 0;
     }
-    const std::int64_t id = sqlite3_last_insert_rowid(db_);
+    const std::int64_t id = database_.lastInsertId();
     (void)noteLocked("message", line.peer, line.e2eId, line.text, line.outgoing ? "" : line.peer,
         line.sentAt);
     return id;
@@ -194,7 +103,7 @@ bool Transcript::applyEdit(const std::string& peer, const std::string& messageId
     const std::string& text, const std::string& keyboard, const bool outgoing)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement update(db_,
+    Statement update(database_,
         "UPDATE messages SET text = ?, keyboard = ?, edited = 1"
         " WHERE peer = ? AND e2eId = ? AND outgoing = ?");
     update.bind(1, text);
@@ -203,7 +112,7 @@ bool Transcript::applyEdit(const std::string& peer, const std::string& messageId
     update.bind(4, messageId);
     update.bind(5, static_cast<std::int64_t>(outgoing ? 1 : 0));
     (void)update.step();
-    if (sqlite3_changes(db_) == 0) {
+    if (database_.changes() == 0) {
         return false;
     }
     (void)noteLocked("edit", peer, messageId, text, outgoing ? "" : peer, 0);
@@ -214,16 +123,16 @@ bool Transcript::applyDelete(
     const std::string& peer, const std::string& messageId, const bool outgoing)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement remove(db_,
+    Statement remove(database_,
         "DELETE FROM messages WHERE peer = ? AND e2eId = ? AND outgoing = ?");
     remove.bind(1, peer);
     remove.bind(2, messageId);
     remove.bind(3, static_cast<std::int64_t>(outgoing ? 1 : 0));
     (void)remove.step();
-    if (sqlite3_changes(db_) == 0) {
+    if (database_.changes() == 0) {
         return false;
     }
-    Statement clear(db_, "DELETE FROM reactions WHERE peer = ? AND messageId = ?");
+    Statement clear(database_, "DELETE FROM reactions WHERE peer = ? AND messageId = ?");
     clear.bind(1, peer);
     clear.bind(2, messageId);
     (void)clear.step();
@@ -236,14 +145,14 @@ void Transcript::applyReaction(const std::string& peer, const std::string& messa
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     if (emoji.empty()) {
-        Statement remove(db_,
+        Statement remove(database_,
             "DELETE FROM reactions WHERE peer = ? AND messageId = ? AND reactor = ?");
         remove.bind(1, peer);
         remove.bind(2, messageId);
         remove.bind(3, reactor);
         (void)remove.step();
     } else {
-        Statement put(db_,
+        Statement put(database_,
             "INSERT INTO reactions (peer, messageId, reactor, emoji) VALUES (?, ?, ?, ?)"
             " ON CONFLICT(peer, messageId, reactor) DO UPDATE SET emoji = excluded.emoji");
         put.bind(1, peer);
@@ -258,11 +167,11 @@ void Transcript::applyReaction(const std::string& peer, const std::string& messa
 int Transcript::clearPeer(const std::string& peer)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement lines(db_, "DELETE FROM messages WHERE peer = ?");
+    Statement lines(database_, "DELETE FROM messages WHERE peer = ?");
     lines.bind(1, peer);
     (void)lines.step();
-    const int gone = sqlite3_changes(db_);
-    Statement marks(db_, "DELETE FROM reactions WHERE peer = ?");
+    const int gone = database_.changes();
+    Statement marks(database_, "DELETE FROM reactions WHERE peer = ?");
     marks.bind(1, peer);
     (void)marks.step();
     (void)noteLocked("chat-cleared", peer, {}, {}, {}, 0);
@@ -273,13 +182,13 @@ void Transcript::setStatus(
     const std::string& peer, const std::string& messageId, const std::string& status)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement update(db_,
+    Statement update(database_,
         "UPDATE messages SET status = ? WHERE peer = ? AND e2eId = ? AND outgoing = 1");
     update.bind(1, status);
     update.bind(2, peer);
     update.bind(3, messageId);
     (void)update.step();
-    if (sqlite3_changes(db_) == 0) {
+    if (database_.changes() == 0) {
         return;
     }
     (void)noteLocked("status", peer, messageId, status, {}, 0);
@@ -297,7 +206,7 @@ void Transcript::loadReactionsLocked(std::vector<Line>& lines) const
         if (line.e2eId.empty()) {
             continue;
         }
-        Statement query(db_,
+        Statement query(database_,
             "SELECT reactor, emoji FROM reactions WHERE peer = ? AND messageId = ?");
         query.bind(1, line.peer);
         query.bind(2, line.e2eId);
@@ -314,7 +223,7 @@ std::vector<Line> Transcript::conversation(
     const std::string sql = std::string("SELECT ") + kLineColumns
         + " FROM messages WHERE peer = ?" + (before > 0 ? " AND id < ?" : "")
         + " ORDER BY id DESC LIMIT ?";
-    Statement query(db_, sql);
+    Statement query(database_, sql);
     int index = 1;
     query.bind(index++, peer);
     if (before > 0) {
@@ -335,7 +244,7 @@ std::vector<Line> Transcript::latestPerPeer() const
     const std::string sql = std::string("SELECT ") + kLineColumns
         + " FROM messages WHERE id IN (SELECT MAX(id) FROM messages GROUP BY peer)"
         + " ORDER BY id DESC";
-    Statement query(db_, sql);
+    Statement query(database_, sql);
     std::vector<Line> lines;
     while (query.step()) {
         lines.push_back(readLine(query));
@@ -346,7 +255,7 @@ std::vector<Line> Transcript::latestPerPeer() const
 std::vector<Event> Transcript::since(const std::int64_t id, const int limit) const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement query(db_,
+    Statement query(database_,
         "SELECT id, kind, peer, messageId, text, actor, at FROM events"
         " WHERE id > ? ORDER BY id LIMIT ?");
     query.bind(1, id);
@@ -369,7 +278,7 @@ std::vector<Event> Transcript::since(const std::int64_t id, const int limit) con
 std::int64_t Transcript::lastEventId() const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement query(db_, "SELECT IFNULL(MAX(id), 0) FROM events");
+    Statement query(database_, "SELECT IFNULL(MAX(id), 0) FROM events");
     return query.step() ? query.number(0) : 0;
 }
 

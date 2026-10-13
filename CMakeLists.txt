@@ -21,6 +21,7 @@ add_subdirectory(${BAZARISH_SERVER_DIR}/service-node bazarish-service-node)
 add_subdirectory(${BAZARISH_SERVER_DIR}/facade-http bazarish-facade-http)
 
 find_package(Threads REQUIRED)
+find_package(ICU REQUIRED COMPONENTS uc i18n)
 
 add_library(bazarish_bot_lib STATIC
     src/Account.cpp
@@ -28,6 +29,11 @@ add_library(bazarish_bot_lib STATIC
     src/HttpFace.cpp
     src/OperatorAuth.cpp
     src/Runtime.cpp
+    src/Database.cpp
+    src/GroupCopy.cpp
+    src/GroupEngine.cpp
+    src/GroupStore.cpp
+    src/NameRules.cpp
     src/Transcript.cpp
     src/ServerSide.cpp
     src/Settings.cpp
@@ -35,7 +41,7 @@ add_library(bazarish_bot_lib STATIC
 target_include_directories(bazarish_bot_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(bazarish_bot_lib PUBLIC
     Bazarish::Client bazarish_server_lib bazarish_service_lib bazarish_facade_lib
-    Threads::Threads)
+    ICU::uc ICU::i18n Threads::Threads)
 target_compile_options(bazarish_bot_lib PRIVATE -Wall -Wextra -Werror)
 
 add_executable(bazarish-bot src/Main.cpp)
@@ -55,3 +61,6 @@ bazarish_bot_add_test(TestConfig)
 bazarish_bot_add_test(TestOperatorAuth)
 bazarish_bot_add_test(TestSettings)
 bazarish_bot_add_test(TestTranscript)
+bazarish_bot_add_test(TestGroupEngine)
+bazarish_bot_add_test(TestNameRules)
+bazarish_bot_add_test(TestGroupCopy)

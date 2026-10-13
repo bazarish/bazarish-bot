@@ -31,6 +31,13 @@ constexpr const char* kClosed = "closed";
 constexpr const char* kStarting = "starting";
 constexpr const char* kRunning = "running";
 
+std::int64_t wallMillis()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::system_clock::now().time_since_epoch())
+        .count();
+}
+
 std::string freshMessageId()
 {
     Bytes id(kMessageIdBytes);
@@ -71,10 +78,11 @@ bool pairingSettled(const client::Session::PairingStage stage)
 }  // namespace
 
 Account::Account(std::string id, fs::path accountFile, fs::path transcriptFile,
-    Settings& settings, ServerSideFn serverSide)
+    fs::path groupFile, Settings& settings, ServerSideFn serverSide)
     : id_(std::move(id))
     , accountFile_(std::move(accountFile))
     , transcriptFile_(std::move(transcriptFile))
+    , groupFile_(std::move(groupFile))
     , settings_(settings)
     , serverSide_(std::move(serverSide))
     , status_(kClosed)
@@ -148,6 +156,14 @@ void Account::bringUp()
     noteAliases(*session);
 
     auto transcript = std::make_unique<Transcript>(transcriptFile_, std::string());
+    std::unique_ptr<GroupEngine> group;
+    if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
+        group = std::make_unique<GroupEngine>(groupFile_, std::string(), groupLink(),
+            []() { return wallMillis(); });
+        GroupEngine* const engine = group.get();
+        session->setGroupBlockSource(
+            [engine](const std::string& peer) { return engine->blockFor(peer); });
+    }
 
     stopping_ = false;
     cardCarriesDestination_ = false;
@@ -164,6 +180,10 @@ void Account::bringUp()
         mailbox_ = &mailbox;
         session_ = std::move(session);
         transcript_ = std::move(transcript);
+        group_ = std::move(group);
+    }
+    if (group_ != nullptr) {
+        group_->start();
     }
     {
         const std::lock_guard<std::mutex> lock(stateMutex_);
@@ -194,6 +214,9 @@ void Account::close()
     if (errand.joinable()) {
         errand.join();
     }
+    if (group_ != nullptr) {
+        group_->stop();
+    }
     std::unique_ptr<client::Session> session;
     {
         const std::lock_guard<std::mutex> lock(stateMutex_);
@@ -209,10 +232,90 @@ void Account::close()
         transcript_.reset();
     }
     session.reset();
+    group_.reset();
     {
         const std::lock_guard<std::mutex> lock(pairing_->mutex);
         pairing_->state = {};
     }
+}
+
+GroupLink Account::groupLink()
+{
+    const auto watching = [](GroupLink::Outcome done) {
+        client::DeliveryWatch watch;
+        watch.onOutcome = std::move(done);
+        return watch;
+    };
+    GroupLink link;
+    link.accept = [this](const std::string& peer) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        openSession().acceptContactRequest(peer);
+    };
+    link.tell = [this](const std::string& peer, const std::string& text,
+                    const client::InlineKeyboard& keyboard) {
+        const std::string id = freshMessageId();
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        if (keyboard.empty()) {
+            (void)openSession().sendMessage(peer, text, id);
+        } else {
+            openSession().sendInteractive(peer, text, keyboard, id);
+        }
+        return id;
+    };
+    link.retell = [this](const std::string& peer, const std::string& id, const std::string& text,
+                      const client::InlineKeyboard& keyboard) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        (void)openSession().sendEdit(peer, id, text, keyboard);
+    };
+    link.relay = [this, watching](const std::string& peer, const client::RelayedPost& post,
+                     GroupLink::Outcome done) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        (void)openSession().relayPost(peer, post, watching(std::move(done)));
+    };
+    link.edit = [this, watching](const std::string& peer, const std::string& ref,
+                    const std::string& text, GroupLink::Outcome done) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        (void)openSession().sendEdit(peer, ref, text, {}, watching(std::move(done)));
+    };
+    link.remove = [this, watching](const std::string& peer, const std::string& ref,
+                      GroupLink::Outcome done) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        openSession().sendDelete(peer, ref, watching(std::move(done)));
+    };
+    link.reactions = [this, watching](const std::string& peer, const nlohmann::json& reactions,
+                         GroupLink::Outcome done) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        openSession().sendGroupReactions(peer, reactions, watching(std::move(done)));
+    };
+    link.state = [this](const std::string& peer) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        openSession().sendGroupState(peer);
+    };
+    link.descriptor = [this](const std::string& peer) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        return openSession().contactInviteUri(peer);
+    };
+    link.forget = [this](const std::string& peer) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        openSession().removeContact(peer);
+    };
+    link.fits = [this](const client::RelayedPost& post) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        return openSession().relayFits(post);
+    };
+    link.media = [this](const std::string& id, const std::string& type) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        return type == "image" ? openSession().picture(id) : openSession().voice(id);
+    };
+    return link;
+}
+
+GroupEngine& Account::group() const
+{
+    if (group_ == nullptr) {
+        throw std::runtime_error("this account is not a group, or it is not open");
+    }
+    return *group_;
 }
 
 void Account::closeOnServer()
@@ -233,15 +336,6 @@ void Account::applyKind(client::Session& session) const
             : client::OutboundAddressing::eOnePerCorrespondent);
 }
 
-void Account::setKind(const Settings::AccountKind kind)
-{
-    settings_.setKind(id_, kind);
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    if (session_ != nullptr) {
-        applyKind(*session_);
-    }
-}
-
 Bytes Account::exportBundle(const std::string& bundlePassphrase)
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -250,6 +344,9 @@ Bytes Account::exportBundle(const std::string& bundlePassphrase)
 
 Account::Pairing Account::startPairing()
 {
+    if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
+        throw std::runtime_error("a group lives on one device and cannot be paired to another");
+    }
     const std::shared_ptr<PairingSlot> slot = pairing_;
     const std::lock_guard<std::mutex> lock(sessionMutex_);
     const client::Session::PairingOffer offer
@@ -447,6 +544,17 @@ void Account::drainMailbox()
         arrived = session_->sync();
     } catch (const std::exception& error) {
         log::warn("account {}: mailbox: {}", id_, error.what());
+    }
+
+    if (group_ != nullptr) {
+        for (const client::IncomingMessage& item : arrived) {
+            try {
+                group_->onIncoming(item);
+            } catch (const std::exception& error) {
+                log::warn("account {}: group: {}", id_, error.what());
+            }
+        }
+        return;
     }
 
     bool wrote = false;
