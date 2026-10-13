@@ -75,6 +75,7 @@ public:
         std::string fingerprint;
         std::string name;
         bool pending = false;
+        bool accepting = false;
         bool writable = false;
     };
     std::vector<Peer> contacts() const;

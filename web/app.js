@@ -688,27 +688,39 @@ async function viewContacts() {
         const row = node("button", "row");
         row.type = "button";
         const keys = node("span", "row-keys");
-        keys.append(node("span", "row-key", contact.name || "unnamed"));
+        keys.append(node("span", "row-key", contact.name || t("no name yet")));
         keys.append(node("span", "row-dest", contact.fingerprint));
         row.append(keys);
         const tags = node("span", "row-tags");
         if (contact.pending) {
-            tags.append(node("span", "tag is-pending", t("pending")));
+            tags.append(node("span", "tag is-pending",
+                contact.accepting ? t("accepting…") : t("pending")));
         }
         row.append(tags);
-        row.append(node("span", "row-quota", contact.pending ? "accept" : "open"));
+        const action = node("span", "row-quota", contact.pending
+            ? (contact.accepting ? "" : t("Accept")) : t("Open the chat"));
+        row.append(action);
+        row.disabled = contact.accepting;
         row.onclick = async () => {
-            if (contact.pending) {
-                await call("POST", base() + "/contacts", {accept: contact.fingerprint});
-                await render();
+            if (!contact.pending) {
+                peer = contact.fingerprint;
+                go(accountId, "chats");
                 return;
             }
-            peer = contact.fingerprint;
-            go(accountId, "chats");
+            row.disabled = true;
+            failure.textContent = "";
+            try {
+                await call("POST", base() + "/contacts", {accept: contact.fingerprint});
+                await render();
+            } catch (error) {
+                row.disabled = false;
+                failure.textContent = error.message;
+            }
         };
         rows.append(row);
     }
-    view.append(rows);
+    const failure = node("p", "hint");
+    view.append(rows, failure);
 
     const add = node("article", "panel-box");
     add.style.marginTop = "1rem";
@@ -721,7 +733,7 @@ async function viewContacts() {
     intro.placeholder = t("a line to introduce yourself");
     add.append(node("label", "field-label", t("Invite or alias")), invite);
     add.append(node("label", "field-label", t("Message")), intro);
-    const failure = node("p", "hint");
+    const sendFailure = node("p", "hint");
     const footer = node("p", "form-footer");
     const send = node("button", "btn", t("Send request"));
     send.onclick = async () => {
@@ -732,11 +744,11 @@ async function viewContacts() {
                 : {invite: typed, text: intro.value});
             await render();
         } catch (error) {
-            failure.textContent = error.message;
+            sendFailure.textContent = error.message;
         }
     };
     footer.append(send);
-    add.append(footer, failure);
+    add.append(footer, sendFailure);
     view.append(add);
     return view;
 }

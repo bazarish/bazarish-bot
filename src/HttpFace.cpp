@@ -147,7 +147,8 @@ nlohmann::json peersJson(const std::vector<Account::Peer>& peers)
     nlohmann::json array = nlohmann::json::array();
     for (const Account::Peer& peer : peers) {
         array.push_back({{"fingerprint", peer.fingerprint}, {"name", peer.name},
-            {"pending", peer.pending}, {"writable", peer.writable}});
+            {"pending", peer.pending}, {"accepting", peer.accepting},
+            {"writable", peer.writable}});
     }
     return array;
 }

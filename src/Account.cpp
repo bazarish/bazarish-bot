@@ -651,7 +651,8 @@ std::vector<Account::Peer> Account::contacts() const
     std::vector<Peer> peers;
     for (const std::string& fingerprint : session.contactFingerprints()) {
         peers.push_back({fingerprint, session.contactDisplayName(fingerprint),
-            session.contactIsPending(fingerprint), session.canWriteTo(fingerprint)});
+            session.contactIsPending(fingerprint), session.contactAcceptInFlight(fingerprint),
+            session.canWriteTo(fingerprint)});
     }
     return peers;
 }
