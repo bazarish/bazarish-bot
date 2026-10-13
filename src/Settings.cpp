@@ -92,7 +92,8 @@ void Settings::load()
         if (!kind) {
             throw std::runtime_error("settings: account " + account + " has no kind");
         }
-        accounts_[account] = {entry.value("fingerprint", std::string()), *kind};
+        accounts_[account] = {entry.value("fingerprint", std::string()), *kind,
+            entry.at("acceptsContacts").get<bool>()};
     }
 }
 
@@ -106,7 +107,8 @@ void Settings::save() const
     nlohmann::json accounts = nlohmann::json::object();
     for (const auto& [account, entry] : accounts_) {
         accounts[account]
-            = {{"fingerprint", entry.fingerprint}, {"kind", accountKindName(entry.kind)}};
+            = {{"fingerprint", entry.fingerprint}, {"kind", accountKindName(entry.kind)},
+                {"acceptsContacts", entry.acceptsContacts}};
     }
     const nlohmann::json document = {
         {"transport", transportName(transport_)},
@@ -243,7 +245,13 @@ void Settings::rememberAccount(
     const std::string& account, const std::string& fingerprint, const AccountKind kind)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    accounts_[account] = {fingerprint, kind};
+    const bool known = accounts_.count(account) > 0;
+    AccountEntry& entry = accounts_[account];
+    if (!known) {
+        entry.acceptsContacts = kind == AccountKind::eBot;
+    }
+    entry.fingerprint = fingerprint;
+    entry.kind = kind;
     save();
 }
 
@@ -270,6 +278,24 @@ Settings::AccountKind Settings::kind(const std::string& account) const
     const std::lock_guard<std::mutex> lock(mutex_);
     const auto found = accounts_.find(account);
     return found == accounts_.end() ? AccountKind::eBot : found->second.kind;
+}
+
+bool Settings::acceptsContacts(const std::string& account) const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = accounts_.find(account);
+    return found != accounts_.end() && found->second.acceptsContacts;
+}
+
+void Settings::setAcceptsContacts(const std::string& account, const bool accepts)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = accounts_.find(account);
+    if (found == accounts_.end()) {
+        throw std::runtime_error("settings: no account " + account);
+    }
+    found->second.acceptsContacts = accepts;
+    save();
 }
 
 void Settings::forgetAccount(const std::string& account)

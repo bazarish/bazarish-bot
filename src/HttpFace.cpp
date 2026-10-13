@@ -326,6 +326,7 @@ nlohmann::json accountJson(Account& account, Settings& settings)
     return {
         {"id", account.id()},
         {"kind", accountKindName(account.kind())},
+        {"acceptsContacts", settings.acceptsContacts(account.id())},
         {"fingerprint", running ? account.fingerprint() : settings.fingerprintOf(account.id())},
         {"name", account.displayName()},
         {"destination", account.destination()},
@@ -751,8 +752,8 @@ void HttpFace::accountRoutes()
         });
     });
 
-    server_->post(base, [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request& call) {
+    server_->post(base, [this, forAccount](const http::Request& request) {
+        return forAccount(request, [this](Account& account, const http::Request& call) {
             const nlohmann::json body = nlohmann::json::parse(call.body);
             const std::string action = body.value("action", std::string());
             if (action == "open") {
@@ -771,7 +772,13 @@ void HttpFace::accountRoutes()
                 account.retryRouting(body.value("peer", std::string()));
                 return json({{"sending", true}});
             }
-            return failure(400, "the action is open, rename, new-address or retry-routing");
+            if (action == "accept-contacts" && account.kind() == Settings::AccountKind::eBot) {
+                const bool accepts = body.at("accepts").get<bool>();
+                runtime_.settings().setAcceptsContacts(account.id(), accepts);
+                return json({{"acceptsContacts", accepts}});
+            }
+            return failure(400,
+                "the action is open, rename, new-address, retry-routing or accept-contacts");
         });
     });
 

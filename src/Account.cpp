@@ -610,6 +610,10 @@ void Account::drainMailbox()
             if (transcript_->append(line) != 0) {
                 wrote = true;
             }
+            if (item.contentType == "contact.request" && !item.sentByUs
+                && settings_.acceptsContacts(id_)) {
+                openSession().acceptContactRequest(item.fromFingerprint);
+            }
         } catch (const std::exception& error) {
             log::warn("account {}: transcript: {}", id_, error.what());
         }

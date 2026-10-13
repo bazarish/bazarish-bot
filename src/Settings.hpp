@@ -47,6 +47,8 @@ public:
     std::string accountWithFingerprint(const std::string& fingerprint) const;
     std::string fingerprintOf(const std::string& account) const;
     AccountKind kind(const std::string& account) const;
+    bool acceptsContacts(const std::string& account) const;
+    void setAcceptsContacts(const std::string& account, bool accepts);
     void forgetAccount(const std::string& account);
 
 private:
@@ -64,6 +66,7 @@ private:
     struct AccountEntry {
         std::string fingerprint;
         AccountKind kind = AccountKind::eBot;
+        bool acceptsContacts = false;
     };
     std::map<std::string, AccountEntry> accounts_;
 };

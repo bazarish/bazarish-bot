@@ -1118,6 +1118,10 @@ textarea.field {
     cursor: pointer;
 }
 
+.check-lead {
+    margin: 0 0 1rem;
+}
+
 .check input {
     width: 1.05rem;
     height: 1.05rem;

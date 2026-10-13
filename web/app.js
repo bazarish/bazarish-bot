@@ -679,6 +679,23 @@ async function viewContacts() {
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("Contacts")));
 
+    const account = await call("GET", base());
+    const automatic = node("label", "check check-lead");
+    const accepts = node("input");
+    accepts.type = "checkbox";
+    accepts.checked = account.acceptsContacts;
+    automatic.append(accepts, node("span", null, t("Accept contact requests automatically")));
+    accepts.onchange = async () => {
+        failure.textContent = "";
+        try {
+            await call("POST", base(), {action: "accept-contacts", accepts: accepts.checked});
+        } catch (error) {
+            accepts.checked = !accepts.checked;
+            failure.textContent = error.message;
+        }
+    };
+    view.append(automatic);
+
     const rows = node("div", "rows");
     const contacts = await call("GET", base() + "/contacts");
     if (contacts.length === 0) {

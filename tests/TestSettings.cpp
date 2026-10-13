@@ -55,6 +55,11 @@ int main()
         settings.setPrivacy(bazarish::i2p::Privacy::eMinimal);
         settings.rememberAccount(first, "fp-first", Settings::AccountKind::eBot);
         settings.rememberAccount(second, "fp-second", Settings::AccountKind::eGroup);
+        CHECK(settings.acceptsContacts(first));
+        CHECK(!settings.acceptsContacts(second));
+        settings.setAcceptsContacts(first, false);
+        settings.rememberAccount(first, "fp-first", Settings::AccountKind::eBot);
+        CHECK_THROWS(settings.setAcceptsContacts("unknown", true));
         const auto token = settings.issueToken(first, "nightly-report");
         CHECK(token.secret.size() == 64);
         CHECK(token.createdAt > 0);
@@ -68,6 +73,8 @@ int main()
         CHECK(settings.privacy() == bazarish::i2p::Privacy::eMinimal);
         CHECK(settings.kind(first) == Settings::AccountKind::eBot);
         CHECK(settings.kind(second) == Settings::AccountKind::eGroup);
+        CHECK(!settings.acceptsContacts(first));
+        CHECK(!settings.acceptsContacts(second));
         CHECK(settings.accountWithFingerprint("fp-second") == second);
         CHECK(settings.accountWithFingerprint("fp-third").empty());
         CHECK(settings.fingerprintOf(first) == "fp-first");

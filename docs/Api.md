@@ -150,6 +150,10 @@ of it.
 correspondent revokes what they issued - at which point sends to them fail and
 keep failing, because only they can admit this account again.
 
+**Contact requests.** A request arrives as a `message` event whose line has the type
+`contact.request`, and `POST /v1/contacts` with `accept` answers it. A bot accepts
+requests automatically as they arrive unless that is switched off in the panel.
+
 **Delivery.** `POST /v1/messages` answers as soon as the mailbox takes the
 message, and `confirmed` says only whether the far side signed for it inside the
 send's own wait. What became of it afterwards is on the line and in the feed:
