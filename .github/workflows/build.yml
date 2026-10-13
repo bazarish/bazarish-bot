@@ -1,0 +1,50 @@
+# Bazarish project (c) 2026
+name: Build
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deb:
+    name: Debian 13 ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    container: debian:trixie
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    env:
+      BAZARISH_JOBS: 4
+      # What a package that is no release carries; a release takes its tag's.
+      BAZARISH_VERSION: 0.0.0
+    steps:
+      - name: Install the toolchain and the dependencies
+        run: |
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+            build-essential cmake ninja-build git ca-certificates pkg-config python3 file \
+            libssl-dev zlib1g-dev libboost-dev libboost-program-options-dev \
+            libsqlcipher-dev libqrencode-dev libopus-dev libicu-dev dpkg-dev
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Build, test and pack
+        run: |
+          git config --global --add safe.directory '*'
+          bash packaging/deb/build.sh "$BAZARISH_VERSION" out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: out/*.deb

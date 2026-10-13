@@ -2,9 +2,9 @@
 name: Release
 
 on:
-  # Every push walks the whole path while the packaging is being settled; only
-  # the publishing below waits for a tag.
   push:
+    tags:
+      - "v*"
   workflow_dispatch:
     inputs:
       version:
@@ -48,16 +48,13 @@ jobs:
           if [ -z "$version" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             version="${GITHUB_REF_NAME#v}"
           fi
-          if [ -z "$version" ]; then
-            version="0.0.0"
-          fi
           bash packaging/deb/build.sh "$version" out
       - uses: actions/upload-artifact@v4
         with:
           name: deb-${{ matrix.arch }}
           path: out/*.deb
       - name: Publish in the release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: out/*.deb
