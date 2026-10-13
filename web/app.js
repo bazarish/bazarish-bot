@@ -45,7 +45,7 @@ const kGroupViews = [
 const kMemberFilters = [
     ["all", N_("Everyone")],
     ["member", N_("In the group")],
-    ["admin", N_("Admins")],
+    ["admin", N_("Administrators")],
     ["pending", N_("Waiting")],
     ["left", N_("Left")],
     ["banned", N_("Banned")],
@@ -165,7 +165,7 @@ function kindPicker(value) {
 
 function kindHint() {
     return node("p", "hint",
-        t("A bot sends to every contact from an address of its own, like any client. A group sends to all its members from one address: a post reaches them faster, and a server holding several members can tell they share a group."));
+        t("A bot writes to each contact from a separate address. A group writes to all members from one address. Its posts arrive faster, and a server holding several members sees that they share a group."));
 }
 
 function progressText(done, total) {
@@ -293,7 +293,7 @@ async function viewOverview() {
     invite.append(inviteHead);
     invite.append(node("p", "hint", account.kind === "group"
         ? t("Members join with this invite.")
-        : t("Hand this to whoever should be able to write to this account.")));
+        : t("Anyone with the invite can write to this account.")));
     invite.append(node("pre", "copy", account.invite || ""));
     cards.append(invite);
 
@@ -306,7 +306,7 @@ function unlockCard(account) {
     if (account.status === "starting") {
         card.append(node("p", "view-title", t("Starting")));
         card.append(node("p", "step-note",
-            t("The account is coming up: its server side, its address and its tunnels.")));
+            t("The account is starting.")));
         poll(async () => {
             const now = await call("GET", base());
             if (now.status === "starting") {
@@ -338,10 +338,9 @@ async function viewAdd() {
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("Add account")));
     view.append(node("p", "step-note",
-        t("Every account here shares this host's I2P router and is its own server: it federates on its own address and keeps its own mailbox.")));
+        t("Each account is a separate server with its own address and mailbox.")));
 
     const common = node("article", "panel-box");
-    common.append(node("p", "block-title", t("What it is")));
     const kind = kindPicker("bot");
     common.append(node("label", "field-label", t("Kind")), kind, kindHint());
     view.append(common);
@@ -356,7 +355,7 @@ async function viewAdd() {
     create.append(node("p", "block-title", t("Create")));
     const name = node("input", "field");
     name.type = "text";
-    name.placeholder = t("what this account calls itself");
+    name.placeholder = t("account name");
     create.append(node("label", "field-label", t("Name")), name);
     const created = node("p", "hint");
     const createFooter = node("p", "form-footer");
@@ -378,7 +377,7 @@ async function viewAdd() {
     restore.style.marginTop = "1rem";
     restore.append(node("p", "block-title", t("Restore a backup")));
     restore.append(node("p", "hint",
-        t("A .bazarish backup from the desktop client or from this panel.")));
+        t("A backup from the desktop client or from this panel.")));
     const bundle = node("input", "field");
     bundle.type = "file";
     bundle.accept = ".bazarish";
@@ -417,11 +416,11 @@ function receiveCard(kind, opened) {
     card.style.marginTop = "1rem";
     card.append(node("p", "block-title", t("Receive from another device")));
     card.append(node("p", "hint",
-        t("On the other device, start pairing for the account: it shows a link and a code. The account comes over I2P, sealed under that code.")));
+        t("Start sending the account on the other device. It shows a link and a code.")));
     const link = node("input", "field");
     link.type = "text";
     link.placeholder = "bazarish://pair?…";
-    card.append(node("label", "field-label", t("Pairing link")), link);
+    card.append(node("label", "field-label", t("Transfer link")), link);
     const status = node("p", "hint");
     const codeBlock = node("div", "block");
     codeBlock.hidden = true;
@@ -447,7 +446,7 @@ function receiveCard(kind, opened) {
         cancel.hidden = !state.active;
         codeBlock.hidden = !state.needsCode;
         if (state.stage === "reaching") {
-            status.textContent = t("Reaching the other device over I2P…");
+            status.textContent = t("Connecting to the other device…");
         } else if (state.stage === "code") {
             status.textContent = state.triesLeft > 0
                 ? t("Wrong code. %1 tries left.", state.triesLeft)
@@ -758,7 +757,7 @@ async function viewAliases() {
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("Aliases")));
     view.append(node("p", "hint",
-        t("An alias is bought in the alias registry, signed in with this account's key under Sign in. Whoever types it reaches this account while it points here.")));
+        t("Aliases are bought in the alias registry. Sign in there with a signature from the Sign in page.")));
 
     const rows = node("div", "rows");
     const note = node("p", "hint");
@@ -840,7 +839,7 @@ async function viewSign() {
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("Sign in")));
     view.append(node("p", "hint",
-        t("A site that signs in with a Bazarish key shows a challenge. Paste it here and hand the signature back: the site lets you in as %1.",
+        t("Paste the challenge from a site that signs in with a Bazarish key. The signature lets you in there as %1.",
             labelOf(account))));
 
     const box = node("article", "panel-box");
@@ -885,8 +884,8 @@ async function viewSign() {
             consumer.append(node("p", "hint", t("as %1", seen.role)));
         }
         consumer.append(node("p", "hint", seen.place.length > 1
-            ? t("If the address you came to is not in the list, do not sign.")
-            : t("Compare this with where you got it. If they differ, do not sign.")));
+            ? t("Do not sign if the site you came from is not in the list.")
+            : t("Do not sign if this is not the site you came from.")));
         sign.disabled = false;
     };
     challenge.oninput = () => describe().catch((error) => {
@@ -916,7 +915,7 @@ async function viewApi() {
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("API")));
     view.append(node("p", "hint",
-        t("Automation opens the API with a token in the Authorization header. A token opens this account and no other, and it is shown once, when it is issued: it is not kept anywhere it could be shown again.")));
+        t("The API takes a token in the Authorization header. A token opens this account only. It is shown once, when issued.")));
 
     const rows = node("div", "rows");
     if (account.tokens.length === 0) {
@@ -982,7 +981,7 @@ async function viewAccount() {
 
     if (!account.running) {
         view.append(node("p", "empty",
-            t("The account is not open yet (%1). Overview says what to do.", account.status)));
+            t("The account is not open: %1.", account.status)));
         return view;
     }
 
@@ -993,7 +992,7 @@ async function viewAccount() {
     name.value = account.name || "";
     identity.append(name);
     identity.append(node("p", "hint",
-        t("What this account calls itself, in its invite and in this panel. A contact keeps their own name for it, so this is not sent to anybody.")));
+        t("The name in the invite and in this panel. Contacts keep the names they gave.")));
     const renamed = node("p", "hint");
     const nameFooter = node("p", "form-footer");
     const saveName = node("button", "btn", t("Save"));
@@ -1014,7 +1013,7 @@ async function viewAccount() {
     keys.style.marginTop = "1rem";
     keys.append(node("p", "block-title", t("Keys")));
     keys.append(node("p", "hint",
-        t("A new address throws this account's destination key away and raises another. Every invite link already handed out stops working, the old address stops answering at once, and the contacts are sent the new card.")));
+        t("A new address replaces this account's destination key. Invite links already handed out stop working. Contacts receive the new card.")));
     const keyResult = node("p", "hint");
     const keyFooter = node("p", "form-footer");
     const fresh = node("button", "btn btn-danger", t("New address"));
@@ -1022,10 +1021,10 @@ async function viewAccount() {
         if (!window.confirm(t("The old address stops answering. Continue?"))) {
             return;
         }
-        keyResult.textContent = t("Raising a new address…");
+        keyResult.textContent = t("Creating a new address…");
         try {
             await call("POST", base(), {action: "new-address"});
-            keyResult.textContent = t("Raised. It is published as soon as its tunnels are up.");
+            keyResult.textContent = t("Created. It is published once its tunnels are built.");
         } catch (error) {
             keyResult.textContent = error.message;
         }
@@ -1036,10 +1035,10 @@ async function viewAccount() {
     const owed = account.pendingRouting || [];
     if (owed.length > 0 || account.pendingRegistry) {
         const stuck = node("div", "block");
-        stuck.append(node("p", "block-title", t("The new card has not reached everybody")));
+        stuck.append(node("p", "block-title", t("The new card has not reached all contacts")));
         if (account.pendingRegistry) {
             stuck.append(node("p", "hint",
-                t("The alias registry has not taken the new address. It is asked again every ten seconds until it does.")));
+                t("The alias registry has not accepted the new address yet. It is retried every ten seconds.")));
         }
         for (const owedPeer of owed) {
             const row = node("p", "form-footer");
@@ -1050,7 +1049,7 @@ async function viewAccount() {
                 said.textContent = t("Sending…");
                 try {
                     await call("POST", base(), {action: "retry-routing", peer: owedPeer});
-                    said.textContent = t("On its way. This list clears when it lands.");
+                    said.textContent = t("Sent. The list clears on delivery.");
                 } catch (error) {
                     said.textContent = error.message;
                 }
@@ -1073,14 +1072,14 @@ async function viewAccount() {
 function exportCard(account) {
     const move = node("article", "panel-box");
     move.style.marginTop = "1rem";
-    move.append(node("p", "block-title", t("Back this account up")));
+    move.append(node("p", "block-title", t("Back up this account")));
     move.append(node("p", "hint",
-        t("The same .bazarish backup the desktop client writes, and the same file restores it in either. It moves an account; it does not share one: only one place may serve an account, because this host is that account's server.")));
+        t("The backup format is shared with the desktop client. An account runs in one place at a time.")));
     const bundlePassword = node("input", "field");
     bundlePassword.type = "password";
     if (account.kind === "group") {
         move.append(node("p", "notice is-warning",
-            t("The backup carries the account alone: members, posts and settings stay on this host.")));
+            t("Members, posts and group settings are not in the backup.")));
     }
     move.append(node("label", "field-label", t("Password for the backup")), bundlePassword);
     const wrote = node("p", "hint");
@@ -1119,7 +1118,7 @@ function pairCard() {
     card.style.marginTop = "1rem";
     card.append(node("p", "block-title", t("Send to another device")));
     card.append(node("p", "hint",
-        t("Pairing hands the account over I2P to a desktop client or another panel: open the link there and type the code. Like a backup, it moves the account; it does not share it.")));
+        t("The account moves over I2P to a desktop client or another panel. Open the link there and enter the code.")));
     const offer = node("div");
     offer.hidden = true;
     const link = node("pre", "copy");
@@ -1127,7 +1126,7 @@ function pairCard() {
     offer.append(link, code);
     const status = node("p", "hint");
     const footer = node("p", "form-footer");
-    const start = node("button", "btn", t("Start pairing"));
+    const start = node("button", "btn", t("Start transfer"));
     const stop = node("button", "btn btn-quiet", t("Stop"));
     stop.hidden = true;
     footer.append(start, stop);
@@ -1143,17 +1142,17 @@ function pairCard() {
             decorateCopies(card);
         }
         if (state.stage === "publishing") {
-            status.textContent = t("Publishing the pairing address…");
+            status.textContent = t("Publishing the transfer address…");
         } else if (state.stage === "waiting") {
             status.textContent = t("Waiting for the other device.");
         } else if (state.stage === "wrong-code") {
-            status.textContent = t("A wrong code was tried %1 times.", state.wrongCodes);
+            status.textContent = t("Wrong codes entered: %1.", state.wrongCodes);
         } else if (state.stage === "sending") {
             status.textContent = t("Sending the account %1", progressText(state.done, state.total));
         } else if (state.stage === "done") {
             status.textContent = t("The account is on the other device.");
         } else if (state.stage === "refused") {
-            status.textContent = t("Too many wrong codes: pairing stopped.");
+            status.textContent = t("Too many wrong codes. The transfer stopped.");
         } else if (state.stage === "failed") {
             status.textContent = state.error;
         } else {
@@ -1192,12 +1191,12 @@ function removeCard() {
     card.style.marginTop = "1rem";
     card.append(node("p", "block-title", t("Remove this account")));
     card.append(node("p", "hint",
-        t("Closes the account on its server, which is this host, and deletes its file, its mailbox, its conversations and its tokens. Export it first if it is to live on somewhere else.")));
+        t("Closes the account and deletes its file, mailbox, conversations and tokens. To keep the account, export it first.")));
     const said = node("p", "hint");
     const footer = node("p", "form-footer");
     const drop = node("button", "btn btn-danger", t("Remove"));
     drop.onclick = async () => {
-        if (!window.confirm(t("The account and everything it holds here is deleted. Continue?"))) {
+        if (!window.confirm(t("Delete the account?"))) {
             return;
         }
         try {
@@ -1222,10 +1221,10 @@ async function viewSettings() {
     const transport = node("article", "panel-box");
     transport.append(node("p", "block-title", t("Transport")));
     transport.append(node("p", "hint",
-        t("One router carries every account here. A router in this process is one thing to install; a router that is already running can be shared with other programs. Either takes effect at the next start.")));
+        t("All accounts on this host use one router. An external router can be shared with other programs.")));
     const which = node("select", "field");
-    for (const [value, label] of [["embedded", N_("A router in this process")],
-        ["sam", N_("A router already running, over SAM")]]) {
+    for (const [value, label] of [["embedded", N_("Built-in router")],
+        ["sam", N_("External router over SAM")]]) {
         const option = node("option", null, t(label));
         option.value = value;
         which.append(option);
@@ -1277,9 +1276,9 @@ async function viewSettings() {
 
     const operator = node("article", "panel-box");
     operator.style.marginTop = "1rem";
-    operator.append(node("p", "block-title", t("Operator")));
+    operator.append(node("p", "block-title", t("Administrator")));
     operator.append(node("p", "hint",
-        t("The key that claimed this host signs in here, and no other. It is the \"operator\" in the config file; to hand the host over, change it there.")));
+        t("The administrator fingerprint can be changed only in the configuration file, in the operator field.")));
     operator.append(facts([[t("Fingerprint"), settings.operator]]));
     view.append(operator);
     return view;
@@ -1341,14 +1340,14 @@ async function viewGroup() {
     box.append(node("p", "block-title", t("Who writes")));
     const kind = segmented([
         ["group", N_("Group"), N_("Every member posts.")],
-        ["channel", N_("Channel"), N_("Admins post, members read.")],
+        ["channel", N_("Channel"), N_("Administrators post, members read.")],
     ], config.kind);
     box.append(kind.element);
 
     box.append(node("p", "block-title", t("Joining")));
     const joining = segmented([
         ["open", N_("Open"), N_("Anyone with the invite.")],
-        ["approval", N_("With approval"), N_("An admin lets each one in.")],
+        ["approval", N_("With approval"), N_("An administrator approves each member.")],
     ], config.joinMode);
     box.append(joining.element);
 
@@ -1356,7 +1355,7 @@ async function viewGroup() {
     history.type = "number";
     history.min = "0";
     history.value = String(config.historySize);
-    box.append(node("label", "field-label", t("History for newcomers")), history);
+    box.append(node("label", "field-label", t("History for new members")), history);
     box.append(node("p", "hint", t("Posts a member receives on joining.")));
 
     const contactLine = node("label", "check");
@@ -1433,7 +1432,7 @@ function memberRow(member, refresh) {
     keys.append(fingerprint);
     const tags = node("span", "row-tags");
     if (member.admin) {
-        tags.append(node("span", "tag is-key", t("admin")));
+        tags.append(node("span", "tag is-key", t("administrator")));
     }
     const stateClass = {pending: " is-pending", banned: " is-banned", member: ""}[member.state];
     if (member.state !== "member") {
@@ -1464,10 +1463,10 @@ function memberRow(member, refresh) {
         actions.append(button);
     };
     if (member.state === "member") {
-        act(member.admin ? N_("Remove admin") : N_("Make admin"),
+        act(member.admin ? N_("Remove administrator") : N_("Make administrator"),
             member.admin ? "unadmin" : "admin", false);
         if (!member.admin) {
-            act(N_("Exclude"), "exclude", true, t("Exclude %1? They cannot come back.", member.name));
+            act(N_("Exclude"), "exclude", true, t("Exclude %1? Returning will not be possible.", member.name));
         }
     } else if (member.state === "banned") {
         act(N_("Unban"), "unban", false);
@@ -1507,7 +1506,7 @@ async function viewMembers() {
         rows.textContent = "";
         const shown = members.filter(memberMatches);
         if (members.length === 0) {
-            rows.append(node("p", "empty", t("Nobody has joined yet. The invite is on the overview.")));
+            rows.append(node("p", "empty", t("Nobody has joined yet.")));
         } else if (shown.length === 0) {
             rows.append(node("p", "empty", t("Nobody matches.")));
         }
@@ -1540,7 +1539,7 @@ async function viewRequests() {
         rows.textContent = "";
         if (asked.length === 0) {
             rows.append(node("p", "empty", state.config.joinMode === "open"
-                ? t("Joining is open, so nobody waits here.")
+                ? t("Joining is open.")
                 : t("Nobody is waiting.")));
         }
         for (const request of asked) {
@@ -1672,7 +1671,7 @@ async function render() {
             const waiting = node("section", "view");
             waiting.append(node("h1", "view-title", viewLabel(route.view)));
             waiting.append(node("p", "empty",
-                t("The account is not open yet (%1). Overview says what to do.", summary.status)));
+                t("The account is not open: %1.", summary.status)));
             content().replaceChildren(waiting);
             return;
         }
