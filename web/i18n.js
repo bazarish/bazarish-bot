@@ -62,22 +62,36 @@ function setLanguage(code) {
 }
 
 function languagePicker(changed) {
-    const picker = document.createElement("select");
-    picker.className = "field field-language";
-    picker.setAttribute("aria-label", t("Language"));
+    const box = document.createElement("details");
+    box.className = "lang";
+    const now = document.createElement("summary");
+    now.className = "lang-now";
+    now.setAttribute("aria-label", t("Language"));
+    now.textContent = kLanguages.find(([code]) => code === language)[1];
+    const list = document.createElement("ul");
+    list.className = "lang-list";
     for (const [code, name] of kLanguages) {
-        const option = document.createElement("option");
-        option.value = code;
-        option.textContent = name;
-        option.lang = code;
-        picker.append(option);
+        const item = document.createElement("li");
+        const choice = document.createElement("button");
+        choice.type = "button";
+        choice.className = "lang-one" + (code === language ? " is-on" : "");
+        choice.lang = code;
+        choice.textContent = name;
+        choice.onclick = () => {
+            box.open = false;
+            setLanguage(code);
+            now.textContent = name;
+            now.setAttribute("aria-label", t("Language"));
+            for (const other of list.querySelectorAll(".lang-one")) {
+                other.classList.toggle("is-on", other === choice);
+            }
+            changed();
+        };
+        item.append(choice);
+        list.append(item);
     }
-    picker.value = language;
-    picker.onchange = () => {
-        setLanguage(picker.value);
-        changed();
-    };
-    return picker;
+    box.append(now, list);
+    return box;
 }
 
 applyLanguage();

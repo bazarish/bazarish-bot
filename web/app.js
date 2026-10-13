@@ -1705,7 +1705,7 @@ async function watch(account) {
     }
 }
 
-el("sidebarFoot").prepend(languagePicker(render));
+el("corner").append(languagePicker(render));
 
 el("signOut").onclick = async () => {
     await call("POST", "/ui/logout");
