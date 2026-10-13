@@ -39,6 +39,7 @@ add_library(bazarish_bot_lib STATIC
     src/Settings.cpp
 )
 target_include_directories(bazarish_bot_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_include_directories(bazarish_bot_lib PRIVATE ${SQLCIPHER_INCLUDE_DIR})
 target_link_libraries(bazarish_bot_lib PUBLIC
     Bazarish::Client bazarish_server_lib bazarish_service_lib bazarish_facade_lib
     ICU::uc ICU::i18n Threads::Threads)
