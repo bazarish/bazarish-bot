@@ -4,30 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Sign in - bazarish bot</title>
+<title data-t="Sign in - bazarish bot">Sign in - bazarish bot</title>
 <link rel="icon" href="/assets/favicon.svg">
 <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body class="centred">
 <main class="sheet">
   <img class="wordmark" src="/assets/logo.svg" alt="bazarish" width="404" height="76">
-  <p class="sheet-note">Bot panel</p>
+  <p class="sheet-note" data-t="Bot panel">Bot panel</p>
 
   <section class="panel-box">
     <p class="view-title" id="title">Sign in</p>
-    <p class="step-note" id="unclaimed" hidden>This host has no operator yet. The key that
-    signs this challenge becomes its operator and is written into its config; until then
-    anyone who reaches this page can claim it.</p>
-    <p class="step-note">Sign this challenge with your account's key in Bazarish and paste the
-    signature back.</p>
-    <p class="field-label">Challenge</p>
+    <p class="step-note" id="unclaimed" hidden data-t="This host has no operator yet. The key that signs this challenge becomes its operator and is written into its config; until then anyone who reaches this page can claim it.">This host has no operator yet. The key that signs this challenge becomes its operator and is written into its config; until then anyone who reaches this page can claim it.</p>
+    <p class="step-note" data-t="Sign this challenge with your account's key in Bazarish and paste the signature back.">Sign this challenge with your account's key in Bazarish and paste the signature back.</p>
+    <p class="field-label" data-t="Challenge">Challenge</p>
     <pre class="copy" id="challenge"></pre>
-    <label class="field-label" for="blob">Signature</label>
+    <label class="field-label" for="blob" data-t="Signature">Signature</label>
     <textarea class="field field-tall" id="blob" autofocus></textarea>
     <p class="form-footer"><button class="btn" id="signIn" type="button">Sign in</button></p>
     <p class="hint" id="signinError"></p>
   </section>
+  <p class="sheet-foot" id="languageSlot"></p>
 </main>
+<script src="/assets/messages.js" defer></script>
+<script src="/assets/i18n.js" defer></script>
 <script src="/assets/copy.js" defer></script>
 <script src="/assets/login.js" defer></script>
 </body>

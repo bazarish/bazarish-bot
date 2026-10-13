@@ -19,18 +19,47 @@ const kEventWaitSeconds = 45;
 const kRetryMs = 3000;
 const kAliasSigil = "!";
 const kKinds = [
-    ["bot", "Bot"],
-    ["group", "Group"],
+    ["bot", N_("Bot")],
+    ["group", N_("Group")],
 ];
 const kAccountViews = [
-    ["overview", "Overview"],
-    ["chats", "Chats"],
-    ["contacts", "Contacts"],
-    ["aliases", "Aliases"],
-    ["sign", "Sign in"],
-    ["api", "API"],
-    ["account", "Account"],
+    ["overview", N_("Overview")],
+    ["chats", N_("Chats")],
+    ["contacts", N_("Contacts")],
+    ["aliases", N_("Aliases")],
+    ["sign", N_("Sign in")],
+    ["api", N_("API")],
+    ["account", N_("Account")],
 ];
+const kGroupViews = [
+    ["overview", N_("Overview")],
+    ["group", N_("Group")],
+    ["members", N_("Members")],
+    ["requests", N_("Requests")],
+    ["posts", N_("Posts")],
+    ["aliases", N_("Aliases")],
+    ["sign", N_("Sign in")],
+    ["account", N_("Account")],
+];
+const kMemberFilters = [
+    ["all", N_("Everyone")],
+    ["member", N_("In the group")],
+    ["admin", N_("Admins")],
+    ["pending", N_("Waiting")],
+    ["left", N_("Left")],
+    ["banned", N_("Banned")],
+];
+const kStateLabels = {
+    naming: N_("choosing a name"),
+    pending: N_("waiting"),
+    member: N_("member"),
+    gone: N_("unreachable"),
+    left: N_("left"),
+    banned: N_("banned"),
+};
+const kPostsPage = 100;
+let memberFilter = "all";
+let memberQuery = "";
 
 async function call(method, path, body) {
     const options = {method, headers: {}};
@@ -41,7 +70,7 @@ async function call(method, path, body) {
     const answer = await fetch(path, options);
     if (answer.status === 401) {
         location.href = "/";
-        throw new Error("signed out");
+        throw new Error(t("signed out"));
     }
     const text = await answer.text();
     const parsed = text ? JSON.parse(text) : {};
@@ -78,11 +107,11 @@ function decorateCopies(root) {
     for (const block of root.querySelectorAll("pre.copy:not([data-copyable])")) {
         block.dataset.copyable = "yes";
         block.parentNode.insertBefore(
-            marks.button("Copy", () => block.textContent), block.nextSibling);
+            marks.button(t("Copy"), () => block.textContent), block.nextSibling);
     }
     for (const value of root.querySelectorAll("[data-copy]:not([data-copyable])")) {
         value.dataset.copyable = "yes";
-        value.append(marks.icon(() => value.dataset.copy, "Copy"));
+        value.append(marks.icon(() => value.dataset.copy, t("Copy")));
     }
 }
 
@@ -104,7 +133,7 @@ function facts(pairs) {
 function base64Of(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onerror = () => reject(new Error("that file could not be read"));
+        reader.onerror = () => reject(new Error(t("that file could not be read")));
         reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
         reader.readAsDataURL(file);
     });
@@ -125,7 +154,7 @@ function labelOf(account) {
 function kindPicker(value) {
     const picker = node("select", "field");
     for (const [kind, label] of kKinds) {
-        const option = node("option", null, label);
+        const option = node("option", null, t(label));
         option.value = kind;
         picker.append(option);
     }
@@ -135,13 +164,11 @@ function kindPicker(value) {
 
 function kindHint() {
     return node("p", "hint",
-        "A bot sends to every contact from an address of its own, like any client. "
-        + "A group sends to all its members from one address: a post reaches them "
-        + "faster, and a server holding several members can tell they share a group.");
+        t("A bot sends to every contact from an address of its own, like any client. A group sends to all its members from one address: a post reaches them faster, and a server holding several members can tell they share a group."));
 }
 
 function progressText(done, total) {
-    return total > 0 ? Math.round(done * 100 / total) + "% of " + total + " bytes" : "";
+    return total > 0 ? t("%1% of %2 bytes", Math.round(done * 100 / total), total) : "";
 }
 
 function poll(step) {
@@ -167,8 +194,8 @@ async function drawSidebar() {
         link.href = "#/" + account.id + "/overview";
         link.append(node("span", "dot " + (account.running ? "is-up" : "is-down")));
         link.append(node("span", "account-name", labelOf(account)));
-        link.append(node("span", "tag" + (account.kind === "group" ? " is-live" : ""),
-            account.kind));
+        link.append(node("span", "tag" + (account.kind === "group" ? " is-key" : ""),
+            t(account.kind === "group" ? "Group" : "Bot")));
         item.append(link);
         list.append(item);
     }
@@ -177,21 +204,31 @@ async function drawSidebar() {
     nav.textContent = "";
     const route = currentRoute();
     if (accountId) {
-        for (const [name, label] of kAccountViews) {
+        const current = accounts.find((account) => account.id === accountId);
+        for (const [name, label] of viewsFor(current)) {
             const item = node("li");
-            const link = node("a", route.view === name ? "is-current" : "", label);
+            const link = node("a", route.view === name ? "is-current" : "", t(label));
             link.href = "#/" + accountId + "/" + name;
             item.append(link);
             nav.append(item);
         }
     }
-    for (const [name, label] of [["add", "Add account"], ["settings", "Settings"]]) {
+    for (const [name, label] of [["add", N_("Add account")], ["settings", N_("Settings")]]) {
         const item = node("li");
-        const link = node("a", route.view === name ? "is-current" : "", label);
+        const link = node("a", route.view === name ? "is-current" : "", t(label));
         link.href = "#/" + name;
         item.append(link);
         nav.append(item);
     }
+}
+
+function viewsFor(account) {
+    return account && account.kind === "group" ? kGroupViews : kAccountViews;
+}
+
+function viewLabel(name) {
+    const known = kAccountViews.concat(kGroupViews).find(([view]) => view === name);
+    return known ? t(known[1]) : name;
 }
 
 function currentRoute() {
@@ -199,9 +236,9 @@ function currentRoute() {
     if (parts[0] === "add" || parts[0] === "settings") {
         return {account: null, view: parts[0]};
     }
-    const known = accounts.some((account) => account.id === parts[0]);
+    const known = accounts.find((account) => account.id === parts[0]);
     if (known) {
-        const view = kAccountViews.some(([name]) => name === parts[1]) ? parts[1] : "overview";
+        const view = viewsFor(known).some(([name]) => name === parts[1]) ? parts[1] : "overview";
         return {account: parts[0], view};
     }
     if (accounts.length > 0) {
@@ -224,20 +261,23 @@ async function viewOverview() {
     const identity = node("article", "card");
     const head = node("div", "card-head");
     head.append(node("span", "dot is-up"));
-    head.append(node("span", "card-name", account.name || "unnamed account"));
-    head.append(node("span", "tag" + (account.kind === "group" ? " is-live" : ""), account.kind));
+    head.append(node("span", "card-name", account.name || t("unnamed account")));
+    head.append(node("span", "tag" + (account.kind === "group" ? " is-key" : ""),
+        t(account.kind === "group" ? "Group" : "Bot")));
     identity.append(head);
     identity.append(facts([
-        ["Fingerprint", account.fingerprint],
-        ["Address", account.destination || "building…"],
+        [t("Fingerprint"), account.fingerprint],
+        [t("Address"), account.destination || t("building…")],
     ]));
     cards.append(identity);
 
     const invite = node("article", "card");
     const inviteHead = node("div", "card-head");
-    inviteHead.append(node("span", "card-name", "Invite"));
+    inviteHead.append(node("span", "card-name", t("Invite")));
     invite.append(inviteHead);
-    invite.append(node("p", "hint", "Hand this to whoever should be able to write to this account."));
+    invite.append(node("p", "hint", account.kind === "group"
+        ? t("Members join with this invite.")
+        : t("Hand this to whoever should be able to write to this account.")));
     invite.append(node("pre", "copy", account.invite || ""));
     cards.append(invite);
 
@@ -248,9 +288,9 @@ async function viewOverview() {
 function unlockCard(account) {
     const card = node("article", "panel-box");
     if (account.status === "starting") {
-        card.append(node("p", "view-title", "Starting"));
+        card.append(node("p", "view-title", t("Starting")));
         card.append(node("p", "step-note",
-            "The account is coming up: its server side, its address and its tunnels."));
+            t("The account is coming up: its server side, its address and its tunnels.")));
         poll(async () => {
             const now = await call("GET", base());
             if (now.status === "starting") {
@@ -261,10 +301,10 @@ function unlockCard(account) {
         });
         return card;
     }
-    card.append(node("p", "view-title", "The account is not running"));
-    card.append(node("p", "step-note", "Status: " + account.status));
+    card.append(node("p", "view-title", t("The account is not running")));
+    card.append(node("p", "step-note", t("Status: %1", account.status)));
     const footer = node("p", "form-footer");
-    const open = node("button", "btn", "Start");
+    const open = node("button", "btn", t("Start"));
     open.onclick = async () => {
         try {
             await call("POST", base(), {action: "open"});
@@ -280,15 +320,14 @@ function unlockCard(account) {
 
 async function viewAdd() {
     const view = node("section", "view");
-    view.append(node("h1", "view-title", "Add account"));
+    view.append(node("h1", "view-title", t("Add account")));
     view.append(node("p", "step-note",
-        "Every account here shares this host's I2P router and is its own server: "
-        + "it federates on its own address and keeps its own mailbox."));
+        t("Every account here shares this host's I2P router and is its own server: it federates on its own address and keeps its own mailbox.")));
 
     const common = node("article", "panel-box");
-    common.append(node("p", "block-title", "What it is"));
+    common.append(node("p", "block-title", t("What it is")));
     const kind = kindPicker("bot");
-    common.append(node("label", "field-label", "Kind"), kind, kindHint());
+    common.append(node("label", "field-label", t("Kind")), kind, kindHint());
     view.append(common);
 
     const opened = async (id) => {
@@ -298,14 +337,14 @@ async function viewAdd() {
 
     const create = node("article", "panel-box");
     create.style.marginTop = "1rem";
-    create.append(node("p", "block-title", "Create"));
+    create.append(node("p", "block-title", t("Create")));
     const name = node("input", "field");
     name.type = "text";
-    name.placeholder = "what this account calls itself";
-    create.append(node("label", "field-label", "Name"), name);
+    name.placeholder = t("what this account calls itself");
+    create.append(node("label", "field-label", t("Name")), name);
     const created = node("p", "hint");
     const createFooter = node("p", "form-footer");
-    const make = node("button", "btn", "Create");
+    const make = node("button", "btn", t("Create"));
     make.onclick = async () => {
         try {
             const answer = await call("POST", "/ui/accounts", {action: "create",
@@ -321,23 +360,23 @@ async function viewAdd() {
 
     const restore = node("article", "panel-box");
     restore.style.marginTop = "1rem";
-    restore.append(node("p", "block-title", "Restore a backup"));
+    restore.append(node("p", "block-title", t("Restore a backup")));
     restore.append(node("p", "hint",
-        "A .bazarish backup from the desktop client or from this panel."));
+        t("A .bazarish backup from the desktop client or from this panel.")));
     const bundle = node("input", "field");
     bundle.type = "file";
     bundle.accept = ".bazarish";
     const bundlePassword = node("input", "field");
     bundlePassword.type = "password";
-    restore.append(node("label", "field-label", "Backup file (.bazarish)"), bundle);
-    restore.append(node("label", "field-label", "The backup's password"), bundlePassword);
+    restore.append(node("label", "field-label", t("Backup file (.bazarish)")), bundle);
+    restore.append(node("label", "field-label", t("The backup's password")), bundlePassword);
     const restored = node("p", "hint");
     const restoreFooter = node("p", "form-footer");
-    const doRestore = node("button", "btn", "Import");
+    const doRestore = node("button", "btn", t("Import"));
     doRestore.onclick = async () => {
         const file = bundle.files && bundle.files[0];
         if (!file) {
-            restored.textContent = "Pick the backup file first.";
+            restored.textContent = t("Pick the backup file first.");
             return;
         }
         try {
@@ -360,14 +399,13 @@ async function viewAdd() {
 function receiveCard(kind, opened) {
     const card = node("article", "panel-box");
     card.style.marginTop = "1rem";
-    card.append(node("p", "block-title", "Receive from another device"));
+    card.append(node("p", "block-title", t("Receive from another device")));
     card.append(node("p", "hint",
-        "On the other device, start pairing for the account: it shows a link and a "
-        + "code. The account comes over I2P, sealed under that code."));
+        t("On the other device, start pairing for the account: it shows a link and a code. The account comes over I2P, sealed under that code.")));
     const link = node("input", "field");
     link.type = "text";
     link.placeholder = "bazarish://pair?…";
-    card.append(node("label", "field-label", "Pairing link"), link);
+    card.append(node("label", "field-label", t("Pairing link")), link);
     const status = node("p", "hint");
     const codeBlock = node("div", "block");
     codeBlock.hidden = true;
@@ -375,15 +413,15 @@ function receiveCard(kind, opened) {
     code.type = "text";
     code.inputMode = "numeric";
     code.autocomplete = "off";
-    codeBlock.append(node("label", "field-label", "Code from the other device"), code);
+    codeBlock.append(node("label", "field-label", t("Code from the other device")), code);
     const codeFooter = node("p", "form-footer");
-    const sendCode = node("button", "btn", "Receive");
+    const sendCode = node("button", "btn", t("Receive"));
     codeFooter.append(sendCode);
     codeBlock.append(codeFooter);
 
     const footer = node("p", "form-footer");
-    const start = node("button", "btn", "Connect");
-    const cancel = node("button", "btn btn-quiet", "Cancel");
+    const start = node("button", "btn", t("Connect"));
+    const cancel = node("button", "btn btn-quiet", t("Cancel"));
     cancel.hidden = true;
     footer.append(start, cancel);
     card.append(footer, codeBlock, status);
@@ -393,13 +431,13 @@ function receiveCard(kind, opened) {
         cancel.hidden = !state.active;
         codeBlock.hidden = !state.needsCode;
         if (state.stage === "reaching") {
-            status.textContent = "Reaching the other device over I2P…";
+            status.textContent = t("Reaching the other device over I2P…");
         } else if (state.stage === "code") {
             status.textContent = state.triesLeft > 0
-                ? "Wrong code. " + state.triesLeft + " tries left."
-                : "Enter the code shown on the other device.";
+                ? t("Wrong code. %1 tries left.", state.triesLeft)
+                : t("Enter the code shown on the other device.");
         } else if (state.stage === "receiving") {
-            status.textContent = "Receiving the account " + progressText(state.done, state.total);
+            status.textContent = t("Receiving the account %1", progressText(state.done, state.total));
         } else if (state.stage === "failed") {
             status.textContent = state.error;
         } else {
@@ -449,7 +487,7 @@ function receiveCard(kind, opened) {
 async function viewChats() {
     const view = node("section", "view");
     view.style.maxWidth = "none";
-    view.append(node("h1", "view-title", "Chats"));
+    view.append(node("h1", "view-title", t("Chats")));
 
     const chat = node("div", "chat");
     const list = node("div", "chat-list");
@@ -469,7 +507,7 @@ async function drawChats() {
     const chats = await call("GET", base() + "/chats");
     list.textContent = "";
     if (chats.length === 0) {
-        list.append(node("p", "empty", "No conversations yet."));
+        list.append(node("p", "empty", t("No conversations yet.")));
     }
     for (const chat of chats) {
         const item = node("button", "chat-item" + (chat.peer === peer ? " is-current" : ""));
@@ -488,7 +526,7 @@ async function drawChats() {
 
 function previewOf(line) {
     if (line.type === "text" || line.type === "contact.request") {
-        return (line.outgoing ? "you: " : "") + line.text;
+        return line.outgoing ? t("you: %1", line.text) : line.text;
     }
     return "[" + line.type + "]";
 }
@@ -500,7 +538,7 @@ async function drawThread() {
     }
     thread.textContent = "";
     if (!peer) {
-        thread.append(node("p", "empty", "Pick a conversation."));
+        thread.append(node("p", "empty", t("Pick a conversation.")));
         return;
     }
 
@@ -518,12 +556,12 @@ async function drawThread() {
     const composer = node("form", "composer");
     const field = node("input", "field");
     field.type = "text";
-    field.placeholder = editing ? "Edit the message" : "Write a message";
+    field.placeholder = editing ? t("Edit the message") : t("Write a message");
     field.autocomplete = "off";
     if (editing) {
         field.value = editing.text;
     }
-    const send = node("button", "btn", editing ? "Save" : "Send");
+    const send = node("button", "btn", editing ? t("Save") : t("Send"));
     send.type = "submit";
     composer.append(field, send);
     composer.onsubmit = async (event) => {
@@ -580,7 +618,7 @@ function lineNode(line) {
     const meta = node("div", "line-meta");
     meta.textContent = when(line.sentAt);
     if (line.edited) {
-        meta.append(node("span", "edited", " · edited"));
+        meta.append(node("span", "edited", t(" · edited")));
     }
     held.append(meta);
 
@@ -597,7 +635,7 @@ function toolsFor(line) {
             (reaction) => reaction.reactor === "me" && reaction.emoji === emoji);
         const button = node("button", "line-tool", emoji);
         button.type = "button";
-        button.title = mine ? "take it back" : "react";
+        button.title = mine ? t("take it back") : t("react");
         button.onclick = async () => {
             await call("POST", base() + "/reactions",
                 {peer, messageId: line.messageId, emoji: mine ? "" : emoji});
@@ -606,10 +644,10 @@ function toolsFor(line) {
         tools.append(button);
     }
     if (line.outgoing && line.type === "text") {
-        const edit = node("button", "line-tool", "edit");
+        const edit = node("button", "line-tool", t("edit"));
         edit.type = "button";
         edit.onclick = () => { editing = line; drawThread(); };
-        const drop = node("button", "line-tool", "delete");
+        const drop = node("button", "line-tool", t("delete"));
         drop.type = "button";
         drop.onclick = async () => {
             await call("DELETE", base() + "/messages/" + line.messageId
@@ -624,12 +662,12 @@ function toolsFor(line) {
 
 async function viewContacts() {
     const view = node("section", "view");
-    view.append(node("h1", "view-title", "Contacts"));
+    view.append(node("h1", "view-title", t("Contacts")));
 
     const rows = node("div", "rows");
     const contacts = await call("GET", base() + "/contacts");
     if (contacts.length === 0) {
-        rows.append(node("p", "empty", "Nobody yet."));
+        rows.append(node("p", "empty", t("Nobody yet.")));
     }
     for (const contact of contacts) {
         const row = node("button", "row");
@@ -640,7 +678,7 @@ async function viewContacts() {
         row.append(keys);
         const tags = node("span", "row-tags");
         if (contact.pending) {
-            tags.append(node("span", "tag is-pending", "pending"));
+            tags.append(node("span", "tag is-pending", t("pending")));
         }
         row.append(tags);
         row.append(node("span", "row-quota", contact.pending ? "accept" : "open"));
@@ -659,18 +697,18 @@ async function viewContacts() {
 
     const add = node("article", "panel-box");
     add.style.marginTop = "1rem";
-    add.append(node("p", "block-title", "Add a contact"));
+    add.append(node("p", "block-title", t("Add a contact")));
     const invite = node("input", "field");
     invite.type = "text";
-    invite.placeholder = "bazarish://invite?… or " + kAliasSigil + "alias";
+    invite.placeholder = t("bazarish://invite?… or %1alias", kAliasSigil);
     const intro = node("input", "field");
     intro.type = "text";
-    intro.placeholder = "a line to introduce yourself";
-    add.append(node("label", "field-label", "Invite or alias"), invite);
-    add.append(node("label", "field-label", "Message"), intro);
+    intro.placeholder = t("a line to introduce yourself");
+    add.append(node("label", "field-label", t("Invite or alias")), invite);
+    add.append(node("label", "field-label", t("Message")), intro);
     const failure = node("p", "hint");
     const footer = node("p", "form-footer");
-    const send = node("button", "btn", "Send request");
+    const send = node("button", "btn", t("Send request"));
     send.onclick = async () => {
         try {
             const typed = invite.value.trim();
@@ -690,32 +728,31 @@ async function viewContacts() {
 
 function aliasTerm(alias) {
     const day = new Date(alias.notAfter * 1000).toLocaleDateString();
-    return (alias.autoRenew ? "renews " : "expires ") + day;
+    return alias.autoRenew ? t("renews %1", day) : t("expires %1", day);
 }
 
 function aliasState(alias) {
     if (!alias.resolving) {
-        return "answers nobody";
+        return t("answers nobody");
     }
-    return alias.live ? aliasTerm(alias) : "pointing it here…";
+    return alias.live ? aliasTerm(alias) : t("pointing it here…");
 }
 
 async function viewAliases() {
     const view = node("section", "view");
-    view.append(node("h1", "view-title", "Aliases"));
+    view.append(node("h1", "view-title", t("Aliases")));
     view.append(node("p", "hint",
-        "An alias is bought in the alias registry, signed in with this account's key "
-        + "under Sign in. Whoever types it reaches this account while it points here."));
+        t("An alias is bought in the alias registry, signed in with this account's key under Sign in. Whoever types it reaches this account while it points here.")));
 
     const rows = node("div", "rows");
     const note = node("p", "hint");
     const outcome = node("p", "hint");
-    const check = node("button", "btn", "Check aliases");
+    const check = node("button", "btn", t("Check aliases"));
 
     const draw = (state) => {
         rows.textContent = "";
         if (state.aliases.length === 0) {
-            rows.append(node("p", "empty", "No alias is registered to this account."));
+            rows.append(node("p", "empty", t("No alias is registered to this account.")));
         }
         for (const alias of state.aliases) {
             const row = node("div", "row");
@@ -725,11 +762,11 @@ async function viewAliases() {
             keys.append(name, node("span", "row-dest", aliasState(alias)));
             const tags = node("span", "row-tags");
             if (alias.live) {
-                tags.append(node("span", "tag is-live", "points here"));
+                tags.append(node("span", "tag is-live", t("points here")));
             }
             row.append(keys, tags);
             const toggle = node("button", "btn btn-copy",
-                alias.resolving ? "Point nowhere" : "Point here");
+                alias.resolving ? t("Point nowhere") : t("Point here"));
             toggle.onclick = async () => {
                 toggle.disabled = true;
                 try {
@@ -745,9 +782,9 @@ async function viewAliases() {
         }
         decorateCopies(rows);
         note.textContent = state.aliases.length > 0 && !state.depositCovers
-            ? "The deposit will not cover the next renewal." : "";
+            ? t("The deposit will not cover the next renewal.") : "";
         check.disabled = state.checking;
-        check.textContent = state.checking ? "Asking…" : "Check aliases";
+        check.textContent = state.checking ? t("Asking…") : t("Check aliases");
         if (state.checked) {
             outcome.textContent = state.checked.ok && state.aliases.length === 0
                 ? "" : state.checked.note;
@@ -785,26 +822,25 @@ async function viewAliases() {
 async function viewSign() {
     const account = await call("GET", base());
     const view = node("section", "view");
-    view.append(node("h1", "view-title", "Sign in"));
+    view.append(node("h1", "view-title", t("Sign in")));
     view.append(node("p", "hint",
-        "A site that signs in with a Bazarish key shows a challenge. Paste it here "
-        + "and hand the signature back: the site lets you in as "
+        "A site that signs in with a Bazarish key shows a challenge. Paste it here and hand the signature back: the site lets you in as "
         + labelOf(account) + "."));
 
     const box = node("article", "panel-box");
     const challenge = node("textarea", "field");
     challenge.rows = 5;
-    challenge.placeholder = "Paste the challenge";
-    box.append(node("label", "field-label", "Challenge from the site"), challenge);
+    challenge.placeholder = t("Paste the challenge");
+    box.append(node("label", "field-label", t("Challenge from the site")), challenge);
 
     const consumer = node("div");
     const signature = node("pre", "copy");
     const signed = node("div");
     signed.hidden = true;
-    signed.append(node("label", "field-label", "Signature"), signature);
+    signed.append(node("label", "field-label", t("Signature")), signature);
     const failure = node("p", "hint");
     const footer = node("p", "form-footer");
-    const sign = node("button", "btn", "Sign");
+    const sign = node("button", "btn", t("Sign"));
     sign.disabled = true;
 
     const describe = async () => {
@@ -821,20 +857,20 @@ async function viewSign() {
             return;
         }
         if (!seen.ok) {
-            consumer.append(node("p", "hint", "This challenge cannot be signed: " + seen.problem));
+            consumer.append(node("p", "hint", t("This challenge cannot be signed: %1", seen.problem)));
             return;
         }
-        consumer.append(node("p", "field-label", "You are signing in to"));
+        consumer.append(node("p", "field-label", t("You are signing in to")));
         consumer.append(node("p", "block-title", seen.name));
         for (const place of seen.place) {
             consumer.append(node("p", "row-dest", place));
         }
         if (seen.role) {
-            consumer.append(node("p", "hint", "as " + seen.role));
+            consumer.append(node("p", "hint", t("as %1", seen.role)));
         }
         consumer.append(node("p", "hint", seen.place.length > 1
-            ? "If the address you came to is not in the list, do not sign."
-            : "Compare this with where you got it. If they differ, do not sign."));
+            ? t("If the address you came to is not in the list, do not sign.")
+            : t("Compare this with where you got it. If they differ, do not sign.")));
         sign.disabled = false;
     };
     challenge.oninput = () => describe().catch((error) => {
@@ -862,24 +898,22 @@ async function viewSign() {
 async function viewApi() {
     const account = await call("GET", base());
     const view = node("section", "view");
-    view.append(node("h1", "view-title", "API"));
+    view.append(node("h1", "view-title", t("API")));
     view.append(node("p", "hint",
-        "Automation opens the API with a token in the Authorization header. A token "
-        + "opens this account and no other, and it is shown once, when it is issued: "
-        + "it is not kept anywhere it could be shown again."));
+        t("Automation opens the API with a token in the Authorization header. A token opens this account and no other, and it is shown once, when it is issued: it is not kept anywhere it could be shown again.")));
 
     const rows = node("div", "rows");
     if (account.tokens.length === 0) {
-        rows.append(node("p", "empty", "No tokens issued."));
+        rows.append(node("p", "empty", t("No tokens issued.")));
     }
     for (const token of account.tokens) {
         const row = node("div", "row");
         const keys = node("span", "row-keys");
         keys.append(node("span", "row-key", token.name));
         keys.append(node("span", "row-dest",
-            "issued " + new Date(token.createdAt * 1000).toLocaleDateString()));
+            t("issued %1", new Date(token.createdAt * 1000).toLocaleDateString())));
         row.append(keys, node("span", "row-tags"));
-        const revoke = node("button", "btn btn-danger btn-copy", "Revoke");
+        const revoke = node("button", "btn btn-danger btn-copy", t("Revoke"));
         revoke.onclick = async () => {
             await call("DELETE", base() + "/tokens/" + encodeURIComponent(token.name));
             await render();
@@ -891,16 +925,16 @@ async function viewApi() {
 
     const issue = node("article", "panel-box");
     issue.style.marginTop = "1rem";
-    issue.append(node("p", "block-title", "Issue a token"));
+    issue.append(node("p", "block-title", t("Issue a token")));
     const name = node("input", "field");
     name.type = "text";
-    name.placeholder = "what this token is for";
-    issue.append(node("label", "field-label", "Name"), name);
+    name.placeholder = t("what this token is for");
+    issue.append(node("label", "field-label", t("Name")), name);
     const shown = node("pre", "copy");
     shown.hidden = true;
     const failure = node("p", "hint");
     const footer = node("p", "form-footer");
-    const make = node("button", "btn", "Issue");
+    const make = node("button", "btn", t("Issue"));
     make.onclick = async () => {
         try {
             const token = await call("POST", base() + "/tokens", {name: name.value});
@@ -918,10 +952,9 @@ async function viewApi() {
 
     const how = node("article", "panel-box");
     how.style.marginTop = "1rem";
-    how.append(node("p", "block-title", "How a bot uses it"));
+    how.append(node("p", "block-title", t("How a bot uses it")));
     how.append(node("pre", "copy",
-        "curl -s http://" + location.host + "/v1/events?since=0\\&wait=60 \\\n"
-        + "  -H \"Authorization: Bearer $TOKEN\""));
+        "curl -s http://" + location.host + "/v1/events?since=0\\&wait=60 \\\n  -H \"Authorization: Bearer $TOKEN\""));
     view.append(how);
     return view;
 }
@@ -929,30 +962,29 @@ async function viewApi() {
 async function viewAccount() {
     const account = await call("GET", base());
     const view = node("section", "view");
-    view.append(node("h1", "view-title", "Account"));
+    view.append(node("h1", "view-title", t("Account")));
 
     if (!account.running) {
         view.append(node("p", "empty",
-            "The account is not open yet (" + account.status + "). Overview says what to do."));
+            t("The account is not open yet (%1). Overview says what to do.", account.status)));
         return view;
     }
 
     const identity = node("article", "panel-box");
-    identity.append(node("p", "block-title", "Name"));
+    identity.append(node("p", "block-title", t("Name")));
     const name = node("input", "field");
     name.type = "text";
     name.value = account.name || "";
     identity.append(name);
     identity.append(node("p", "hint",
-        "What this account calls itself, in its invite and in this panel. A contact "
-        + "keeps their own name for it, so this is not sent to anybody."));
+        t("What this account calls itself, in its invite and in this panel. A contact keeps their own name for it, so this is not sent to anybody.")));
     const renamed = node("p", "hint");
     const nameFooter = node("p", "form-footer");
-    const saveName = node("button", "btn", "Save");
+    const saveName = node("button", "btn", t("Save"));
     saveName.onclick = async () => {
         try {
             await call("POST", base(), {action: "rename", name: name.value});
-            renamed.textContent = "Saved.";
+            renamed.textContent = t("Saved.");
             await drawSidebar();
         } catch (error) {
             renamed.textContent = error.message;
@@ -964,23 +996,20 @@ async function viewAccount() {
 
     const keys = node("article", "panel-box");
     keys.style.marginTop = "1rem";
-    keys.append(node("p", "block-title", "Keys"));
+    keys.append(node("p", "block-title", t("Keys")));
     keys.append(node("p", "hint",
-        "A new address throws this account's destination key away and raises "
-        + "another. Every invite link already handed out stops working, the old "
-        + "address stops answering at once, and the contacts are sent the new "
-        + "card."));
+        t("A new address throws this account's destination key away and raises another. Every invite link already handed out stops working, the old address stops answering at once, and the contacts are sent the new card.")));
     const keyResult = node("p", "hint");
     const keyFooter = node("p", "form-footer");
-    const fresh = node("button", "btn btn-danger", "New address");
+    const fresh = node("button", "btn btn-danger", t("New address"));
     fresh.onclick = async () => {
-        if (!window.confirm("The old address stops answering. Continue?")) {
+        if (!window.confirm(t("The old address stops answering. Continue?"))) {
             return;
         }
-        keyResult.textContent = "Raising a new address…";
+        keyResult.textContent = t("Raising a new address…");
         try {
             await call("POST", base(), {action: "new-address"});
-            keyResult.textContent = "Raised. It is published as soon as its tunnels are up.";
+            keyResult.textContent = t("Raised. It is published as soon as its tunnels are up.");
         } catch (error) {
             keyResult.textContent = error.message;
         }
@@ -991,22 +1020,21 @@ async function viewAccount() {
     const owed = account.pendingRouting || [];
     if (owed.length > 0 || account.pendingRegistry) {
         const stuck = node("div", "block");
-        stuck.append(node("p", "block-title", "The new card has not reached everybody"));
+        stuck.append(node("p", "block-title", t("The new card has not reached everybody")));
         if (account.pendingRegistry) {
             stuck.append(node("p", "hint",
-                "The alias registry has not taken the new address. It is asked again "
-                + "every ten seconds until it does."));
+                t("The alias registry has not taken the new address. It is asked again every ten seconds until it does.")));
         }
         for (const owedPeer of owed) {
             const row = node("p", "form-footer");
             row.append(node("span", "hint", owedPeer));
             const said = node("p", "hint");
-            const again = node("button", "btn btn-quiet", "Retry");
+            const again = node("button", "btn btn-quiet", t("Retry"));
             again.onclick = async () => {
-                said.textContent = "Sending…";
+                said.textContent = t("Sending…");
                 try {
                     await call("POST", base(), {action: "retry-routing", peer: owedPeer});
-                    said.textContent = "On its way. This list clears when it lands.";
+                    said.textContent = t("On its way. This list clears when it lands.");
                 } catch (error) {
                     said.textContent = error.message;
                 }
@@ -1018,25 +1046,30 @@ async function viewAccount() {
     }
     view.append(keys);
 
-    view.append(exportCard(), pairCard(), removeCard());
+    view.append(exportCard(account));
+    if (account.kind !== "group") {
+        view.append(pairCard());
+    }
+    view.append(removeCard());
     return view;
 }
 
-function exportCard() {
+function exportCard(account) {
     const move = node("article", "panel-box");
     move.style.marginTop = "1rem";
-    move.append(node("p", "block-title", "Back this account up"));
+    move.append(node("p", "block-title", t("Back this account up")));
     move.append(node("p", "hint",
-        "The same .bazarish backup the desktop client writes, and the same file "
-        + "restores it in either. It moves an account; it does not share one: only "
-        + "one place may serve an account, because this host is that account's "
-        + "server."));
+        t("The same .bazarish backup the desktop client writes, and the same file restores it in either. It moves an account; it does not share one: only one place may serve an account, because this host is that account's server.")));
     const bundlePassword = node("input", "field");
     bundlePassword.type = "password";
-    move.append(node("label", "field-label", "Password for the backup"), bundlePassword);
+    if (account.kind === "group") {
+        move.append(node("p", "notice is-warning",
+            t("The backup carries the account alone: members, posts and settings stay on this host.")));
+    }
+    move.append(node("label", "field-label", t("Password for the backup")), bundlePassword);
     const wrote = node("p", "hint");
     const exportFooter = node("p", "form-footer");
-    const run = node("button", "btn", "Export");
+    const run = node("button", "btn", t("Export"));
     run.onclick = async () => {
         wrote.textContent = "";
         try {
@@ -1055,7 +1088,7 @@ function exportCard() {
             link.download = named ? named[1] : "bazarish.bazarish";
             link.click();
             URL.revokeObjectURL(link.href);
-            wrote.textContent = "Downloaded.";
+            wrote.textContent = t("Downloaded.");
         } catch (error) {
             wrote.textContent = error.message;
         }
@@ -1068,11 +1101,9 @@ function exportCard() {
 function pairCard() {
     const card = node("article", "panel-box");
     card.style.marginTop = "1rem";
-    card.append(node("p", "block-title", "Send to another device"));
+    card.append(node("p", "block-title", t("Send to another device")));
     card.append(node("p", "hint",
-        "Pairing hands the account over I2P to a desktop client or another panel: "
-        + "open the link there and type the code. Like a backup, it moves the "
-        + "account; it does not share it."));
+        t("Pairing hands the account over I2P to a desktop client or another panel: open the link there and type the code. Like a backup, it moves the account; it does not share it.")));
     const offer = node("div");
     offer.hidden = true;
     const link = node("pre", "copy");
@@ -1080,8 +1111,8 @@ function pairCard() {
     offer.append(link, code);
     const status = node("p", "hint");
     const footer = node("p", "form-footer");
-    const start = node("button", "btn", "Start pairing");
-    const stop = node("button", "btn btn-quiet", "Stop");
+    const start = node("button", "btn", t("Start pairing"));
+    const stop = node("button", "btn btn-quiet", t("Stop"));
     stop.hidden = true;
     footer.append(start, stop);
     card.append(footer, offer, status);
@@ -1096,17 +1127,17 @@ function pairCard() {
             decorateCopies(card);
         }
         if (state.stage === "publishing") {
-            status.textContent = "Publishing the pairing address…";
+            status.textContent = t("Publishing the pairing address…");
         } else if (state.stage === "waiting") {
-            status.textContent = "Waiting for the other device.";
+            status.textContent = t("Waiting for the other device.");
         } else if (state.stage === "wrong-code") {
-            status.textContent = "A wrong code was tried " + state.wrongCodes + " times.";
+            status.textContent = t("A wrong code was tried %1 times.", state.wrongCodes);
         } else if (state.stage === "sending") {
-            status.textContent = "Sending the account " + progressText(state.done, state.total);
+            status.textContent = t("Sending the account %1", progressText(state.done, state.total));
         } else if (state.stage === "done") {
-            status.textContent = "The account is on the other device.";
+            status.textContent = t("The account is on the other device.");
         } else if (state.stage === "refused") {
-            status.textContent = "Too many wrong codes: pairing stopped.";
+            status.textContent = t("Too many wrong codes: pairing stopped.");
         } else if (state.stage === "failed") {
             status.textContent = state.error;
         } else {
@@ -1143,16 +1174,14 @@ function pairCard() {
 function removeCard() {
     const card = node("article", "panel-box");
     card.style.marginTop = "1rem";
-    card.append(node("p", "block-title", "Remove this account"));
+    card.append(node("p", "block-title", t("Remove this account")));
     card.append(node("p", "hint",
-        "Closes the account on its server, which is this host, and deletes its file, "
-        + "its mailbox, its conversations and its tokens. Export it first if it is to "
-        + "live on somewhere else."));
+        t("Closes the account on its server, which is this host, and deletes its file, its mailbox, its conversations and its tokens. Export it first if it is to live on somewhere else.")));
     const said = node("p", "hint");
     const footer = node("p", "form-footer");
-    const drop = node("button", "btn btn-danger", "Remove");
+    const drop = node("button", "btn btn-danger", t("Remove"));
     drop.onclick = async () => {
-        if (!window.confirm("The account and everything it holds here is deleted. Continue?")) {
+        if (!window.confirm(t("The account and everything it holds here is deleted. Continue?"))) {
             return;
         }
         try {
@@ -1172,23 +1201,21 @@ function removeCard() {
 async function viewSettings() {
     const settings = await call("GET", "/ui/settings");
     const view = node("section", "view");
-    view.append(node("h1", "view-title", "Settings"));
+    view.append(node("h1", "view-title", t("Settings")));
 
     const transport = node("article", "panel-box");
-    transport.append(node("p", "block-title", "Transport"));
+    transport.append(node("p", "block-title", t("Transport")));
     transport.append(node("p", "hint",
-        "One router carries every account here. A router in this process is one thing "
-        + "to install; a router that is already running can be shared with other "
-        + "programs. Either takes effect at the next start."));
+        t("One router carries every account here. A router in this process is one thing to install; a router that is already running can be shared with other programs. Either takes effect at the next start.")));
     const which = node("select", "field");
-    for (const [value, label] of [["embedded", "A router in this process"],
-        ["sam", "A router already running, over SAM"]]) {
-        const option = node("option", null, label);
+    for (const [value, label] of [["embedded", N_("A router in this process")],
+        ["sam", N_("A router already running, over SAM")]]) {
+        const option = node("option", null, t(label));
         option.value = value;
         which.append(option);
     }
     which.value = settings.transport;
-    transport.append(node("label", "field-label", "I2P"), which);
+    transport.append(node("label", "field-label", t("I2P")), which);
 
     const samBlock = node("div", "block");
     samBlock.hidden = settings.transport !== "sam";
@@ -1198,23 +1225,23 @@ async function viewSettings() {
     const samPort = node("input", "field");
     samPort.type = "number";
     samPort.value = settings.samPort;
-    samBlock.append(node("label", "field-label", "SAM host"), samHost);
-    samBlock.append(node("label", "field-label", "SAM port"), samPort);
+    samBlock.append(node("label", "field-label", t("SAM host")), samHost);
+    samBlock.append(node("label", "field-label", t("SAM port")), samPort);
     transport.append(samBlock);
     which.onchange = () => { samBlock.hidden = which.value !== "sam"; };
 
     const privacy = node("select", "field");
-    for (const [value, label] of [["minimal", "Minimal"], ["middle", "Middle"], ["max", "Max"]]) {
-        const option = node("option", null, label);
+    for (const [value, label] of [["minimal", N_("Minimal")], ["middle", N_("Middle")], ["max", N_("Max")]]) {
+        const option = node("option", null, t(label));
         option.value = value;
         privacy.append(option);
     }
     privacy.value = settings.privacy;
-    transport.append(node("label", "field-label", "Tunnel length"), privacy);
+    transport.append(node("label", "field-label", t("Tunnel length")), privacy);
 
     const saved = node("p", "hint");
     const footer = node("p", "form-footer");
-    const save = node("button", "btn", "Save");
+    const save = node("button", "btn", t("Save"));
     save.onclick = async () => {
         try {
             await call("POST", "/ui/settings", {
@@ -1223,7 +1250,7 @@ async function viewSettings() {
                 samPort: Number(samPort.value),
                 privacy: privacy.value,
             });
-            saved.textContent = "Saved. It takes effect at the next start.";
+            saved.textContent = t("Saved. It takes effect at the next start.");
         } catch (error) {
             saved.textContent = error.message;
         }
@@ -1234,12 +1261,361 @@ async function viewSettings() {
 
     const operator = node("article", "panel-box");
     operator.style.marginTop = "1rem";
-    operator.append(node("p", "block-title", "Operator"));
+    operator.append(node("p", "block-title", t("Operator")));
     operator.append(node("p", "hint",
-        "The key that claimed this host signs in here, and no other. It is the "
-        + "\"operator\" in the config file; to hand the host over, change it there."));
-    operator.append(facts([["Fingerprint", settings.operator]]));
+        t("The key that claimed this host signs in here, and no other. It is the \"operator\" in the config file; to hand the host over, change it there.")));
+    operator.append(facts([[t("Fingerprint"), settings.operator]]));
     view.append(operator);
+    return view;
+}
+
+function segmented(options, value) {
+    const group = node("div", "segmented");
+    group.setAttribute("role", "radiogroup");
+    let chosen = value;
+    const buttons = options.map(([key, label, note]) => {
+        const button = node("button", "segment" + (key === value ? " is-on" : ""));
+        button.type = "button";
+        button.setAttribute("role", "radio");
+        button.setAttribute("aria-checked", key === value ? "true" : "false");
+        button.append(node("span", "segment-label", t(label)));
+        if (note) {
+            button.append(node("span", "segment-note", t(note)));
+        }
+        button.onclick = () => {
+            chosen = key;
+            for (const other of buttons) {
+                const on = other === button;
+                other.classList.toggle("is-on", on);
+                other.setAttribute("aria-checked", on ? "true" : "false");
+            }
+        };
+        group.append(button);
+        return button;
+    });
+    return {element: group, value: () => chosen};
+}
+
+function tally(pairs) {
+    const line = node("dl", "tally");
+    for (const [label, value] of pairs) {
+        const item = node("div", "tally-item");
+        item.append(node("dt", null, label), node("dd", null, String(value)));
+        line.append(item);
+    }
+    return line;
+}
+
+function shortFingerprint(fingerprint) {
+    return fingerprint.slice(0, 16) + "…";
+}
+
+async function viewGroup() {
+    const state = await call("GET", base() + "/group");
+    const config = state.config;
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", t("Group")));
+    view.append(tally([
+        [t("Members"), state.states.member || 0],
+        [t("Waiting for approval"), state.requests],
+        [t("Banned"), state.states.banned || 0],
+    ]));
+
+    const box = node("article", "panel-box");
+    box.append(node("p", "block-title", t("Who writes")));
+    const kind = segmented([
+        ["group", N_("Group"), N_("Every member posts.")],
+        ["channel", N_("Channel"), N_("Admins post, members read.")],
+    ], config.kind);
+    box.append(kind.element);
+
+    box.append(node("p", "block-title", t("Joining")));
+    const joining = segmented([
+        ["open", N_("Open"), N_("Anyone with the invite.")],
+        ["approval", N_("With approval"), N_("An admin lets each one in.")],
+    ], config.joinMode);
+    box.append(joining.element);
+
+    const history = node("input", "field field-narrow");
+    history.type = "number";
+    history.min = "0";
+    history.value = String(config.historySize);
+    box.append(node("label", "field-label", t("History for newcomers")), history);
+    box.append(node("p", "hint", t("Posts a member receives on joining.")));
+
+    const contactLine = node("label", "check");
+    const contacts = node("input");
+    contacts.type = "checkbox";
+    contacts.checked = config.contactRequests;
+    contactLine.append(contacts, node("span", null, t("Members may ask an author for contact")));
+    box.append(contactLine);
+
+    const botLanguage = node("select", "field field-narrow");
+    for (const [code, name] of kLanguages) {
+        const option = node("option", null, name);
+        option.value = code;
+        option.lang = code;
+        botLanguage.append(option);
+    }
+    botLanguage.value = config.language;
+    box.append(node("label", "field-label", t("Language of the bot's messages")), botLanguage);
+
+    const said = node("p", "hint");
+    const footer = node("p", "form-footer");
+    const save = node("button", "btn", t("Save"));
+    save.onclick = async () => {
+        save.disabled = true;
+        said.textContent = "";
+        try {
+            await call("POST", base() + "/group", {
+                kind: kind.value(),
+                joinMode: joining.value(),
+                historySize: Number(history.value),
+                contactRequests: contacts.checked,
+                language: botLanguage.value,
+            });
+            said.textContent = t("Saved.");
+        } catch (error) {
+            said.textContent = error.message;
+        }
+        save.disabled = false;
+    };
+    footer.append(save);
+    box.append(footer, said);
+    view.append(box);
+    return view;
+}
+
+function inFilter(member, filter) {
+    if (filter === "all") {
+        return true;
+    }
+    if (filter === "admin") {
+        return member.admin;
+    }
+    if (filter === "left") {
+        return member.state === "left" || member.state === "gone";
+    }
+    return member.state === filter;
+}
+
+function memberMatches(member) {
+    if (!inFilter(member, memberFilter)) {
+        return false;
+    }
+    const asked = memberQuery.trim().toLowerCase();
+    return !asked || member.name.toLowerCase().includes(asked)
+        || member.fingerprint.includes(asked);
+}
+
+function memberRow(member, refresh) {
+    const row = node("div", "row is-static");
+    const keys = node("span", "row-keys");
+    keys.append(node("span", "row-key", member.name || t("no name yet")));
+    const fingerprint = node("span", "row-dest", shortFingerprint(member.fingerprint));
+    fingerprint.dataset.copy = member.fingerprint;
+    keys.append(fingerprint);
+    const tags = node("span", "row-tags");
+    if (member.admin) {
+        tags.append(node("span", "tag is-key", t("admin")));
+    }
+    const stateClass = {pending: " is-pending", banned: " is-banned", member: ""}[member.state];
+    if (member.state !== "member") {
+        tags.append(node("span", "tag" + (stateClass || ""), t(kStateLabels[member.state])));
+    }
+    if (member.joinedAt) {
+        tags.append(node("span", "row-dest", new Date(member.joinedAt).toLocaleDateString()));
+    }
+    const actions = node("span", "row-actions");
+    const act = (label, action, danger, ask) => {
+        const button = node("button", "btn btn-small" + (danger ? " btn-danger" : " btn-quiet"),
+            t(label));
+        button.type = "button";
+        button.onclick = async () => {
+            if (ask && !window.confirm(ask)) {
+                return;
+            }
+            button.disabled = true;
+            try {
+                await call("POST", base() + "/group/members",
+                    {fingerprint: member.fingerprint, action});
+                await refresh();
+            } catch (error) {
+                button.disabled = false;
+                button.title = error.message;
+            }
+        };
+        actions.append(button);
+    };
+    if (member.state === "member") {
+        act(member.admin ? N_("Remove admin") : N_("Make admin"),
+            member.admin ? "unadmin" : "admin", false);
+        if (!member.admin) {
+            act(N_("Exclude"), "exclude", true, t("Exclude %1? They cannot come back.", member.name));
+        }
+    } else if (member.state === "banned") {
+        act(N_("Unban"), "unban", false);
+    }
+    row.append(keys, tags, actions);
+    return row;
+}
+
+async function viewMembers() {
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", t("Members")));
+    const toolbar = node("div", "toolbar");
+    const search = node("input", "field search");
+    search.type = "search";
+    search.placeholder = t("Name or fingerprint");
+    search.value = memberQuery;
+    const filters = node("div", "filters");
+    toolbar.append(search, filters);
+    const rows = node("div", "rows");
+    view.append(toolbar, rows);
+
+    let members = [];
+    const draw = () => {
+        filters.textContent = "";
+        for (const [key, label] of kMemberFilters) {
+            const count = members.filter((member) => inFilter(member, key)).length;
+            const chip = node("button", "chip" + (memberFilter === key ? " is-on" : ""),
+                t(label) + " " + count);
+            chip.type = "button";
+            chip.setAttribute("aria-pressed", memberFilter === key ? "true" : "false");
+            chip.onclick = () => {
+                memberFilter = key;
+                draw();
+            };
+            filters.append(chip);
+        }
+        rows.textContent = "";
+        const shown = members.filter(memberMatches);
+        if (members.length === 0) {
+            rows.append(node("p", "empty", t("Nobody has joined yet. The invite is on the overview.")));
+        } else if (shown.length === 0) {
+            rows.append(node("p", "empty", t("Nobody matches.")));
+        }
+        for (const member of shown) {
+            rows.append(memberRow(member, refresh));
+        }
+        decorateCopies(rows);
+    };
+    const refresh = async () => {
+        members = await call("GET", base() + "/group/members");
+        members.sort((a, b) => (b.admin - a.admin) || a.name.localeCompare(b.name));
+        draw();
+    };
+    search.oninput = () => {
+        memberQuery = search.value;
+        draw();
+    };
+    await refresh();
+    return view;
+}
+
+async function viewRequests() {
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", t("Requests")));
+    const state = await call("GET", base() + "/group");
+    const rows = node("div", "rows");
+    view.append(rows);
+    const refresh = async () => {
+        const asked = await call("GET", base() + "/group/requests");
+        rows.textContent = "";
+        if (asked.length === 0) {
+            rows.append(node("p", "empty", state.config.joinMode === "open"
+                ? t("Joining is open, so nobody waits here.")
+                : t("Nobody is waiting.")));
+        }
+        for (const request of asked) {
+            const row = node("div", "row is-static");
+            const keys = node("span", "row-keys");
+            keys.append(node("span", "row-key", request.name));
+            const fingerprint = node("span", "row-dest", shortFingerprint(request.fingerprint));
+            fingerprint.dataset.copy = request.fingerprint;
+            keys.append(fingerprint);
+            const tags = node("span", "row-tags");
+            tags.append(node("span", "row-dest", when(request.at)));
+            const actions = node("span", "row-actions");
+            for (const [label, allow, style] of [[N_("Allow"), true, "btn"],
+                [N_("Decline"), false, "btn btn-quiet"]]) {
+                const button = node("button", style + " btn-small", t(label));
+                button.type = "button";
+                button.onclick = async () => {
+                    button.disabled = true;
+                    await call("POST", base() + "/group/requests", {number: request.number, allow});
+                    await refresh();
+                };
+                actions.append(button);
+            }
+            row.append(keys, tags, actions);
+            rows.append(row);
+        }
+        decorateCopies(rows);
+    };
+    await refresh();
+    return view;
+}
+
+function postBody(post) {
+    if (post.type === "image") {
+        return t("Picture");
+    }
+    if (post.type === "audio") {
+        return t("Voice message");
+    }
+    return post.text;
+}
+
+async function viewPosts() {
+    const view = node("section", "view");
+    view.append(node("h1", "view-title", t("Posts")));
+    const list = node("div", "posts");
+    view.append(list);
+    const refresh = async () => {
+        const posts = await call("GET", base() + "/group/posts?limit=" + kPostsPage);
+        list.textContent = "";
+        if (posts.length === 0) {
+            list.append(node("p", "empty", t("No posts yet.")));
+        }
+        for (const post of posts) {
+            const item = node("article", "post" + (post.deleted ? " is-deleted" : ""));
+            const head = node("header", "post-head");
+            head.append(node("span", "post-author", post.authorName || t("no name yet")));
+            head.append(node("time", "post-time", when(post.sentAt)));
+            if (post.edited) {
+                head.append(node("span", "tag", t("edited")));
+            }
+            if (post.deleted) {
+                head.append(node("span", "tag is-banned", t("deleted")));
+            }
+            item.append(head);
+            item.append(node("p", "post-body" + (post.type === "text" ? "" : " is-media"),
+                postBody(post)));
+            const foot = node("footer", "post-foot");
+            const reactions = node("span", "reactions");
+            for (const [emoji, count] of Object.entries(post.reactions)) {
+                reactions.append(node("span", "reaction", emoji + " " + count));
+            }
+            foot.append(reactions);
+            if (!post.deleted) {
+                const drop = node("button", "btn btn-small btn-quiet btn-danger-quiet", t("Delete"));
+                drop.type = "button";
+                drop.onclick = async () => {
+                    if (!window.confirm(t("Delete this post for every member?"))) {
+                        return;
+                    }
+                    drop.disabled = true;
+                    await call("DELETE", base() + "/group/posts/" + encodeURIComponent(post.id));
+                    await refresh();
+                };
+                foot.append(drop);
+            }
+            item.append(foot);
+            list.append(item);
+        }
+    };
+    await refresh();
     return view;
 }
 
@@ -1251,6 +1627,10 @@ const views = {
     sign: viewSign,
     api: viewApi,
     account: viewAccount,
+    group: viewGroup,
+    members: viewMembers,
+    requests: viewRequests,
+    posts: viewPosts,
     add: viewAdd,
     settings: viewSettings,
 };
@@ -1269,16 +1649,17 @@ async function render() {
         }
         await drawSidebar();
         const summary = accounts.find((account) => account.id === accountId);
-        const needsOpen = ["chats", "contacts", "aliases", "sign", "api"].includes(route.view);
+        const needsOpen = ["chats", "contacts", "aliases", "sign", "api", "group", "members",
+            "requests", "posts"].includes(route.view);
         if (needsOpen && summary && !summary.running) {
             const waiting = node("section", "view");
-            waiting.append(node("h1", "view-title", route.view));
+            waiting.append(node("h1", "view-title", viewLabel(route.view)));
             waiting.append(node("p", "empty",
-                "The account is not open yet (" + summary.status + "). Overview says what to do."));
+                t("The account is not open yet (%1). Overview says what to do.", summary.status)));
             content().replaceChildren(waiting);
             return;
         }
-        if (summary && summary.running) {
+        if (summary && summary.running && summary.kind !== "group") {
             const contacts = await call("GET", base() + "/contacts");
             names = {};
             for (const contact of contacts) {
@@ -1298,7 +1679,7 @@ async function render() {
         }
     } catch (error) {
         const failed = node("section", "view");
-        failed.append(node("h1", "view-title", "Something went wrong"));
+        failed.append(node("h1", "view-title", t("Something went wrong")));
         failed.append(node("p", "hint", error.message));
         content().replaceChildren(failed);
     }
@@ -1323,6 +1704,8 @@ async function watch(account) {
         }
     }
 }
+
+el("sidebarFoot").prepend(languagePicker(render));
 
 el("signOut").onclick = async () => {
     await call("POST", "/ui/logout");

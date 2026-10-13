@@ -12,15 +12,17 @@
 <div class="shell">
   <nav class="sidebar">
     <img class="wordmark" src="/assets/logo.svg" alt="bazarish" width="404" height="76">
-    <p class="sidebar-note">bot panel</p>
+    <p class="sidebar-note" data-t="bot panel">bot panel</p>
     <ul class="accounts" id="accounts"></ul>
     <ul class="nav" id="nav"></ul>
-    <div class="sidebar-foot">
-      <button class="btn btn-quiet" id="signOut" type="button">Sign out</button>
+    <div class="sidebar-foot" id="sidebarFoot">
+      <button class="btn btn-quiet" id="signOut" type="button" data-t="Sign out">Sign out</button>
     </div>
   </nav>
   <main class="content" id="content"></main>
 </div>
+<script src="/assets/messages.js" defer></script>
+<script src="/assets/i18n.js" defer></script>
 <script src="/assets/copy.js" defer></script>
 <script src="/assets/app.js" defer></script>
 </body>

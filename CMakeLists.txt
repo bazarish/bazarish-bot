@@ -64,3 +64,8 @@ bazarish_bot_add_test(TestTranscript)
 bazarish_bot_add_test(TestGroupEngine)
 bazarish_bot_add_test(TestNameRules)
 bazarish_bot_add_test(TestGroupCopy)
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(NAME WebTranslations
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check-web-i18n.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/web)

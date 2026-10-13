@@ -14,8 +14,8 @@ async function start() {
     challenge = state.challenge;
     el("challenge").textContent = challenge;
     el("unclaimed").hidden = state.claimed;
-    el("title").textContent = state.claimed ? "Sign in" : "Claim this host";
-    el("signIn").textContent = state.claimed ? "Sign in" : "Claim";
+    el("title").textContent = state.claimed ? t("Sign in") : t("Claim this host");
+    el("signIn").textContent = state.claimed ? t("Sign in") : t("Claim");
 }
 
 el("signIn").onclick = async () => {
@@ -32,7 +32,8 @@ el("signIn").onclick = async () => {
         location.href = "/";
     } catch (error) {
         el("signinError").textContent = error.message;
-        await start();
+        await el("languageSlot").append(languagePicker(start));
+start();
     }
 };
 
@@ -42,4 +43,5 @@ el("blob").addEventListener("keydown", (event) => {
     }
 });
 
+el("languageSlot").append(languagePicker(start));
 start();
