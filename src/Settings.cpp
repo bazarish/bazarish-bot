@@ -76,6 +76,7 @@ void Settings::load()
     if (const auto parsed = i2p::privacyFromString(document.value("privacy", "middle"))) {
         privacy_ = *parsed;
     }
+    transit_ = document.value("transit", true);
     for (const nlohmann::json& entry : document.value("tokens", nlohmann::json::array())) {
         ApiToken token;
         token.account = entry.value("account", std::string());
@@ -115,6 +116,7 @@ void Settings::save() const
         {"samHost", samHost_},
         {"samPort", samPort_},
         {"privacy", privacyName(privacy_)},
+        {"transit", transit_},
         {"tokens", tokens},
         {"accounts", accounts},
     };
@@ -171,6 +173,19 @@ void Settings::setPrivacy(const i2p::Privacy privacy)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     privacy_ = privacy;
+    save();
+}
+
+bool Settings::transit() const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return transit_;
+}
+
+void Settings::setTransit(const bool transit)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    transit_ = transit;
     save();
 }
 

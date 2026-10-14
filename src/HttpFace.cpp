@@ -663,6 +663,7 @@ void HttpFace::operatorRoutes()
                 {"samHost", settings.samHost()},
                 {"samPort", settings.samPort()},
                 {"privacy", std::string(privacyName(settings.privacy()))},
+                {"transit", settings.transit()},
                 {"operator", operator_.operatorFingerprint()},
                 {"restartNeeded", anyRunning},
             });
@@ -688,6 +689,9 @@ void HttpFace::operatorRoutes()
                     return failure(400, "the tunnel length is minimal, middle or max");
                 }
                 runtime_.settings().setPrivacy(*parsed);
+            }
+            if (body.contains("transit")) {
+                runtime_.settings().setTransit(body.at("transit").get<bool>());
             }
             return json({{"ok", true}});
         });

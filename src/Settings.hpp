@@ -35,8 +35,10 @@ public:
     std::string samHost() const;
     int samPort() const;
     i2p::Privacy privacy() const;
+    bool transit() const;
     void setTransport(Transport transport, std::string samHost, int samPort);
     void setPrivacy(i2p::Privacy privacy);
+    void setTransit(bool transit);
 
     std::vector<ApiToken> tokens(const std::string& account) const;
     ApiToken issueToken(const std::string& account, const std::string& name);
@@ -62,6 +64,7 @@ private:
     std::string samHost_;
     int samPort_ = 0;
     i2p::Privacy privacy_ = i2p::Privacy::eMiddle;
+    bool transit_ = true;
     std::vector<ApiToken> tokens_;
     struct AccountEntry {
         std::string fingerprint;
