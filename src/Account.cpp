@@ -203,7 +203,10 @@ void Account::bringUp()
 
 void Account::close()
 {
-    stopping_ = true;
+    {
+        const std::lock_guard<std::mutex> lock(waitMutex_);
+        stopping_ = true;
+    }
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         if (mailbox_ != nullptr && session_ != nullptr) {
@@ -533,6 +536,7 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
     std::unique_ptr<client::Client> waiter;
     while (!stopping_) {
         std::vector<client::PendingEntry> waiting;
+        const auto askedAt = std::chrono::steady_clock::now();
         try {
             if (waiter == nullptr) {
                 waiter = client::Session::makeEventClient(context);
@@ -540,6 +544,9 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
             waiting = client::Session::waitForMail(*waiter, kEventWaitSeconds);
         } catch (const std::exception& error) {
             log::info("mail wait failed, asking again: {}", error.what());
+            std::unique_lock<std::mutex> lock(waitMutex_);
+            waiters_.wait_until(lock, askedAt + std::chrono::seconds(kEventWaitSeconds),
+                [this]() { return stopping_.load(); });
             continue;
         }
         if (stopping_) {
