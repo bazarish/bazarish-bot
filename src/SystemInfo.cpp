@@ -60,7 +60,6 @@ DiskUse diskUse(const fs::path& stateDir)
     }
     const fs::space_info space = fs::space(stateDir);
     use.freeBytes = space.available;
-    use.totalBytes = space.capacity;
     return use;
 }
 

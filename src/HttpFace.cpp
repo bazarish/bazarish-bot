@@ -722,8 +722,7 @@ void HttpFace::operatorRoutes()
                 {"router", routerJson},
                 {"memory", {{"residentBytes", memory.residentBytes},
                                {"peakBytes", memory.peakBytes}}},
-                {"disk", {{"stateBytes", disk.stateBytes}, {"freeBytes", disk.freeBytes},
-                             {"totalBytes", disk.totalBytes}}},
+                {"disk", {{"stateBytes", disk.stateBytes}, {"freeBytes", disk.freeBytes}}},
             });
         });
     });

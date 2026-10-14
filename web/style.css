@@ -200,8 +200,7 @@ body.centred {
     text-transform: uppercase;
 }
 
-.nav a::before,
-.account-nav a::before {
+.nav a::before {
     content: "/";
     color: var(--bz-ink-faint);
     margin-inline-end: 0.5rem;
@@ -219,8 +218,7 @@ body.centred {
     color: var(--bz-ink);
 }
 
-.nav a.is-current::before,
-.account-nav a.is-current::before {
+.nav a.is-current::before {
     color: var(--bz-key);
 }
 
@@ -1034,6 +1032,8 @@ textarea.field {
 .line {
     display: flex;
     flex-direction: column;
+    align-self: flex-start;
+    align-items: flex-start;
     max-width: 34rem;
 }
 

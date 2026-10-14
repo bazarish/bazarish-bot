@@ -218,8 +218,7 @@ async function drawSidebar() {
     const nav = el("nav");
     nav.textContent = "";
     const route = currentRoute();
-    for (const [name, label] of [["add", N_("Add account")], ["settings", N_("Settings")],
-        ["system", N_("System")]]) {
+    for (const [name, label] of [["add", N_("Add account")], ["system", N_("System")]]) {
         const item = node("li");
         const link = node("a", route.view === name ? "is-current" : "", t(label));
         link.href = "#/" + name;
@@ -252,7 +251,7 @@ function viewLabel(name) {
 
 function currentRoute() {
     const parts = (location.hash || "").replace(/^#\/?/, "").split("/");
-    if (["add", "settings", "system"].includes(parts[0])) {
+    if (["add", "system"].includes(parts[0])) {
         return {account: null, view: parts[0]};
     }
     const known = accounts.find((account) => account.id === parts[0]);
@@ -376,8 +375,6 @@ async function viewAdd() {
 
     const restore = node("article", "panel-box");
     restore.append(node("p", "block-title", t("Restore a backup")));
-    restore.append(node("p", "hint",
-        t("A backup from the desktop client or from this panel.")));
     const bundle = node("input", "field");
     bundle.type = "file";
     bundle.accept = ".bazarish";
@@ -1328,11 +1325,7 @@ function removeCard() {
     return card;
 }
 
-async function viewSettings() {
-    const settings = await call("GET", "/ui/settings");
-    const view = node("section", "view");
-    view.append(node("h1", "view-title", t("Settings")));
-
+function transportCard(settings) {
     const transport = node("article", "panel-box");
     transport.append(node("p", "block-title", t("Transport")));
     transport.append(node("p", "hint",
@@ -1387,15 +1380,36 @@ async function viewSettings() {
     };
     footer.append(save);
     transport.append(footer, saved);
-    view.append(transport);
+    return transport;
+}
 
+function operatorCard(settings) {
     const operator = node("article", "panel-box");
     operator.append(node("p", "block-title", t("Administrator")));
     operator.append(node("p", "hint",
         t("The administrator fingerprint can be changed only in the configuration file, in the operator field.")));
     operator.append(facts([[t("Fingerprint"), settings.operator]]));
-    view.append(operator);
-    return view;
+    return operator;
+}
+
+function transitLine(settings) {
+    const line = node("label", "check");
+    const transit = node("input");
+    transit.type = "checkbox";
+    transit.checked = settings.transit;
+    const said = node("span", "hint");
+    line.append(transit, node("span", null, t("Transit tunnels")), said);
+    transit.onchange = async () => {
+        said.textContent = "";
+        try {
+            await call("POST", "/ui/settings", {transit: transit.checked});
+            said.textContent = t("Saved. It takes effect at the next start.");
+        } catch (error) {
+            transit.checked = !transit.checked;
+            said.textContent = error.message;
+        }
+    };
+    return line;
 }
 
 function segmented(options, value) {
@@ -1788,14 +1802,16 @@ function uptimeText(seconds) {
 }
 
 async function viewSystem() {
-    const system = await call("GET", "/ui/system");
+    const [system, settings] = await Promise.all([call("GET", "/ui/system"),
+        call("GET", "/ui/settings")]);
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("System")));
 
     const router = node("article", "panel-box");
     router.append(node("p", "block-title", system.transport === "sam"
         ? t("External router over SAM") : t("Built-in router")));
-    const routed = [];
+    const routed = [[t("Destinations ready / all"),
+        system.router.readyDestinations + " / " + system.router.destinations]];
     if (system.router.counted) {
         const links = system.router.connections || {};
         routed.push([t("Tunnels in / out"),
@@ -1806,9 +1822,10 @@ async function viewSystem() {
         routed.push([t("Connections"), Object.keys(links).length === 0
             ? "0" : Object.entries(links).map(([kind, count]) => kind + " " + count).join(", ")]);
     }
-    routed.push([t("Destinations ready / all"),
-        system.router.readyDestinations + " / " + system.router.destinations]);
     router.append(facts(routed, false));
+    if (system.transport !== "sam") {
+        router.append(transitLine(settings));
+    }
     view.append(router);
 
     const service = node("article", "panel-box");
@@ -1818,13 +1835,12 @@ async function viewSystem() {
         [t("Uptime"), uptimeText(system.uptimeSeconds)],
         [t("Memory now / peak"),
             bytesText(system.memory.residentBytes) + " / " + bytesText(system.memory.peakBytes)],
-        [t("Data on disk"), bytesText(system.disk.stateBytes)],
-        [t("Free on the disk"), t("%1 of %2", bytesText(system.disk.freeBytes),
-            bytesText(system.disk.totalBytes))],
+        [t("Used on disk"), t("%1 (%2 free)", bytesText(system.disk.stateBytes),
+            bytesText(system.disk.freeBytes))],
     ], false));
     view.append(service);
 
-    view.append(systemBackupCard());
+    view.append(transportCard(settings), operatorCard(settings), systemBackupCard());
     return view;
 }
 
@@ -1918,7 +1934,6 @@ const views = {
     requests: viewRequests,
     posts: viewPosts,
     add: viewAdd,
-    settings: viewSettings,
     system: viewSystem,
 };
 

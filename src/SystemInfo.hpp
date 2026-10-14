@@ -14,7 +14,6 @@ struct MemoryUse {
 struct DiskUse {
     std::uint64_t stateBytes = 0;
     std::uint64_t freeBytes = 0;
-    std::uint64_t totalBytes = 0;
 };
 
 MemoryUse memoryUse();
