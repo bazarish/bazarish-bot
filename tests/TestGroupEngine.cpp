@@ -188,6 +188,8 @@ int main()
         engine.onIncoming(incoming(ann, "contact.request"));
         CHECK(fake.accepted == std::vector<std::string>{ann});
         CHECK(fake.take("tell", ann).size() == 1);
+        engine.onIncoming(incoming(ann, "contact.request"));
+        CHECK(fake.take("tell", ann).empty());
         engine.onIncoming(incoming(ann, "receipt"));
         CHECK(fake.take("tell", ann).empty());
         CHECK(engine.blockFor(ann).write);
@@ -241,6 +243,10 @@ int main()
         CHECK(toBob[0].id == "p1");
         CHECK(toBob[0].author == "Ann");
         CHECK(fake.take("relay", cid).size() == 1);
+        fake.accepted.clear();
+        engine.onIncoming(incoming(ann, "contact.request"));
+        CHECK(fake.accepted == std::vector<std::string>{ann});
+        CHECK(fake.take("tell", ann).empty());
 
         engine.onIncoming(textFrom(bob, "again", "p1"));
         pump(engine);

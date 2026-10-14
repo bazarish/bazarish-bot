@@ -318,6 +318,9 @@ void GroupEngine::handleLocked(
             return;
         }
         actions.push_back([this, peer]() { link_.accept(peer); });
+        if (found != members_.end() && found->second.state != MemberState::eLeft) {
+            return;
+        }
         if (found == members_.end() || found->second.name.empty()) {
             Member member = found == members_.end() ? Member{} : found->second;
             member.fingerprint = peer;
