@@ -864,13 +864,21 @@ void GroupEngine::deliveredLocked(const std::string& fingerprint, const std::int
         refusedLocked(fingerprint);
         return;
     }
+    log::warn("group: a relay to {} did not arrive, it is tried again: {}",
+        log::redact(fingerprint),
+        outcome.errorMessage.empty() ? outcome.errorCode : outcome.errorMessage);
     retryAt_[fingerprint] = clock_() + kRelayRetryMs;
 }
 
 GroupLink::Outcome GroupEngine::watchRefusal(const std::string& peer)
 {
     return [this, peer](const client::OutboundCourier::Outcome& outcome) {
+        if (outcome.stored) {
+            return;
+        }
         if (outcome.errorCode != kDeliveryRejected) {
+            log::warn("group: a message to {} did not arrive: {}", log::redact(peer),
+                outcome.errorMessage.empty() ? outcome.errorCode : outcome.errorMessage);
             return;
         }
         const std::lock_guard<std::mutex> lock(mutex_);
@@ -889,6 +897,7 @@ void GroupEngine::refusedLocked(const std::string& fingerprint)
     member.state = MemberState::eLeft;
     renaming_.erase(fingerprint);
     saveLocked(member);
+    log::info("group: {}'s server refused delivery, so they left", log::redact(fingerprint));
 }
 
 void GroupEngine::flushReactions()
