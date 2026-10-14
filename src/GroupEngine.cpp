@@ -318,7 +318,11 @@ void GroupEngine::handleLocked(
             return;
         }
         actions.push_back([this, peer]() { link_.accept(peer); });
-        if (found != members_.end() && found->second.state != MemberState::eLeft) {
+        const auto asked = joinRequests_.find(peer);
+        const bool again = found != members_.end() && found->second.state != MemberState::eLeft
+            && (asked == joinRequests_.end() || asked->second == message.e2eId);
+        joinRequests_[peer] = message.e2eId;
+        if (again) {
             return;
         }
         if (found == members_.end() || found->second.name.empty()) {

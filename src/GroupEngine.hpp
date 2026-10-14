@@ -143,6 +143,7 @@ private:
     std::map<std::string, std::int64_t> retryAt_;
     std::map<std::string, bool> inFlight_;
     std::set<std::string> renaming_;
+    std::map<std::string, std::string> joinRequests_;
     std::vector<std::string> dirtyReactions_;
     std::int64_t memberCount_ = 0;
     std::int64_t countedAt_ = 0;

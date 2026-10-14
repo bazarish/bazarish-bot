@@ -247,6 +247,14 @@ int main()
         engine.onIncoming(incoming(ann, "contact.request"));
         CHECK(fake.accepted == std::vector<std::string>{ann});
         CHECK(fake.take("tell", ann).empty());
+        client::IncomingMessage readded = incoming(ann, "contact.request");
+        readded.e2eId = "a-new-request";
+        engine.onIncoming(readded);
+        const std::vector<Sent> rewelcomed = fake.take("tell", ann);
+        CHECK(rewelcomed.size() == 1);
+        CHECK(rewelcomed[0].text == std::string("Welcome, Ann.\n\n") + kHint);
+        engine.onIncoming(readded);
+        CHECK(fake.take("tell", ann).empty());
 
         engine.onIncoming(textFrom(bob, "again", "p1"));
         pump(engine);
