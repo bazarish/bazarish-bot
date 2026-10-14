@@ -23,7 +23,7 @@
 namespace bazarish::bot {
 
 inline constexpr std::int64_t kMemberCountPeriodMs = 60 * 60 * 1000;
-inline constexpr std::int64_t kReactionFlushMs = 30 * 1000;
+inline constexpr std::int64_t kMediaSweepMs = 30 * 1000;
 inline constexpr std::int64_t kRelayRetryMs = 60 * 1000;
 inline constexpr std::size_t kMaxRelaysInFlight = 16;
 
@@ -85,11 +85,12 @@ public:
     std::int64_t memberCount() const;
 
     void pumpOnce();
-    void flushReactions();
     void refreshMemberCount();
 
 private:
     using Actions = std::vector<std::function<void()>>;
+
+    void dropSpentMedia();
 
     struct Prefetched {
         std::optional<Bytes> media;
@@ -144,10 +145,9 @@ private:
     std::map<std::string, bool> inFlight_;
     std::set<std::string> renaming_;
     std::map<std::string, std::string> joinRequests_;
-    std::vector<std::string> dirtyReactions_;
     std::int64_t memberCount_ = 0;
     std::int64_t countedAt_ = 0;
-    std::int64_t flushedAt_ = 0;
+    std::int64_t sweptAt_ = 0;
 
     mutable std::mutex mutex_;
     std::condition_variable wake_;

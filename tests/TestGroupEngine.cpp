@@ -281,14 +281,17 @@ int main()
         reaction.refId = "p1";
         reaction.text = "+";
         engine.onIncoming(reaction);
-        engine.flushReactions();
+        reaction.fromFingerprint = ann;
+        engine.onIncoming(reaction);
         pump(engine);
         const std::vector<Sent> annCounts = fake.take("reactions", ann);
         CHECK(annCounts.size() == 1);
+        CHECK(annCounts[0].reactions.size() == 1);
         CHECK(annCounts[0].reactions.at(0).at("counts").at("+") == 1);
         const std::vector<Sent> bobCounts = fake.take("reactions", bob);
         CHECK(bobCounts.size() == 1);
-        CHECK(bobCounts[0].reactions.at(0).at("counts").empty());
+        CHECK(bobCounts[0].reactions.size() == 1);
+        CHECK(bobCounts[0].reactions.at(0).at("counts").at("+") == 1);
 
         engine.onIncoming(textFrom(bob, "second", "p2"));
         pump(engine);
@@ -346,7 +349,7 @@ int main()
         CHECK(asked.size() == 1);
         CHECK(asked[0].text.find("Ann asks you to write.") == 0);
         CHECK(asked[0].text.find("bazarish://") != std::string::npos);
-        CHECK(fake.take("tell", ann).back().text == "Sent.");
+        CHECK(fake.take("tell", ann).back().text == "Your contact request was sent to Bob.");
         engine.onIncoming(commandFrom(ann, "contact", "p2"));
         CHECK(fake.take("tell", bob).empty());
 

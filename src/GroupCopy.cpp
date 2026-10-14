@@ -32,7 +32,7 @@ const Entry kEntries[] = {
     {Copy::eAllowed, {"%1: allowed.", "%1: одобрено.", "%1: aceptado.", "%1：已批准。", "⁦%1⁩: تمت الموافقة."}},
     {Copy::eDeclinedCard, {"%1: declined.", "%1: отклонено.", "%1: rechazado.", "%1：已拒绝。", "⁦%1⁩: تم الرفض."}},
     {Copy::eAsksYou, {"%1 asks you to write.\n%2", "%1 просит написать лично.\n%2", "%1 te pide que le escribas.\n%2", "%1 请你私下写信。\n%2", "⁦%1⁩ يطلب أن تراسله مباشرة.\n⁦%2⁩"}},
-    {Copy::eContactSent, {"Sent.", "Отправлено.", "Enviado.", "已发送。", "أُرسل."}},
+    {Copy::eContactSent, {"Your contact request was sent to %1.", "Ваш запрос в контакты отправлен: %1.", "Tu solicitud de contacto se envió a %1.", "你的联系请求已发送给 %1。", "أُرسل طلب التواصل إلى ⁦%1⁩."}},
     {Copy::eAdminGranted, {"You are an admin now.", "Теперь вы админ.", "Ahora tienes rol de administrador.", "你现在是管理员。", "أصبحت مشرفًا."}},
     {Copy::eAdminRevoked, {"You are no longer an admin.", "Вы больше не админ.", "Ya no tienes rol de administrador.", "你不再是管理员。", "لم تعد مشرفًا."}},
     {Copy::ePostingClosed, {"Only admins post here.", "Писать здесь могут только админы.", "Aquí solo publican los administradores.", "这里只有管理员可以发言。", "النشر هنا للمشرفين فقط."}},

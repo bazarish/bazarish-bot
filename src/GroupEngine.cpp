@@ -78,7 +78,7 @@ GroupEngine::GroupEngine(const std::filesystem::path& file, const std::string& p
     }
     const std::int64_t now = clock_();
     countedAt_ = now;
-    flushedAt_ = now;
+    sweptAt_ = now;
     memberCount_ = static_cast<std::int64_t>(std::count_if(members_.begin(), members_.end(),
         [](const auto& entry) { return entry.second.state == MemberState::eMember; }));
 }
@@ -120,7 +120,7 @@ void GroupEngine::loop()
 {
     while (true) {
         bool countDue = false;
-        bool flushDue = false;
+        bool sweepDue = false;
         {
             const std::lock_guard<std::mutex> lock(mutex_);
             if (stopping_) {
@@ -128,13 +128,13 @@ void GroupEngine::loop()
             }
             const std::int64_t now = clock_();
             countDue = now - countedAt_ >= kMemberCountPeriodMs;
-            flushDue = now - flushedAt_ >= kReactionFlushMs;
+            sweepDue = now - sweptAt_ >= kMediaSweepMs;
         }
         if (countDue) {
             refreshMemberCount();
         }
-        if (flushDue) {
-            flushReactions();
+        if (sweepDue) {
+            dropSpentMedia();
         }
         pumpOnce();
         std::unique_lock<std::mutex> lock(mutex_);
@@ -416,10 +416,7 @@ void GroupEngine::handleLocked(
         const std::optional<Post> post = store_.post(message.refId);
         if (post && !post->deleted) {
             store_.setReaction(post->id, peer, message.text);
-            if (std::find(dirtyReactions_.begin(), dirtyReactions_.end(), post->id)
-                == dirtyReactions_.end()) {
-                dirtyReactions_.push_back(post->id);
-            }
+            (void)store_.appendLog(LogKind::eReactions, post->id);
         }
         return;
     }
@@ -602,7 +599,7 @@ void GroupEngine::commandLocked(Member& member, const std::string& line, Actions
                 {requester.name, chatDescriptor(requester)});
             (void)link_.tell(author, words, {}, watchRefusal(author));
         });
-        tellLocked(member.fingerprint, Copy::eContactSent, {}, actions);
+        tellLocked(member.fingerprint, Copy::eContactSent, {author->second.name}, actions);
         return;
     }
     if ((command == "exclude" || command == "block") && member.admin) {
@@ -778,12 +775,13 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
 
     const std::vector<LogEntry> entries = store_.logAfter(member.cursor, kLogBatch);
     nlohmann::json reactions = nlohmann::json::array();
+    std::set<std::string> counted;
     std::int64_t reactionsSeq = 0;
     for (const LogEntry& entry : entries) {
         const std::optional<Post> post = store_.post(entry.postId);
         const bool behind = !post || post->seq <= member.historyFrom;
         if (entry.kind == LogKind::eReactions) {
-            if (!behind && !post->deleted) {
+            if (!behind && !post->deleted && counted.insert(post->id).second) {
                 const std::map<std::string, std::int64_t> counts
                     = store_.reactionCounts(post->id, peer);
                 reactions.push_back({{"ref", post->id}, {"counts", counts}});
@@ -901,24 +899,17 @@ void GroupEngine::refusedLocked(const std::string& fingerprint)
     log::info("group: {}'s server refused delivery, so they left", log::redact(fingerprint));
 }
 
-void GroupEngine::flushReactions()
+void GroupEngine::dropSpentMedia()
 {
-    {
-        const std::lock_guard<std::mutex> lock(mutex_);
-        for (const std::string& id : dirtyReactions_) {
-            (void)store_.appendLog(LogKind::eReactions, id);
+    const std::lock_guard<std::mutex> lock(mutex_);
+    sweptAt_ = clock_();
+    std::int64_t oldest = store_.seqBeforeLastPosts(config_.historySize);
+    for (const auto& [fingerprint, member] : members_) {
+        if (member.state == MemberState::eMember) {
+            oldest = std::min(oldest, member.cursor);
         }
-        dirtyReactions_.clear();
-        flushedAt_ = clock_();
-        std::int64_t oldest = store_.seqBeforeLastPosts(config_.historySize);
-        for (const auto& [fingerprint, member] : members_) {
-            if (member.state == MemberState::eMember) {
-                oldest = std::min(oldest, member.cursor);
-            }
-        }
-        store_.dropMediaBefore(oldest);
     }
-    nudge();
+    store_.dropMediaBefore(oldest);
 }
 
 void GroupEngine::refreshMemberCount()

@@ -44,7 +44,7 @@ a database of its own, `groups/<id>.db`, encrypted like the transcripts and
 apart from them: a post is relayed under its author's id to everyone, which the
 transcript's one-id-one-row rule would not hold.
 
-- **Relaying is a log.** Every post, edit, delete and batch of reaction counts
+- **Relaying is a log.** Every post, edit, delete and change of reaction counts
   is a row; every member has a cursor into it. A pump sends each member the next
   row once the previous one is stored, so a post always arrives before its edit,
   and the log survives a restart: a post to a thousand members that takes an

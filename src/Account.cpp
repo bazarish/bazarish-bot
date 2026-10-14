@@ -352,9 +352,12 @@ Settings::AccountKind Account::kind() const
 
 void Account::applyKind(client::Session& session) const
 {
-    session.setOutboundAddressing(settings_.kind(id_) == Settings::AccountKind::eGroup
-            ? client::OutboundAddressing::eOneForAll
-            : client::OutboundAddressing::eOnePerCorrespondent);
+    const bool group = settings_.kind(id_) == Settings::AccountKind::eGroup;
+    session.setOutboundAddressing(group ? client::OutboundAddressing::eOneForAll
+                                        : client::OutboundAddressing::eOnePerCorrespondent);
+    if (group) {
+        session.setDeliveryWorkers(kMaxRelaysInFlight + client::kDeliveryWorkers);
+    }
 }
 
 Bytes Account::exportBundle(const std::string& bundlePassphrase)
