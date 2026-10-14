@@ -202,7 +202,9 @@ void GroupEngine::tellLocked(const std::string& peer, const Copy key,
 void GroupEngine::sayLocked(const std::string& peer, const std::string& words, Actions& actions,
     const client::InlineKeyboard& keyboard)
 {
-    actions.push_back([this, peer, words, keyboard]() { (void)link_.tell(peer, words, keyboard); });
+    actions.push_back([this, peer, words, keyboard]() {
+        (void)link_.tell(peer, words, keyboard, watchRefusal(peer));
+    });
 }
 
 void GroupEngine::askNameLocked(const std::string& peer, Actions& actions)
@@ -462,7 +464,7 @@ void GroupEngine::joinLocked(Member& member, Actions& actions)
         actions.push_back([this, admin = fingerprint, applicant = member, number, keyboard]() {
             const std::string card = copyText(config().language, Copy::eWantsToJoin,
                 {applicant.name, chatDescriptor(applicant)});
-            const std::string id = link_.tell(admin, card, keyboard);
+            const std::string id = link_.tell(admin, card, keyboard, watchRefusal(admin));
             const std::lock_guard<std::mutex> lock(mutex_);
             store_.addCard(number, admin, id);
         });
@@ -480,7 +482,7 @@ void GroupEngine::admitLocked(Member& member, Actions& actions)
     saveLocked(member);
     actions.push_back([this, peer = member.fingerprint, words = welcomeTextLocked(member),
                           keyboard = settingsButtonLocked()]() {
-        const std::string id = link_.tell(peer, words, keyboard);
+        const std::string id = link_.tell(peer, words, keyboard, watchRefusal(peer));
         const std::lock_guard<std::mutex> lock(mutex_);
         const auto found = members_.find(peer);
         if (found != members_.end()) {
@@ -591,7 +593,7 @@ void GroupEngine::commandLocked(Member& member, const std::string& line, Actions
         actions.push_back([this, author = post->author, requester = member]() {
             const std::string words = copyText(config().language, Copy::eAsksYou,
                 {requester.name, chatDescriptor(requester)});
-            (void)link_.tell(author, words, {});
+            (void)link_.tell(author, words, {}, watchRefusal(author));
         });
         tellLocked(member.fingerprint, Copy::eContactSent, {}, actions);
         return;
@@ -852,12 +854,34 @@ void GroupEngine::deliveredLocked(const std::string& fingerprint, const std::int
         return;
     }
     if (outcome.errorCode == kDeliveryRejected) {
-        member.state = MemberState::eLeft;
-        renaming_.erase(fingerprint);
-        saveLocked(member);
+        refusedLocked(fingerprint);
         return;
     }
     retryAt_[fingerprint] = clock_() + kRelayRetryMs;
+}
+
+GroupLink::Outcome GroupEngine::watchRefusal(const std::string& peer)
+{
+    return [this, peer](const client::OutboundCourier::Outcome& outcome) {
+        if (outcome.errorCode != kDeliveryRejected) {
+            return;
+        }
+        const std::lock_guard<std::mutex> lock(mutex_);
+        refusedLocked(peer);
+    };
+}
+
+void GroupEngine::refusedLocked(const std::string& fingerprint)
+{
+    const auto found = members_.find(fingerprint);
+    if (found == members_.end() || found->second.state == MemberState::eLeft
+        || found->second.state == MemberState::eBanned) {
+        return;
+    }
+    Member member = found->second;
+    member.state = MemberState::eLeft;
+    renaming_.erase(fingerprint);
+    saveLocked(member);
 }
 
 void GroupEngine::flushReactions()
@@ -919,7 +943,8 @@ void GroupEngine::setConfig(const GroupConfig& config)
         if (kindChanged) {
             for (const auto& [fingerprint, member] : members_) {
                 if (member.state == MemberState::eMember && !member.admin) {
-                    actions.push_back([this, peer = fingerprint]() { link_.state(peer); });
+                    actions.push_back(
+                        [this, peer = fingerprint]() { link_.state(peer, watchRefusal(peer)); });
                 }
             }
         }

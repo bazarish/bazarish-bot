@@ -79,9 +79,10 @@ GroupLink linkFor(Fake& fake)
     GroupLink link;
     link.accept = [&fake](const std::string& peer) { fake.accepted.push_back(peer); };
     link.tell = [&fake](const std::string& peer, const std::string& text,
-                    const client::InlineKeyboard& keyboard) {
+                    const client::InlineKeyboard& keyboard, const GroupLink::Outcome& done) {
         const std::string id = "told-" + std::to_string(++fake.told);
         fake.sent.push_back({"tell", peer, id, text, {}, keyboard, {}});
+        done(fake.outcomeFor(peer));
         return id;
     };
     link.retell = [&fake](const std::string& peer, const std::string& id, const std::string& text,
@@ -108,7 +109,10 @@ GroupLink linkFor(Fake& fake)
         fake.sent.push_back({"reactions", peer, {}, {}, {}, {}, reactions});
         done(fake.outcomeFor(peer));
     };
-    link.state = [&fake](const std::string& peer) { fake.states.push_back(peer); };
+    link.state = [&fake](const std::string& peer, const GroupLink::Outcome& done) {
+        fake.states.push_back(peer);
+        done(fake.outcomeFor(peer));
+    };
     link.receipt = [&fake](const std::string& peer, const std::string& id) {
         fake.sent.push_back({"receipt", peer, id, {}, {}, {}, {}});
     };
@@ -404,6 +408,10 @@ int main()
         CHECK(state(eve) == MemberState::eLeft);
         engine.onIncoming(incoming(eve, "contact.request"));
         CHECK(state(eve) == MemberState::ePending);
+        fake.refuse[eve] = "DELIVERY_REJECTED";
+        engine.onIncoming(textFrom(eve, "anyone?", "p-eve"));
+        CHECK(state(eve) == MemberState::eLeft);
+        fake.refuse.clear();
 
         client::IncomingMessage rename = incoming(ann, "bot.callback");
         rename.callbackData = "rename";

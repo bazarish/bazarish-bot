@@ -268,14 +268,14 @@ GroupLink Account::groupLink()
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         openSession().acceptContactRequest(peer);
     };
-    link.tell = [this](const std::string& peer, const std::string& text,
-                    const client::InlineKeyboard& keyboard) {
+    link.tell = [this, watching](const std::string& peer, const std::string& text,
+                    const client::InlineKeyboard& keyboard, GroupLink::Outcome done) {
         const std::string id = freshMessageId();
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         if (keyboard.empty()) {
-            (void)openSession().sendMessage(peer, text, id);
+            (void)openSession().sendMessage(peer, text, id, watching(std::move(done)));
         } else {
-            openSession().sendInteractive(peer, text, keyboard, id);
+            openSession().sendInteractive(peer, text, keyboard, id, watching(std::move(done)));
         }
         return id;
     };
@@ -308,9 +308,9 @@ GroupLink Account::groupLink()
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         openSession().sendReceipt(peer, messageId);
     };
-    link.state = [this](const std::string& peer) {
+    link.state = [this, watching](const std::string& peer, GroupLink::Outcome done) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
-        openSession().sendGroupState(peer);
+        openSession().sendGroupState(peer, watching(std::move(done)));
     };
     link.descriptor = [this](const std::string& peer) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);

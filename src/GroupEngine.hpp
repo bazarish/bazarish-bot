@@ -32,7 +32,7 @@ struct GroupLink {
 
     std::function<void(const std::string& peer)> accept;
     std::function<std::string(const std::string& peer, const std::string& text,
-        const client::InlineKeyboard& keyboard)>
+        const client::InlineKeyboard& keyboard, Outcome done)>
         tell;
     std::function<void(const std::string& peer, const std::string& messageId,
         const std::string& text, const client::InlineKeyboard& keyboard)>
@@ -45,7 +45,7 @@ struct GroupLink {
     std::function<void(const std::string& peer, const std::string& ref, Outcome done)> remove;
     std::function<void(const std::string& peer, const nlohmann::json& reactions, Outcome done)>
         reactions;
-    std::function<void(const std::string& peer)> state;
+    std::function<void(const std::string& peer, Outcome done)> state;
     std::function<void(const std::string& peer, const std::string& messageId)> receipt;
     std::function<std::string(const std::string& peer)> descriptor;
     std::function<void(const std::string& peer)> forget;
@@ -128,6 +128,8 @@ private:
     void stateChangedLocked(const std::string& fingerprint, Actions& actions);
     void deliveredLocked(const std::string& fingerprint, std::int64_t seq,
         const client::OutboundCourier::Outcome& outcome);
+    GroupLink::Outcome watchRefusal(const std::string& peer);
+    void refusedLocked(const std::string& fingerprint);
     std::optional<std::function<void()>> nextRelayLocked(Member& member);
     void run(Actions& actions);
     void nudge();
