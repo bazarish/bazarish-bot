@@ -12,6 +12,8 @@ let names = {};
 let lastEventId = 0;
 let watched = null;
 let editing = null;
+let chatDraws = 0;
+let threadDraws = 0;
 let polling = 0;
 
 const kReactions = ["\u{1F44D}", "❤️", "\u{1F602}", "\u{1F389}", "\u{1F440}", "✅"];
@@ -557,7 +559,11 @@ async function drawChats() {
     if (!list) {
         return;
     }
+    const draw = ++chatDraws;
     const chats = await call("GET", base() + "/chats");
+    if (draw !== chatDraws) {
+        return;
+    }
     list.textContent = "";
     if (chats.length === 0) {
         list.append(node("p", "empty", t("No conversations yet.")));
@@ -589,33 +595,42 @@ async function drawThread() {
     if (!thread) {
         return;
     }
-    const typed = thread.querySelector(".composer .field");
-    const draft = typed && typed.dataset.peer === peer ? typed.value : "";
-    thread.textContent = "";
+    const draw = ++threadDraws;
     if (!peer) {
-        thread.append(node("p", "empty", t("Pick a conversation.")));
+        thread.replaceChildren(node("p", "empty", t("Pick a conversation.")));
         return;
     }
-
-    const head = node("div", "thread-head");
-    head.append(node("span", null, nameOf(peer)));
-    thread.append(head);
-
+    const shown = peer;
+    const lines = await call("GET", base() + "/messages?peer=" + encodeURIComponent(shown) + "&limit=100");
+    if (draw !== threadDraws) {
+        return;
+    }
     const log = node("div", "log");
-    const lines = await call("GET", base() + "/messages?peer=" + encodeURIComponent(peer) + "&limit=100");
     for (const line of lines.slice().reverse()) {
         log.append(lineNode(line));
     }
-    thread.append(log);
+    const composer = thread.querySelector(".composer");
+    if (composer && composer.dataset.peer === shown) {
+        thread.querySelector(".log").replaceWith(log);
+    } else {
+        const head = node("div", "thread-head");
+        head.append(node("span", null, nameOf(shown)));
+        editing = null;
+        const fresh = composerFor(shown);
+        thread.replaceChildren(head, log, fresh);
+        fresh.querySelector(".field").focus();
+    }
+    log.scrollTop = log.scrollHeight;
+}
 
+function composerFor(chatPeer) {
     const composer = node("form", "composer");
+    composer.dataset.peer = chatPeer;
     const field = node("input", "field");
     field.type = "text";
-    field.placeholder = editing ? t("Edit the message") : t("Write a message");
+    field.placeholder = t("Write a message");
     field.autocomplete = "off";
-    field.value = editing ? editing.text : draft;
-    field.dataset.peer = peer;
-    const send = node("button", "btn", editing ? t("Save") : t("Send"));
+    const send = node("button", "btn", t("Send"));
     send.type = "submit";
     composer.append(field, send);
     composer.onsubmit = async (event) => {
@@ -624,19 +639,26 @@ async function drawThread() {
         if (!text) {
             return;
         }
-        field.value = "";
-        if (editing) {
-            const target = editing;
-            editing = null;
-            await call("POST", base() + "/messages/" + target.messageId, {peer, text});
+        const target = editing;
+        setEditing(null);
+        if (target) {
+            await call("POST", base() + "/messages/" + target.messageId, {peer: chatPeer, text});
         } else {
-            await call("POST", base() + "/messages", {peer, text});
+            await call("POST", base() + "/messages", {peer: chatPeer, text});
         }
         await drawThread();
         await drawChats();
     };
-    thread.append(composer);
-    log.scrollTop = log.scrollHeight;
+    return composer;
+}
+
+function setEditing(line) {
+    editing = line;
+    const composer = el("thread").querySelector(".composer");
+    const field = composer.querySelector(".field");
+    field.placeholder = line ? t("Edit the message") : t("Write a message");
+    field.value = line ? line.text : "";
+    composer.querySelector(".btn").textContent = line ? t("Save") : t("Send");
     field.focus();
 }
 
@@ -724,7 +746,7 @@ function toolsFor(line) {
     if (line.outgoing && line.type === "text") {
         const edit = node("button", "line-tool", t("edit"));
         edit.type = "button";
-        edit.onclick = () => { editing = line; drawThread(); };
+        edit.onclick = () => setEditing(line);
         const drop = node("button", "line-tool", t("delete"));
         drop.type = "button";
         drop.onclick = async () => {
