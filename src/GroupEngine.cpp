@@ -633,7 +633,8 @@ void GroupEngine::renameLocked(
         tellLocked(member.fingerprint, Copy::eAskNewName, {}, actions);
         return;
     }
-    const std::optional<NameCheck> check = freeNameLocked(member.fingerprint, message.text, actions);
+    const std::optional<NameCheck> check
+        = freeNameLocked(member.fingerprint, message.text, actions);
     if (!check) {
         return;
     }
