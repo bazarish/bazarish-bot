@@ -29,7 +29,7 @@ namespace {
 
 constexpr const char* kDest = "dlkbeyqjykssca6o7qlbwgq4fr2hry7kw2ursn2sh3lt3acox6gq.b32.i2p";
 constexpr int kPumpRounds = 8;
-constexpr const char* kHint = "Bring this up again with /settings.";
+constexpr const char* kHint = "Bring this up again with !!/settings!!.";
 
 struct Sent {
     std::string kind;
@@ -204,8 +204,8 @@ int main()
             CHECK(retold[0].id == welcome[0].id);
             CHECK(retold[0].text == welcome[0].text);
             CHECK(retold[0].keyboard.size() == 2);
-            CHECK(retold[0].keyboard.at(0).at(0).data == "leave");
-            return retold[0].keyboard.at(1).at(0).data;
+            CHECK(retold[0].keyboard.at(1).at(0).data == "rename");
+            return retold[0].keyboard.at(0).at(0).data;
         };
         CHECK(press("settings") == "contactable off");
         CHECK(press("contactable off") == "contactable on");
@@ -302,8 +302,8 @@ int main()
         CHECK(fake.take("tell", bob).back().text == "Only admins post here.");
         const std::string hal = member();
         join(engine, hal, "Hal");
-        CHECK(fake.take("tell", hal).back().text == "Welcome, Hal.");
-        engine.onIncoming(commandFrom(hal, "leave", {}));
+        CHECK(fake.take("tell", hal).back().text == std::string("Welcome, Hal.\n\n") + kHint);
+        engine.exclude(hal);
         engine.setAdmin(bob, true);
         CHECK(engine.blockFor(bob).admin);
         CHECK(engine.blockFor(bob).write);
@@ -392,25 +392,48 @@ int main()
             }
             return MemberState::eNaming;
         };
-        CHECK(state(dan) == MemberState::eGone);
+        CHECK(state(dan) == MemberState::eLeft);
+        CHECK(engine.blockFor(dan).write);
         fake.refuse.clear();
         engine.onIncoming(textFrom(dan, "back again", "p7"));
-        CHECK(state(dan) == MemberState::eMember);
-        pump(engine);
-        CHECK(fake.take("relay", ann).size() == 1);
+        CHECK(state(dan) == MemberState::ePending);
 
-        engine.onIncoming(commandFrom(eve, "leave", {}));
+        engine.exclude(eve);
         CHECK(state(eve) == MemberState::eLeft);
         engine.onIncoming(incoming(eve, "receipt"));
         CHECK(state(eve) == MemberState::eLeft);
         engine.onIncoming(incoming(eve, "contact.request"));
         CHECK(state(eve) == MemberState::ePending);
+
+        client::IncomingMessage rename = incoming(ann, "bot.callback");
+        rename.callbackData = "rename";
+        engine.onIncoming(rename);
+        CHECK(fake.take("tell", ann).back().text == "Send your new name.");
+        engine.onIncoming(textFrom(ann, "/settings", "p-settings-2"));
+        CHECK(fake.take("tell", ann).back().text == kHint);
+        engine.onIncoming(textFrom(ann, "Anna", "p-anna"));
+        CHECK(fake.take("tell", ann).back().text == "Your name is now Anna.");
+        engine.onIncoming(textFrom(ann, "after", "p-after"));
+        CHECK(fake.take("tell", ann).empty());
+        engine.onIncoming(rename);
+        engine.onIncoming(textFrom(ann, "Ann", "p-ann-again"));
+        CHECK(fake.take("tell", ann).back().text == "Your name is now Ann.");
+        engine.onIncoming(rename);
+        CHECK(fake.take("tell", ann).size() == 1);
+        engine.onIncoming(textFrom(ann, "Bob", "p-bob"));
+        const std::vector<Sent> refused = fake.take("tell", ann);
+        CHECK(refused.size() == 1);
+        CHECK(refused[0].text == "That name is taken. Choose another.");
+        engine.onIncoming(textFrom(ann, "Ann", "p-ann-third"));
+        const std::vector<Sent> renamed = fake.take("tell", ann);
+        CHECK(renamed.size() == 1);
+        CHECK(renamed[0].text == "Your name is now Ann.");
     }
 
     {
         GroupEngine engine(dir / "group.db", {}, linkFor(fake), [&now]() { return now; });
         CHECK(engine.config().joinMode == JoinMode::eApproval);
-        CHECK(engine.memberCount() == 5);
+        CHECK(engine.memberCount() == 4);
 
         GroupConfig custom = engine.config();
         custom.joinMode = JoinMode::eOpen;

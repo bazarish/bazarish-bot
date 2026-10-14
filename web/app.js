@@ -56,7 +56,6 @@ const kStateLabels = {
     naming: N_("choosing a name"),
     pending: N_("waiting"),
     member: N_("member"),
-    gone: N_("unreachable"),
     left: N_("left"),
     banned: N_("blocked"),
 };
@@ -1571,7 +1570,7 @@ function inFilter(member, filter) {
         return member.admin;
     }
     if (filter === "left") {
-        return member.state === "left" || member.state === "gone";
+        return member.state === "left";
     }
     return member.state === filter;
 }

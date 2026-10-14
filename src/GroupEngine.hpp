@@ -3,6 +3,7 @@
 
 #include "GroupCopy.hpp"
 #include "GroupStore.hpp"
+#include "NameRules.hpp"
 
 #include <Session.hpp>
 
@@ -14,6 +15,7 @@
 #include <map>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -103,6 +105,9 @@ private:
     void postLocked(Member& member, const client::IncomingMessage& message,
         const Prefetched& prefetched, Actions& actions);
     void commandLocked(Member& member, const std::string& line, Actions& actions);
+    void renameLocked(Member& member, const client::IncomingMessage& message, Actions& actions);
+    std::optional<NameCheck> freeNameLocked(
+        const std::string& peer, const std::string& wanted, Actions& actions);
     void excludeLocked(const std::string& fingerprint, Actions& actions);
     void blockLocked(const std::string& fingerprint, Actions& actions);
     void deletePostLocked(const std::string& id);
@@ -135,6 +140,7 @@ private:
     std::map<std::string, Member> members_;
     std::map<std::string, std::int64_t> retryAt_;
     std::map<std::string, bool> inFlight_;
+    std::set<std::string> renaming_;
     std::vector<std::string> dirtyReactions_;
     std::int64_t memberCount_ = 0;
     std::int64_t countedAt_ = 0;

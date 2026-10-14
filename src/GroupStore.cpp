@@ -24,7 +24,6 @@ constexpr Named kStateNames[] = {
     {MemberState::eNaming, "naming"},
     {MemberState::ePending, "pending"},
     {MemberState::eMember, "member"},
-    {MemberState::eGone, "gone"},
     {MemberState::eLeft, "left"},
     {MemberState::eBanned, "banned"},
 };

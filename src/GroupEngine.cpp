@@ -27,6 +27,7 @@ constexpr const char* kDecline = "decline:";
 constexpr const char* kSettingsCommand = "settings";
 constexpr const char* kSettingsTyped = "/settings";
 constexpr const char* kContactableCommand = "contactable";
+constexpr const char* kRenameCommand = "rename";
 constexpr const char* kNameToken = "{name}";
 constexpr const char* kParagraph = "\n\n";
 constexpr std::size_t kMaxGroupTextBytes = 1024;
@@ -167,7 +168,7 @@ void GroupEngine::saveLocked(const Member& member)
 
 bool GroupEngine::writesLocked(const Member& member) const
 {
-    if (member.state == MemberState::eNaming) {
+    if (member.state == MemberState::eNaming || member.state == MemberState::eLeft) {
         return true;
     }
     if (member.state != MemberState::eMember) {
@@ -220,9 +221,6 @@ std::string GroupEngine::welcomeTextLocked(const Member& member) const
          at = welcome.find(token, at + member.name.size())) {
         welcome.replace(at, token.size(), member.name);
     }
-    if (!writesLocked(member)) {
-        return welcome;
-    }
     return welcome + kParagraph + text(Copy::eSettingsHint);
 }
 
@@ -255,8 +253,8 @@ client::InlineKeyboard GroupEngine::settingsKeyboardLocked(const Member& member)
     const Copy toggle = member.contactable ? Copy::eButtonContactOff : Copy::eButtonContactOn;
     const std::string contactable = kContactableCommand;
     return {
-        {{text(Copy::eButtonLeave), "leave", {}}},
         {{text(toggle), contactable + (member.contactable ? " off" : " on"), {}}},
+        {{text(Copy::eButtonRename), kRenameCommand, {}}},
     };
 }
 
@@ -358,20 +356,12 @@ void GroupEngine::handleLocked(
             askNameLocked(peer, actions);
             return;
         }
-        const NameCheck check = checkName(message.text);
-        if (!check.allowed) {
-            tellLocked(peer, Copy::eNameRefused, {}, actions);
+        const std::optional<NameCheck> check = freeNameLocked(peer, message.text, actions);
+        if (!check) {
             return;
         }
-        const bool taken = std::any_of(members_.begin(), members_.end(), [&](const auto& entry) {
-            return entry.first != peer && entry.second.nameKey == check.key;
-        });
-        if (taken) {
-            tellLocked(peer, Copy::eNameTaken, {}, actions);
-            return;
-        }
-        member.name = check.name;
-        member.nameKey = check.key;
+        member.name = check->name;
+        member.nameKey = check->key;
         joinLocked(member, actions);
         return;
     }
@@ -380,16 +370,16 @@ void GroupEngine::handleLocked(
             tellLocked(peer, Copy::eAwaitingApproval, {}, actions);
         }
         return;
-    case MemberState::eGone:
-        member.state = MemberState::eMember;
-        saveLocked(member);
-        break;
     case MemberState::eMember:
         break;
     }
 
     if (message.contentType == kTypeText && trimmed(message.text) == kSettingsTyped) {
         offerSettingsLocked(member, actions);
+        return;
+    }
+    if (isPost(message.contentType) && renaming_.count(peer) != 0) {
+        renameLocked(member, message, actions);
         return;
     }
     if (isPost(message.contentType)) {
@@ -570,10 +560,9 @@ void GroupEngine::postLocked(Member& member, const client::IncomingMessage& mess
 void GroupEngine::commandLocked(Member& member, const std::string& line, Actions& actions)
 {
     const auto [command, argument] = splitCommand(line);
-    if (command == "leave") {
-        member.state = MemberState::eLeft;
-        saveLocked(member);
-        tellLocked(member.fingerprint, Copy::eLeft, {}, actions);
+    if (command == kRenameCommand) {
+        renaming_.insert(member.fingerprint);
+        tellLocked(member.fingerprint, Copy::eAskNewName, {}, actions);
         return;
     }
     if (command == kContactableCommand) {
@@ -628,6 +617,42 @@ void GroupEngine::commandLocked(Member& member, const std::string& line, Actions
     }
 }
 
+void GroupEngine::renameLocked(
+    Member& member, const client::IncomingMessage& message, Actions& actions)
+{
+    if (message.contentType != kTypeText) {
+        tellLocked(member.fingerprint, Copy::eAskNewName, {}, actions);
+        return;
+    }
+    const std::optional<NameCheck> check = freeNameLocked(member.fingerprint, message.text, actions);
+    if (!check) {
+        return;
+    }
+    renaming_.erase(member.fingerprint);
+    member.name = check->name;
+    member.nameKey = check->key;
+    saveLocked(member);
+    tellLocked(member.fingerprint, Copy::eRenamed, {member.name}, actions);
+}
+
+std::optional<NameCheck> GroupEngine::freeNameLocked(
+    const std::string& peer, const std::string& wanted, Actions& actions)
+{
+    const NameCheck check = checkName(wanted);
+    if (!check.allowed) {
+        tellLocked(peer, Copy::eNameRefused, {}, actions);
+        return std::nullopt;
+    }
+    const bool taken = std::any_of(members_.begin(), members_.end(), [&](const auto& entry) {
+        return entry.first != peer && entry.second.nameKey == check.key;
+    });
+    if (taken) {
+        tellLocked(peer, Copy::eNameTaken, {}, actions);
+        return std::nullopt;
+    }
+    return check;
+}
+
 void GroupEngine::excludeLocked(const std::string& fingerprint, Actions& actions)
 {
     const auto found = members_.find(fingerprint);
@@ -638,6 +663,7 @@ void GroupEngine::excludeLocked(const std::string& fingerprint, Actions& actions
     Member member = found->second;
     member.state = MemberState::eLeft;
     member.admin = false;
+    renaming_.erase(fingerprint);
     saveLocked(member);
     if (const std::optional<JoinRequest> request = store_.requestOf(fingerprint)) {
         store_.removeRequest(request->number);
@@ -654,6 +680,7 @@ void GroupEngine::blockLocked(const std::string& fingerprint, Actions& actions)
     Member member = found->second;
     member.state = MemberState::eBanned;
     member.admin = false;
+    renaming_.erase(fingerprint);
     saveLocked(member);
     if (const std::optional<JoinRequest> request = store_.requestOf(fingerprint)) {
         store_.removeRequest(request->number);
@@ -825,7 +852,8 @@ void GroupEngine::deliveredLocked(const std::string& fingerprint, const std::int
         return;
     }
     if (outcome.errorCode == kDeliveryRejected) {
-        member.state = MemberState::eGone;
+        member.state = MemberState::eLeft;
+        renaming_.erase(fingerprint);
         saveLocked(member);
         return;
     }

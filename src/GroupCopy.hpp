@@ -14,7 +14,6 @@ enum class Copy {
     eWelcome,
     eDeclined,
     eExcluded,
-    eLeft,
     eWantsToJoin,
     eAllowedBy,
     eDeclinedBy,
@@ -28,11 +27,13 @@ enum class Copy {
     eTooLarge,
     eButtonAllow,
     eButtonDecline,
-    eButtonLeave,
     eButtonContactOn,
     eButtonContactOff,
     eButtonSettings,
     eSettingsHint,
+    eButtonRename,
+    eAskNewName,
+    eRenamed,
     eBlocked,
 };
 

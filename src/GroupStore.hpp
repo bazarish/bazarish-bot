@@ -28,7 +28,6 @@ enum class MemberState {
     eNaming,
     ePending,
     eMember,
-    eGone,
     eLeft,
     eBanned,
 };

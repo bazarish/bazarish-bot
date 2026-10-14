@@ -49,13 +49,13 @@ transcript's one-id-one-row rule would not hold.
   row once the previous one is stored, so a post always arrives before its edit,
   and the log survives a restart: a post to a thousand members that takes an
   hour is not lost by stopping halfway. A refusal from the member's server
-  (`DELIVERY_REJECTED`) marks the member gone, keeping the name and the cursor;
-  anything else is tried again a minute later.
+  (`DELIVERY_REJECTED`) means the member left: the name stays theirs and the
+  pump stops; anything else is tried again a minute later.
 - **History is a cursor.** A newcomer's cursor starts N posts back, so the last
   N arrive as ordinary relays, built from each post's current state.
 - **Names** are checked with ICU: case folding, NFKC, and the UTS #39 confusable
-  skeleton as the uniqueness key, with names mixing scripts refused. A name is
-  never freed.
+  skeleton as the uniqueness key, with names mixing scripts refused. A name
+  stays with its member until they change it from Settings.
 - **Locks.** The block is filled in under the account's session lock, so the
   order is the session first, then the engine, never the reverse: the engine
   decides under its own lock and sends after releasing it.
