@@ -140,7 +140,8 @@ GroupStore::GroupStore(const std::filesystem::path& file, const std::string& pas
 {
     database_.run("CREATE TABLE IF NOT EXISTS config (row INTEGER PRIMARY KEY, kind TEXT NOT NULL,"
                   " joinMode TEXT NOT NULL, historySize INTEGER NOT NULL,"
-                  " contactRequests INTEGER NOT NULL, language TEXT NOT NULL)");
+                  " contactRequests INTEGER NOT NULL, language TEXT NOT NULL,"
+                  " greeting TEXT NOT NULL, welcome TEXT NOT NULL)");
     database_.run("CREATE TABLE IF NOT EXISTS members (fingerprint TEXT PRIMARY KEY,"
                   " name TEXT NOT NULL, nameKey TEXT NOT NULL, state TEXT NOT NULL,"
                   " admin INTEGER NOT NULL, contactable INTEGER NOT NULL, cursor INTEGER NOT NULL,"
@@ -163,9 +164,9 @@ GroupStore::GroupStore(const std::filesystem::path& file, const std::string& pas
     database_.run("CREATE TABLE IF NOT EXISTS asks (requester TEXT NOT NULL, author TEXT NOT NULL,"
                   " PRIMARY KEY (requester, author))");
 
-    Statement seed(database_, "INSERT OR IGNORE INTO config"
-                              " (row, kind, joinMode, historySize, contactRequests, language)"
-                              " VALUES (?, ?, ?, ?, ?, ?)");
+    Statement seed(database_, "INSERT OR IGNORE INTO config (row, kind, joinMode, historySize,"
+                              " contactRequests, language, greeting, welcome)"
+                              " VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     const GroupConfig defaults;
     seed.bind(1, kConfigRow);
     seed.bind(2, groupKindName(defaults.kind));
@@ -173,13 +174,15 @@ GroupStore::GroupStore(const std::filesystem::path& file, const std::string& pas
     seed.bind(4, defaults.historySize);
     seed.bind(5, flag(defaults.contactRequests));
     seed.bind(6, defaults.language);
+    seed.bind(7, defaults.greeting);
+    seed.bind(8, defaults.welcome);
     (void)seed.step();
 }
 
 GroupConfig GroupStore::config() const
 {
-    Statement query(database_, "SELECT kind, joinMode, historySize, contactRequests, language"
-                               " FROM config WHERE row = ?");
+    Statement query(database_, "SELECT kind, joinMode, historySize, contactRequests, language,"
+                               " greeting, welcome FROM config WHERE row = ?");
     query.bind(1, kConfigRow);
     if (!query.step()) {
         throw std::runtime_error("group store: the configuration row is missing");
@@ -190,19 +193,24 @@ GroupConfig GroupStore::config() const
     config.historySize = query.number(2);
     config.contactRequests = query.number(3) != 0;
     config.language = query.text(4);
+    config.greeting = query.text(5);
+    config.welcome = query.text(6);
     return config;
 }
 
 void GroupStore::setConfig(const GroupConfig& config)
 {
     Statement update(database_, "UPDATE config SET kind = ?, joinMode = ?, historySize = ?,"
-                                " contactRequests = ?, language = ? WHERE row = ?");
+                                " contactRequests = ?, language = ?, greeting = ?, welcome = ?"
+                                " WHERE row = ?");
     update.bind(1, groupKindName(config.kind));
     update.bind(2, joinModeName(config.joinMode));
     update.bind(3, config.historySize);
     update.bind(4, flag(config.contactRequests));
     update.bind(5, config.language);
-    update.bind(6, kConfigRow);
+    update.bind(6, config.greeting);
+    update.bind(7, config.welcome);
+    update.bind(8, kConfigRow);
     (void)update.step();
 }
 

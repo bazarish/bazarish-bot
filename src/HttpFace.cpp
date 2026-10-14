@@ -1,6 +1,7 @@
 // Bazarish project (c) 2026
 #include "HttpFace.hpp"
 #include "Backup.hpp"
+#include "GroupCopy.hpp"
 #include "SystemInfo.hpp"
 #include "Version.hpp"
 
@@ -296,6 +297,10 @@ nlohmann::json groupConfigJson(const GroupConfig& config)
         {"historySize", config.historySize},
         {"contactRequests", config.contactRequests},
         {"language", config.language},
+        {"greeting", config.greeting},
+        {"welcome", config.welcome},
+        {"greetingDefault", copyText(config.language, Copy::eAskName)},
+        {"welcomeDefault", copyText(config.language, Copy::eWelcome, {"{name}"})},
     };
 }
 
@@ -1037,6 +1042,12 @@ void HttpFace::accountRoutes()
             if (body.contains("language")) {
                 config.language = body.at("language").get<std::string>();
             }
+            if (body.contains("greeting")) {
+                config.greeting = body.at("greeting").get<std::string>();
+            }
+            if (body.contains("welcome")) {
+                config.welcome = body.at("welcome").get<std::string>();
+            }
             group.setConfig(config);
             return json(groupConfigJson(group.config()));
         });
@@ -1058,10 +1069,12 @@ void HttpFace::accountRoutes()
                 group.setAdmin(fingerprint, action == "admin");
             } else if (action == "exclude") {
                 group.exclude(fingerprint);
-            } else if (action == "unban") {
-                group.unban(fingerprint);
+            } else if (action == "block") {
+                group.block(fingerprint);
+            } else if (action == "unblock") {
+                group.unblock(fingerprint);
             } else {
-                return failure(400, "the action is admin, unadmin, exclude or unban");
+                return failure(400, "the action is admin, unadmin, exclude, block or unblock");
             }
             return json(membersJson(group.members()));
         });

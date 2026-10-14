@@ -46,6 +46,8 @@ struct GroupConfig {
     std::int64_t historySize = kDefaultHistorySize;
     bool contactRequests = true;
     std::string language = kDefaultGroupLanguage;
+    std::string greeting;
+    std::string welcome;
 };
 
 struct Member {

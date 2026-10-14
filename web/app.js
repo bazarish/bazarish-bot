@@ -48,7 +48,7 @@ const kMemberFilters = [
     ["admin", N_("Administrators")],
     ["pending", N_("Waiting")],
     ["left", N_("Left")],
-    ["banned", N_("Banned")],
+    ["banned", N_("Blocked")],
 ];
 const kStateLabels = {
     naming: N_("choosing a name"),
@@ -56,7 +56,7 @@ const kStateLabels = {
     member: N_("member"),
     gone: N_("unreachable"),
     left: N_("left"),
-    banned: N_("banned"),
+    banned: N_("blocked"),
 };
 const kPostsPage = 100;
 let memberFilter = "all";
@@ -1447,7 +1447,7 @@ async function viewGroup() {
     view.append(tally([
         [t("Members"), state.states.member || 0],
         [t("Waiting for approval"), state.requests],
-        [t("Banned"), state.states.banned || 0],
+        [t("Blocked"), state.states.banned || 0],
     ]));
 
     const box = node("article", "panel-box");
@@ -1489,6 +1489,16 @@ async function viewGroup() {
     botLanguage.value = config.language;
     box.append(node("label", "field-label", t("Language of the bot's messages")), botLanguage);
 
+    const greeting = node("textarea", "field");
+    greeting.value = config.greeting;
+    greeting.placeholder = config.greetingDefault;
+    box.append(node("label", "field-label", t("Greeting")), greeting);
+    const welcome = node("textarea", "field");
+    welcome.value = config.welcome;
+    welcome.placeholder = config.welcomeDefault;
+    box.append(node("label", "field-label", t("After joining")), welcome);
+    box.append(node("p", "hint", t("{name} is the member's name.")));
+
     const said = node("p", "hint");
     const footer = node("p", "form-footer");
     const save = node("button", "btn", t("Save"));
@@ -1502,6 +1512,8 @@ async function viewGroup() {
                 historySize: Number(history.value),
                 contactRequests: contacts.checked,
                 language: botLanguage.value,
+                greeting: greeting.value.trim(),
+                welcome: welcome.value.trim(),
             });
             said.textContent = t("Saved.");
         } catch (error) {
@@ -1580,10 +1592,12 @@ function memberRow(member, refresh) {
         act(member.admin ? N_("Remove administrator") : N_("Make administrator"),
             member.admin ? "unadmin" : "admin", false);
         if (!member.admin) {
-            act(N_("Exclude"), "exclude", true, t("Exclude %1? Returning will not be possible.", member.name));
+            act(N_("Exclude"), "exclude", true);
         }
     } else if (member.state === "banned") {
-        act(N_("Unban"), "unban", false);
+        act(N_("Unblock"), "unblock", false);
+    } else {
+        act(N_("Block"), "block", true, t("Block %1? Returning will not be possible.", member.name));
     }
     row.append(keys, tags, actions);
     return row;

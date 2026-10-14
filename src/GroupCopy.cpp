@@ -25,6 +25,7 @@ const Entry kEntries[] = {
     {Copy::eWelcome, {"Welcome, %1.", "Добро пожаловать, %1.", "Te damos la bienvenida, %1.", "欢迎，%1。", "أهلًا بك، ⁦%1⁩."}},
     {Copy::eDeclined, {"Your request was declined.", "Заявка отклонена.", "Tu solicitud fue rechazada.", "你的申请被拒绝了。", "رُفض طلبك."}},
     {Copy::eExcluded, {"You were excluded from the group.", "Вас исключили из группы.", "Te excluyeron del grupo.", "你已被移出群组。", "تم استبعادك من المجموعة."}},
+    {Copy::eBlocked, {"You were blocked in the group.", "Вас заблокировали в группе.", "Te bloquearon en el grupo.", "你已被群组屏蔽。", "حُظرت في المجموعة."}},
     {Copy::eLeft, {"You left the group.", "Вы вышли из группы.", "Saliste del grupo.", "你已退出群组。", "غادرت المجموعة."}},
     {Copy::eWantsToJoin, {"%1 wants to join.\n%2", "%1 хочет вступить.\n%2", "%1 quiere unirse.\n%2", "%1 想要加入。\n%2", "⁦%1⁩ يريد الانضمام.\n⁦%2⁩"}},
     {Copy::eAllowedBy, {"%1: allowed by %2.", "%1: одобрено админом %2.", "%1: aceptado por %2.", "%1：已由 %2 批准。", "⁦%1⁩: وافق عليه ⁦%2⁩."}},
@@ -42,6 +43,8 @@ const Entry kEntries[] = {
     {Copy::eButtonLeave, {"Leave", "Выйти", "Salir", "退出", "مغادرة"}},
     {Copy::eButtonContactOn, {"Accept contact requests", "Принимать запросы контакта", "Aceptar solicitudes de contacto", "接受联系请求", "قبول طلبات التواصل"}},
     {Copy::eButtonContactOff, {"Refuse contact requests", "Не принимать запросы контакта", "Rechazar solicitudes de contacto", "拒绝联系请求", "رفض طلبات التواصل"}},
+    {Copy::eButtonSettings, {"Settings", "Настройки", "Ajustes", "设置", "الإعدادات"}},
+    {Copy::eSettingsHint, {"Bring this up again with /settings.", "Вызвать это окно можно командой /settings.", "Vuelve a abrir esto con /settings.", "用 /settings 可再次打开这里。", "افتح هذا مجددًا بالأمر ⁦/settings⁩."}},
 };
 
 std::size_t languageIndex(const std::string& language)
@@ -86,7 +89,7 @@ bool copyComplete()
             }
         }
     }
-    return std::size(kEntries) == static_cast<std::size_t>(Copy::eButtonContactOff) + 1;
+    return std::size(kEntries) == static_cast<std::size_t>(Copy::eBlocked) + 1;
 }
 
 }  // namespace bazarish::bot

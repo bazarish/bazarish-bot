@@ -29,6 +29,7 @@ namespace {
 
 constexpr const char* kDest = "dlkbeyqjykssca6o7qlbwgq4fr2hry7kw2ursn2sh3lt3acox6gq.b32.i2p";
 constexpr int kPumpRounds = 8;
+constexpr const char* kHint = "Bring this up again with /settings.";
 
 struct Sent {
     std::string kind;
@@ -108,6 +109,9 @@ GroupLink linkFor(Fake& fake)
         done(fake.outcomeFor(peer));
     };
     link.state = [&fake](const std::string& peer) { fake.states.push_back(peer); };
+    link.receipt = [&fake](const std::string& peer, const std::string& id) {
+        fake.sent.push_back({"receipt", peer, id, {}, {}, {}, {}});
+    };
     link.descriptor = [](const std::string& peer) {
         return encodeDescriptor(Descriptor{peer, kDest, "theirs"});
     };
@@ -180,12 +184,38 @@ int main()
         engine.onIncoming(incoming(ann, "contact.request"));
         CHECK(fake.accepted == std::vector<std::string>{ann});
         CHECK(fake.take("tell", ann).size() == 1);
+        engine.onIncoming(incoming(ann, "receipt"));
+        CHECK(fake.take("tell", ann).empty());
         CHECK(engine.blockFor(ann).write);
         engine.onIncoming(textFrom(ann, "Ann"));
         const std::vector<Sent> welcome = fake.take("tell", ann);
         CHECK(welcome.size() == 1);
-        CHECK(welcome[0].text == "Welcome, Ann.");
-        CHECK(welcome[0].keyboard.size() == 2);
+        CHECK(welcome[0].text == std::string("Welcome, Ann.\n\n") + kHint);
+        CHECK(welcome[0].keyboard.size() == 1);
+        CHECK(welcome[0].keyboard.at(0).at(0).data == "settings");
+
+        const auto press = [&](const std::string& data) {
+            client::IncomingMessage callback = incoming(ann, "bot.callback");
+            callback.callbackData = data;
+            callback.refId = welcome[0].id;
+            engine.onIncoming(callback);
+            const std::vector<Sent> retold = fake.take("retell", ann);
+            CHECK(retold.size() == 1);
+            CHECK(retold[0].id == welcome[0].id);
+            CHECK(retold[0].text == welcome[0].text);
+            CHECK(retold[0].keyboard.size() == 2);
+            CHECK(retold[0].keyboard.at(0).at(0).data == "leave");
+            return retold[0].keyboard.at(1).at(0).data;
+        };
+        CHECK(press("settings") == "contactable off");
+        CHECK(press("contactable off") == "contactable on");
+        CHECK(press("contactable on") == "contactable off");
+
+        engine.onIncoming(textFrom(ann, " /settings\n", "p-settings"));
+        const std::vector<Sent> offered = fake.take("tell", ann);
+        CHECK(offered.size() == 1);
+        CHECK(offered[0].text == kHint);
+        CHECK(offered[0].keyboard.at(0).at(0).data == "settings");
 
         join(engine, bob, "ann");
         CHECK(fake.take("tell", bob).back().text == "That name is taken. Choose another.");
@@ -197,6 +227,9 @@ int main()
         fake.forget();
 
         engine.onIncoming(textFrom(ann, "first", "p1"));
+        const std::vector<Sent> receipts = fake.take("receipt", ann);
+        CHECK(receipts.size() == 1);
+        CHECK(receipts[0].id == "p1");
         pump(engine);
         CHECK(fake.take("relay", ann).empty());
         const std::vector<Sent> toBob = fake.take("relay", bob);
@@ -267,6 +300,10 @@ int main()
         CHECK(!engine.blockFor(bob).write);
         engine.onIncoming(textFrom(bob, "closed", "p3"));
         CHECK(fake.take("tell", bob).back().text == "Only admins post here.");
+        const std::string hal = member();
+        join(engine, hal, "Hal");
+        CHECK(fake.take("tell", hal).back().text == "Welcome, Hal.");
+        engine.onIncoming(commandFrom(hal, "leave", {}));
         engine.setAdmin(bob, true);
         CHECK(engine.blockFor(bob).admin);
         CHECK(engine.blockFor(bob).write);
@@ -300,9 +337,25 @@ int main()
         engine.onIncoming(textFrom(cid, "by cid", "p5"));
         pump(engine);
         fake.forget();
+        const auto stateOf = [&](const std::string& peer) {
+            for (const Member& held : engine.members()) {
+                if (held.fingerprint == peer) {
+                    return held.state;
+                }
+            }
+            return MemberState::eNaming;
+        };
         engine.onIncoming(commandFrom(bob, "exclude", "p5"));
-        CHECK(fake.forgotten == std::vector<std::string>{cid});
+        CHECK(stateOf(cid) == MemberState::eLeft);
+        CHECK(fake.forgotten.empty());
         CHECK(fake.take("tell", cid).back().text == "You were excluded from the group.");
+        engine.onIncoming(textFrom(cid, "back in", "p5b"));
+        CHECK(stateOf(cid) == MemberState::eMember);
+
+        engine.onIncoming(commandFrom(bob, "block", "p5"));
+        CHECK(stateOf(cid) == MemberState::eBanned);
+        CHECK(fake.forgotten == std::vector<std::string>{cid});
+        CHECK(fake.take("tell", cid).back().text == "You were blocked in the group.");
         fake.accepted.clear();
         engine.onIncoming(incoming(cid, "contact.request"));
         CHECK(fake.accepted.empty());
@@ -324,7 +377,7 @@ int main()
         const std::vector<Sent> settled = fake.take("retell", bob);
         CHECK(settled.size() == 1);
         CHECK(settled[0].text == "Fay: allowed by Bob.");
-        CHECK(fake.take("tell", fay).back().text == "Welcome, Fay.");
+        CHECK(fake.take("tell", fay).back().text == std::string("Welcome, Fay.\n\n") + kHint);
         CHECK(engine.requests().empty());
 
         fake.forget();
@@ -348,6 +401,8 @@ int main()
 
         engine.onIncoming(commandFrom(eve, "leave", {}));
         CHECK(state(eve) == MemberState::eLeft);
+        engine.onIncoming(incoming(eve, "receipt"));
+        CHECK(state(eve) == MemberState::eLeft);
         engine.onIncoming(incoming(eve, "contact.request"));
         CHECK(state(eve) == MemberState::ePending);
     }
@@ -356,11 +411,37 @@ int main()
         GroupEngine engine(dir / "group.db", {}, linkFor(fake), [&now]() { return now; });
         CHECK(engine.config().joinMode == JoinMode::eApproval);
         CHECK(engine.memberCount() == 5);
+
+        GroupConfig custom = engine.config();
+        custom.joinMode = JoinMode::eOpen;
+        custom.greeting = "Pick a name.";
+        custom.welcome = "Hi, {name}! {name} is in.";
+        engine.setConfig(custom);
+        const std::string gus = member();
+        engine.onIncoming(incoming(gus, "contact.request"));
+        CHECK(fake.take("tell", gus).back().text == "Pick a name.");
+        engine.onIncoming(textFrom(gus, "Gus"));
+        CHECK(fake.take("tell", gus).back().text
+            == std::string("Hi, Gus! Gus is in.\n\n") + kHint);
+        custom.welcome = std::string(2048, 'w');
+        bool refused = false;
+        try {
+            engine.setConfig(custom);
+        } catch (const std::exception&) {
+            refused = true;
+        }
+        CHECK(refused);
         for (const Member& held : engine.members()) {
             if (held.fingerprint == ann) {
                 CHECK(held.name == "Ann");
             }
         }
+    }
+
+    {
+        GroupEngine engine(dir / "group.db", {}, linkFor(fake), [&now]() { return now; });
+        CHECK(engine.config().greeting == "Pick a name.");
+        CHECK(engine.config().welcome == "Hi, {name}! {name} is in.");
     }
 
     fs::remove_all(dir);

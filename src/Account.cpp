@@ -301,6 +301,10 @@ GroupLink Account::groupLink()
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         openSession().sendGroupReactions(peer, reactions, watching(std::move(done)));
     };
+    link.receipt = [this](const std::string& peer, const std::string& messageId) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        openSession().sendReceipt(peer, messageId);
+    };
     link.state = [this](const std::string& peer) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         openSession().sendGroupState(peer);

@@ -44,6 +44,7 @@ struct GroupLink {
     std::function<void(const std::string& peer, const nlohmann::json& reactions, Outcome done)>
         reactions;
     std::function<void(const std::string& peer)> state;
+    std::function<void(const std::string& peer, const std::string& messageId)> receipt;
     std::function<std::string(const std::string& peer)> descriptor;
     std::function<void(const std::string& peer)> forget;
     std::function<bool(const client::RelayedPost& post)> fits;
@@ -72,7 +73,8 @@ public:
     std::vector<Member> members() const;
     void setAdmin(const std::string& fingerprint, bool admin);
     void exclude(const std::string& fingerprint);
-    void unban(const std::string& fingerprint);
+    void block(const std::string& fingerprint);
+    void unblock(const std::string& fingerprint);
     std::vector<JoinRequest> requests() const;
     void decide(std::int64_t number, bool allow);
     std::vector<Post> posts(std::int64_t limit) const;
@@ -92,6 +94,7 @@ private:
         bool fits = false;
     };
 
+    void receiptLocked(const client::IncomingMessage& message, Actions& actions);
     void handleLocked(
         const client::IncomingMessage& message, const Prefetched& prefetched, Actions& actions);
     void joinLocked(Member& member, Actions& actions);
@@ -101,10 +104,18 @@ private:
         const Prefetched& prefetched, Actions& actions);
     void commandLocked(Member& member, const std::string& line, Actions& actions);
     void excludeLocked(const std::string& fingerprint, Actions& actions);
+    void blockLocked(const std::string& fingerprint, Actions& actions);
     void deletePostLocked(const std::string& id);
     void tellLocked(const std::string& peer, Copy key, const std::vector<std::string>& values,
         Actions& actions, const client::InlineKeyboard& keyboard = {});
-    client::InlineKeyboard welcomeKeyboardLocked(const Member& member) const;
+    void sayLocked(const std::string& peer, const std::string& words, Actions& actions,
+        const client::InlineKeyboard& keyboard = {});
+    void askNameLocked(const std::string& peer, Actions& actions);
+    std::string welcomeTextLocked(const Member& member) const;
+    void offerSettingsLocked(const Member& member, Actions& actions);
+    void showSettingsLocked(const Member& member, const std::string& ref, Actions& actions);
+    client::InlineKeyboard settingsButtonLocked() const;
+    client::InlineKeyboard settingsKeyboardLocked(const Member& member) const;
     std::string chatDescriptor(const Member& member) const;
     std::string text(Copy key, const std::vector<std::string>& values = {}) const;
     bool writesLocked(const Member& member) const;

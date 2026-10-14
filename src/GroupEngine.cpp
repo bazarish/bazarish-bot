@@ -10,6 +10,8 @@
 #include <chrono>
 #include <limits>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace bazarish::bot {
@@ -22,6 +24,12 @@ constexpr std::size_t kMaxUtf8Bytes = 4;
 constexpr const char* kDeliveryRejected = "DELIVERY_REJECTED";
 constexpr const char* kApprove = "approve:";
 constexpr const char* kDecline = "decline:";
+constexpr const char* kSettingsCommand = "settings";
+constexpr const char* kSettingsTyped = "/settings";
+constexpr const char* kContactableCommand = "contactable";
+constexpr const char* kNameToken = "{name}";
+constexpr const char* kParagraph = "\n\n";
+constexpr std::size_t kMaxGroupTextBytes = 1024;
 constexpr const char* kTypeText = "text";
 constexpr const char* kTypeImage = "image";
 constexpr const char* kTypeAudio = "audio";
@@ -38,6 +46,16 @@ std::pair<std::string, std::string> splitCommand(const std::string& line)
         return {line, {}};
     }
     return {line.substr(0, space), line.substr(space + 1)};
+}
+
+std::string_view trimmed(std::string_view text)
+{
+    constexpr std::string_view kBlank = " \t\r\n";
+    const std::size_t first = text.find_first_not_of(kBlank);
+    if (first == std::string_view::npos) {
+        return {};
+    }
+    return text.substr(first, text.find_last_not_of(kBlank) - first + 1);
 }
 
 bool startsWith(const std::string& text, const std::string& prefix)
@@ -177,17 +195,68 @@ void GroupEngine::tellLocked(const std::string& peer, const Copy key,
     const std::vector<std::string>& values, Actions& actions,
     const client::InlineKeyboard& keyboard)
 {
-    actions.push_back([this, peer, words = text(key, values), keyboard]() {
-        (void)link_.tell(peer, words, keyboard);
+    sayLocked(peer, text(key, values), actions, keyboard);
+}
+
+void GroupEngine::sayLocked(const std::string& peer, const std::string& words, Actions& actions,
+    const client::InlineKeyboard& keyboard)
+{
+    actions.push_back([this, peer, words, keyboard]() { (void)link_.tell(peer, words, keyboard); });
+}
+
+void GroupEngine::askNameLocked(const std::string& peer, Actions& actions)
+{
+    sayLocked(peer, config_.greeting.empty() ? text(Copy::eAskName) : config_.greeting, actions);
+}
+
+std::string GroupEngine::welcomeTextLocked(const Member& member) const
+{
+    std::string welcome = config_.welcome;
+    if (welcome.empty()) {
+        welcome = text(Copy::eWelcome, {member.name});
+    }
+    const std::string token = kNameToken;
+    for (std::size_t at = welcome.find(token); at != std::string::npos;
+         at = welcome.find(token, at + member.name.size())) {
+        welcome.replace(at, token.size(), member.name);
+    }
+    if (!writesLocked(member)) {
+        return welcome;
+    }
+    return welcome + kParagraph + text(Copy::eSettingsHint);
+}
+
+void GroupEngine::offerSettingsLocked(const Member& member, Actions& actions)
+{
+    sayLocked(member.fingerprint, text(Copy::eSettingsHint), actions, settingsButtonLocked());
+}
+
+void GroupEngine::showSettingsLocked(
+    const Member& member, const std::string& ref, Actions& actions)
+{
+    if (ref.empty()) {
+        return;
+    }
+    const std::string words
+        = ref == member.welcomeId ? welcomeTextLocked(member) : text(Copy::eSettingsHint);
+    actions.push_back([this, peer = member.fingerprint, ref, words,
+                          keyboard = settingsKeyboardLocked(member)]() {
+        link_.retell(peer, ref, words, keyboard);
     });
 }
 
-client::InlineKeyboard GroupEngine::welcomeKeyboardLocked(const Member& member) const
+client::InlineKeyboard GroupEngine::settingsButtonLocked() const
+{
+    return {{{text(Copy::eButtonSettings), kSettingsCommand, {}}}};
+}
+
+client::InlineKeyboard GroupEngine::settingsKeyboardLocked(const Member& member) const
 {
     const Copy toggle = member.contactable ? Copy::eButtonContactOff : Copy::eButtonContactOn;
+    const std::string contactable = kContactableCommand;
     return {
         {{text(Copy::eButtonLeave), "leave", {}}},
-        {{text(toggle), member.contactable ? "contactable off" : "contactable on", {}}},
+        {{text(toggle), contactable + (member.contactable ? " off" : " on"), {}}},
     };
 }
 
@@ -215,9 +284,24 @@ void GroupEngine::onIncoming(const client::IncomingMessage& message)
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         handleLocked(message, prefetched, actions);
+        receiptLocked(message, actions);
     }
     run(actions);
     nudge();
+}
+
+void GroupEngine::receiptLocked(const client::IncomingMessage& message, Actions& actions)
+{
+    if (message.sentByUs || !isPost(message.contentType) || message.e2eId.empty()) {
+        return;
+    }
+    const auto found = members_.find(message.fromFingerprint);
+    if (found == members_.end() || found->second.state == MemberState::eBanned) {
+        return;
+    }
+    actions.push_back([this, peer = message.fromFingerprint, id = message.e2eId]() {
+        link_.receipt(peer, id);
+    });
 }
 
 void GroupEngine::handleLocked(
@@ -239,7 +323,7 @@ void GroupEngine::handleLocked(
             member.fingerprint = peer;
             member.state = MemberState::eNaming;
             saveLocked(member);
-            tellLocked(peer, Copy::eAskName, {}, actions);
+            askNameLocked(peer, actions);
             return;
         }
         Member member = found->second;
@@ -255,17 +339,23 @@ void GroupEngine::handleLocked(
     case MemberState::eBanned:
         return;
     case MemberState::eLeft:
+        if (!isPost(message.contentType)) {
+            return;
+        }
         if (member.name.empty()) {
             member.state = MemberState::eNaming;
             saveLocked(member);
-            tellLocked(peer, Copy::eAskName, {}, actions);
+            askNameLocked(peer, actions);
         } else {
             joinLocked(member, actions);
         }
         return;
     case MemberState::eNaming: {
+        if (!isPost(message.contentType)) {
+            return;
+        }
         if (message.contentType != kTypeText) {
-            tellLocked(peer, Copy::eAskName, {}, actions);
+            askNameLocked(peer, actions);
             return;
         }
         const NameCheck check = checkName(message.text);
@@ -298,6 +388,10 @@ void GroupEngine::handleLocked(
         break;
     }
 
+    if (message.contentType == kTypeText && trimmed(message.text) == kSettingsTyped) {
+        offerSettingsLocked(member, actions);
+        return;
+    }
     if (isPost(message.contentType)) {
         postLocked(member, message, prefetched, actions);
         return;
@@ -346,7 +440,14 @@ void GroupEngine::handleLocked(
             decideLocked(std::stoll(number), approve, member.name, actions);
             return;
         }
+        if (data == kSettingsCommand) {
+            showSettingsLocked(member, message.refId, actions);
+            return;
+        }
         commandLocked(member, data, actions);
+        if (startsWith(data, kContactableCommand)) {
+            showSettingsLocked(member, message.refId, actions);
+        }
     }
 }
 
@@ -387,9 +488,8 @@ void GroupEngine::admitLocked(Member& member, Actions& actions)
     member.cursor = store_.seqBeforeLastPosts(config_.historySize);
     member.historyFrom = member.cursor;
     saveLocked(member);
-    actions.push_back([this, peer = member.fingerprint,
-                          words = text(Copy::eWelcome, {member.name}),
-                          keyboard = welcomeKeyboardLocked(member)]() {
+    actions.push_back([this, peer = member.fingerprint, words = welcomeTextLocked(member),
+                          keyboard = settingsButtonLocked()]() {
         const std::string id = link_.tell(peer, words, keyboard);
         const std::lock_guard<std::mutex> lock(mutex_);
         const auto found = members_.find(peer);
@@ -476,16 +576,13 @@ void GroupEngine::commandLocked(Member& member, const std::string& line, Actions
         tellLocked(member.fingerprint, Copy::eLeft, {}, actions);
         return;
     }
-    if (command == "contactable") {
+    if (command == kContactableCommand) {
         member.contactable = argument == "on";
         saveLocked(member);
-        if (!member.welcomeId.empty()) {
-            actions.push_back([this, peer = member.fingerprint, id = member.welcomeId,
-                                  words = text(Copy::eWelcome, {member.name}),
-                                  keyboard = welcomeKeyboardLocked(member)]() {
-                link_.retell(peer, id, words, keyboard);
-            });
-        }
+        return;
+    }
+    if (command == kSettingsCommand) {
+        offerSettingsLocked(member, actions);
         return;
     }
     if (command == "contact") {
@@ -510,7 +607,7 @@ void GroupEngine::commandLocked(Member& member, const std::string& line, Actions
         tellLocked(member.fingerprint, Copy::eContactSent, {}, actions);
         return;
     }
-    if (command == "exclude" && member.admin) {
+    if ((command == "exclude" || command == "block") && member.admin) {
         const std::optional<Post> post = store_.post(argument);
         if (!post || post->author == member.fingerprint) {
             return;
@@ -519,7 +616,11 @@ void GroupEngine::commandLocked(Member& member, const std::string& line, Actions
         if (author == members_.end() || author->second.admin) {
             return;
         }
-        excludeLocked(post->author, actions);
+        if (command == "block") {
+            blockLocked(post->author, actions);
+        } else {
+            excludeLocked(post->author, actions);
+        }
         return;
     }
     if (command == "delete" && member.admin) {
@@ -530,7 +631,24 @@ void GroupEngine::commandLocked(Member& member, const std::string& line, Actions
 void GroupEngine::excludeLocked(const std::string& fingerprint, Actions& actions)
 {
     const auto found = members_.find(fingerprint);
-    if (found == members_.end()) {
+    if (found == members_.end() || found->second.state == MemberState::eLeft
+        || found->second.state == MemberState::eBanned) {
+        return;
+    }
+    Member member = found->second;
+    member.state = MemberState::eLeft;
+    member.admin = false;
+    saveLocked(member);
+    if (const std::optional<JoinRequest> request = store_.requestOf(fingerprint)) {
+        store_.removeRequest(request->number);
+    }
+    tellLocked(fingerprint, Copy::eExcluded, {}, actions);
+}
+
+void GroupEngine::blockLocked(const std::string& fingerprint, Actions& actions)
+{
+    const auto found = members_.find(fingerprint);
+    if (found == members_.end() || found->second.state == MemberState::eBanned) {
         return;
     }
     Member member = found->second;
@@ -540,7 +658,7 @@ void GroupEngine::excludeLocked(const std::string& fingerprint, Actions& actions
     if (const std::optional<JoinRequest> request = store_.requestOf(fingerprint)) {
         store_.removeRequest(request->number);
     }
-    tellLocked(fingerprint, Copy::eExcluded, {}, actions);
+    tellLocked(fingerprint, Copy::eBlocked, {}, actions);
     actions.push_back([this, fingerprint]() { link_.forget(fingerprint); });
 }
 
@@ -759,6 +877,10 @@ void GroupEngine::setConfig(const GroupConfig& config)
     if (config.historySize < 0) {
         throw std::runtime_error("the history size cannot be negative");
     }
+    if (config.greeting.size() > kMaxGroupTextBytes || config.welcome.size() > kMaxGroupTextBytes) {
+        throw std::runtime_error(
+            "a group text is at most " + std::to_string(kMaxGroupTextBytes) + " bytes");
+    }
     (void)copyText(config.language, Copy::eAskName);
     Actions actions;
     {
@@ -817,12 +939,22 @@ void GroupEngine::exclude(const std::string& fingerprint)
     run(actions);
 }
 
-void GroupEngine::unban(const std::string& fingerprint)
+void GroupEngine::block(const std::string& fingerprint)
+{
+    Actions actions;
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        blockLocked(fingerprint, actions);
+    }
+    run(actions);
+}
+
+void GroupEngine::unblock(const std::string& fingerprint)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     const auto found = members_.find(fingerprint);
     if (found == members_.end() || found->second.state != MemberState::eBanned) {
-        throw std::runtime_error("that member is not banned");
+        throw std::runtime_error("that member is not blocked");
     }
     Member member = found->second;
     member.state = MemberState::eLeft;

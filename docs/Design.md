@@ -63,7 +63,8 @@ transcript's one-id-one-row rule would not hold.
   carries the account alone: members, posts and settings stay on this host.
 
 The chat texts the host sends come in the group's own language, one of five,
-chosen by the owner.
+chosen by the owner, who may also replace the greeting and the welcome with
+texts of their own.
 
 Everything that makes a conversation a *bot* conversation - commands, inline
 keyboards, callbacks - is end-to-end content and nothing else. The

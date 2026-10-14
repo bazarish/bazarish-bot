@@ -31,6 +31,9 @@ enum class Copy {
     eButtonLeave,
     eButtonContactOn,
     eButtonContactOff,
+    eButtonSettings,
+    eSettingsHint,
+    eBlocked,
 };
 
 inline constexpr const char* kGroupLanguages[] = {"en", "ru", "es", "zh", "ar"};
