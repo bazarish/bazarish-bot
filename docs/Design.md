@@ -51,6 +51,9 @@ transcript's one-id-one-row rule would not hold.
   hour is not lost by stopping halfway. A refusal from the member's server
   (`DELIVERY_REJECTED`) means the member left: the name stays theirs and the
   pump stops; anything else is tried again a minute later.
+- **The host's own posts.** A post from the panel or `POST /v1/posts` is a row
+  with no author: it goes to every member, admins included, marked `fromHost`,
+  so a channel needs no member account behind it.
 - **History is a cursor.** A newcomer's cursor starts N posts back, so the last
   N arrive as ordinary relays, built from each post's current state.
 - **Names** are checked with ICU: case folding, NFKC, and the UTS #39 confusable

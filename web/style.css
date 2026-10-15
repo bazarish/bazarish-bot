@@ -1355,6 +1355,62 @@ textarea.field {
     min-height: 2.25rem;
 }
 
+.post-words {
+    min-height: 7.5rem;
+    resize: vertical;
+}
+
+.post-words + .block-title {
+    margin-top: 1rem;
+}
+
+.post.is-preview {
+    margin-top: 0.4rem;
+    font-size: 0.85rem;
+    background: var(--bz-bg);
+}
+
+.markup-body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.markup-code {
+    padding: 0.05rem 0.3rem;
+    background: var(--bz-deep);
+    border-radius: var(--bz-radius-sm);
+    color: var(--bz-ink);
+    font: inherit;
+}
+
+.markup-chip {
+    padding: 0.05rem 0.3rem;
+    background: var(--bz-key-bg);
+    border-radius: var(--bz-radius-sm);
+    color: var(--bz-key);
+}
+
+.markup-link {
+    color: var(--bz-key);
+    text-decoration: underline;
+    text-underline-offset: 0.15em;
+}
+
+.invite-plate {
+    display: flex;
+    flex-direction: column;
+    margin: 0.2rem 0 0.5rem;
+    padding: 0.5rem 0.7rem;
+    background: var(--bz-surface-2);
+    border: 1px solid var(--bz-line-2);
+    border-radius: var(--bz-radius-sm);
+}
+
+.invite-plate span {
+    color: var(--bz-ink-faint);
+    font-size: 0.75rem;
+}
+
 [dir="rtl"] .row,
 [dir="rtl"] .segment {
     text-align: right;

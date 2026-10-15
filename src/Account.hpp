@@ -47,6 +47,7 @@ public:
 
     Settings::AccountKind kind() const;
     GroupEngine& group() const;
+    std::string postToGroup(const std::string& text);
 
     Bytes exportBundle(const std::string& bundlePassphrase);
 

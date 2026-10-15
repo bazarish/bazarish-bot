@@ -812,6 +812,7 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
             relayed.mediaName = post->mediaName;
             relayed.mime = post->mime;
             relayed.durationMs = post->durationMs;
+            relayed.fromHost = post->author.empty();
             relayed.author = author == members_.end() ? std::string() : author->second.name;
             relayed.contactable = config_.contactRequests && author != members_.end()
                 && author->second.contactable;
@@ -1049,6 +1050,32 @@ std::map<std::string, std::int64_t> GroupEngine::reactionCounts(const std::strin
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     return store_.reactionCounts(postId, {});
+}
+
+void GroupEngine::hostPost(const std::string& id, const std::string& text)
+{
+    if (text.empty()) {
+        throw std::invalid_argument("a post needs text");
+    }
+    client::RelayedPost sizing;
+    sizing.type = kTypeText;
+    sizing.id = id;
+    sizing.text = text;
+    sizing.fromHost = true;
+    sizing.sentAt = std::numeric_limits<std::int64_t>::max();
+    if (!link_.fits(sizing)) {
+        throw std::invalid_argument("this post does not fit one message");
+    }
+    {
+        const std::lock_guard<std::mutex> lock(mutex_);
+        Post post;
+        post.id = id;
+        post.type = kTypeText;
+        post.text = text;
+        post.sentAt = clock_();
+        (void)store_.addPost(std::move(post));
+    }
+    nudge();
 }
 
 void GroupEngine::deletePost(const std::string& id)

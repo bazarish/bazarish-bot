@@ -1748,8 +1748,46 @@ function postBody(post) {
 async function viewPosts() {
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("Posts")));
+    const host = accounts.find((account) => account.id === accountId);
+    const hostName = host ? host.name : "";
+
+    const box = node("article", "panel-box");
+    const words = node("textarea", "field post-words");
+    words.placeholder = t("**bold** *italic* ~~strikethrough~~ ```code```");
+    const previewTitle = node("p", "block-title", t("Preview"));
+    const preview = node("article", "post is-preview");
+    const said = node("p", "hint");
+    const footer = node("p", "form-footer");
+    const publish = node("button", "btn", t("Publish"));
+    publish.type = "button";
+    const redraw = () => {
+        const text = words.value.trim();
+        previewTitle.hidden = !text;
+        preview.hidden = !text;
+        publish.disabled = !text;
+        window.bazarishMarkup.draw(preview, text, t("Contact"));
+    };
+    words.oninput = redraw;
+    redraw();
+    footer.append(publish, said);
+    box.append(words, previewTitle, preview, footer);
+    view.append(box);
+
     const list = node("div", "posts");
     view.append(list);
+    publish.onclick = async () => {
+        publish.disabled = true;
+        said.textContent = "";
+        try {
+            await call("POST", base() + "/group/posts", {text: words.value.trim()});
+            words.value = "";
+            redraw();
+            await refresh();
+        } catch (error) {
+            said.textContent = error.message;
+            publish.disabled = false;
+        }
+    };
     const refresh = async () => {
         const posts = await call("GET", base() + "/group/posts?limit=" + kPostsPage);
         list.textContent = "";
@@ -1759,7 +1797,8 @@ async function viewPosts() {
         for (const post of posts) {
             const item = node("article", "post" + (post.deleted ? " is-deleted" : ""));
             const head = node("header", "post-head");
-            head.append(node("span", "post-author", post.authorName || t("no name yet")));
+            head.append(node("span", "post-author",
+                post.fromHost ? hostName : post.authorName || t("no name yet")));
             head.append(node("time", "post-time", when(post.sentAt)));
             if (post.edited) {
                 head.append(node("span", "tag", t("edited")));
@@ -1768,8 +1807,13 @@ async function viewPosts() {
                 head.append(node("span", "tag is-banned", t("deleted")));
             }
             item.append(head);
-            item.append(node("p", "post-body" + (post.type === "text" ? "" : " is-media"),
-                postBody(post)));
+            const body = node("div", "post-body" + (post.type === "text" ? "" : " is-media"));
+            if (post.type === "text") {
+                window.bazarishMarkup.draw(body, post.text, t("Contact"));
+            } else {
+                body.textContent = postBody(post);
+            }
+            item.append(body);
             const foot = node("footer", "post-foot");
             const reactions = node("span", "reactions");
             for (const [emoji, count] of Object.entries(post.reactions)) {

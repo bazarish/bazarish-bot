@@ -43,9 +43,27 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `POST /v1/receipts` | `{"peer": "...", "messageId": "..."}` tells the peer their message was read, and every earlier one with it |
 | `POST /v1/chats/{fingerprint}/clear` | asks the peer to drop the conversation, and drops this side of it |
 | `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds |
+| `POST /v1/posts` | `{"text": "..."}` posts in a group as the group itself; group accounts only |
 
-A group account answers `GET /v1/status` and refuses every other route with
-`409`: it relays its members itself, and nothing else may write in its name.
+A group account answers `GET /v1/status` and `POST /v1/posts` and refuses every
+other route with `409`: its members' posts it relays itself.
+
+### Posting in a group
+
+```bash
+curl -s -X POST http://127.0.0.1:8440/v1/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"text": "**Tonight** at eight."}'
+```
+
+```json
+{"id": "5373671a07d8b517"}
+```
+
+The post goes to every member, admins included, and members see it with no
+author above it: the group itself is speaking. It takes the markup below. A
+post that does not fit one message is refused with `400`. The panel's group
+posts tab writes through the same path, with a preview.
 
 ### Sending
 
@@ -207,6 +225,7 @@ and a bot writing for that audience can use them:
 | Written in the body | Drawn there |
 |---|---|
 | `*text*`, `**text**`, `~~text~~` | italic, bold, struck through |
+| ```` ```text``` ```` | a block kept exactly as typed; pressing it copies it |
 | `!!text!!` | a pressable word; pressing it sends `text` back as an ordinary message |
 | `!name` | a pressable name that opens their add-a-contact form, filled in |
 | `http://...`, `https://...` | an address, opened only after a warning about what following it discloses |
@@ -221,5 +240,5 @@ Nothing between `!!` and `!!` is read as markup, so what is written there is wha
 comes back. A body meant to be shown as typed should avoid `*`, `~~` and `!!`;
 single markers that do not pair off are drawn as themselves.
 
-`client-qt/docs/Formatting.md` specifies the whole of it. The daemon's own web
-interface does not draw any of it yet.
+`client-qt/docs/Formatting.md` specifies the whole of it. The panel draws the
+same in a group's posts and in the preview of a new one.

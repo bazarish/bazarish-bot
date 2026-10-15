@@ -39,6 +39,7 @@ struct Sent {
     std::string author;
     client::InlineKeyboard keyboard;
     nlohmann::json reactions;
+    bool fromHost = false;
 };
 
 struct Fake {
@@ -81,32 +82,32 @@ GroupLink linkFor(Fake& fake)
     link.tell = [&fake](const std::string& peer, const std::string& text,
                     const client::InlineKeyboard& keyboard, const GroupLink::Outcome& done) {
         const std::string id = "told-" + std::to_string(++fake.told);
-        fake.sent.push_back({"tell", peer, id, text, {}, keyboard, {}});
+        fake.sent.push_back({"tell", peer, id, text, {}, keyboard, {}, false});
         done(fake.outcomeFor(peer));
         return id;
     };
     link.retell = [&fake](const std::string& peer, const std::string& id, const std::string& text,
                       const client::InlineKeyboard& keyboard) {
-        fake.sent.push_back({"retell", peer, id, text, {}, keyboard, {}});
+        fake.sent.push_back({"retell", peer, id, text, {}, keyboard, {}, false});
     };
     link.relay = [&fake](const std::string& peer, const client::RelayedPost& post,
                      const GroupLink::Outcome& done) {
-        fake.sent.push_back({"relay", peer, post.id, post.text, post.author, {}, {}});
+        fake.sent.push_back({"relay", peer, post.id, post.text, post.author, {}, {}, post.fromHost});
         done(fake.outcomeFor(peer));
     };
     link.edit = [&fake](const std::string& peer, const std::string& ref, const std::string& text,
                     const GroupLink::Outcome& done) {
-        fake.sent.push_back({"edit", peer, ref, text, {}, {}, {}});
+        fake.sent.push_back({"edit", peer, ref, text, {}, {}, {}, false});
         done(fake.outcomeFor(peer));
     };
     link.remove = [&fake](const std::string& peer, const std::string& ref,
                       const GroupLink::Outcome& done) {
-        fake.sent.push_back({"delete", peer, ref, {}, {}, {}, {}});
+        fake.sent.push_back({"delete", peer, ref, {}, {}, {}, {}, false});
         done(fake.outcomeFor(peer));
     };
     link.reactions = [&fake](const std::string& peer, const nlohmann::json& reactions,
                          const GroupLink::Outcome& done) {
-        fake.sent.push_back({"reactions", peer, {}, {}, {}, {}, reactions});
+        fake.sent.push_back({"reactions", peer, {}, {}, {}, {}, reactions, false});
         done(fake.outcomeFor(peer));
     };
     link.state = [&fake](const std::string& peer, const GroupLink::Outcome& done) {
@@ -114,7 +115,7 @@ GroupLink linkFor(Fake& fake)
         done(fake.outcomeFor(peer));
     };
     link.receipt = [&fake](const std::string& peer, const std::string& id) {
-        fake.sent.push_back({"receipt", peer, id, {}, {}, {}, {}});
+        fake.sent.push_back({"receipt", peer, id, {}, {}, {}, {}, false});
     };
     link.descriptor = [](const std::string& peer) {
         return encodeDescriptor(Descriptor{peer, kDest, "theirs"});
@@ -262,6 +263,28 @@ int main()
 
         engine.onIncoming(textFrom(bob, "huge", "p-huge"));
         CHECK(fake.take("tell", bob).back().text == "Too large to relay.");
+
+        engine.hostPost("h1", "from the group");
+        pump(engine);
+        for (const std::string& member : {ann, bob, cid}) {
+            const std::vector<Sent> hosted = fake.take("relay", member);
+            CHECK(hosted.size() == 1);
+            CHECK(hosted[0].id == "h1");
+            CHECK(hosted[0].author.empty());
+            CHECK(hosted[0].fromHost);
+        }
+        CHECK(!toBob[0].fromHost);
+        for (const std::string& words : {std::string("huge"), std::string()}) {
+            bool refused = false;
+            try {
+                engine.hostPost("h2", words);
+            } catch (const std::invalid_argument&) {
+                refused = true;
+            }
+            CHECK(refused);
+        }
+        pump(engine);
+        CHECK(fake.take("relay", bob).empty());
 
         client::IncomingMessage edit = incoming(ann, "edit");
         edit.refId = "p1";

@@ -431,8 +431,9 @@ void HttpFace::apiRoutes()
         if (!account->running()) {
             return failure(503, "the account is not open: " + account->status());
         }
-        if (account->kind() == Settings::AccountKind::eGroup && request.path != "/v1/status") {
-            return failure(409, "a group relays its members itself; the API does not write for it");
+        if (account->kind() == Settings::AccountKind::eGroup && request.path != "/v1/status"
+            && request.path != "/v1/posts") {
+            return failure(409, "a group takes its own posts at /v1/posts and nothing else");
         }
         try {
             return handler(*account, request);
@@ -451,6 +452,16 @@ void HttpFace::apiRoutes()
                 {"status", account.status()},
                 {"lastEventId", account.lastEventId()},
             });
+        });
+    });
+
+    server_->post("/v1/posts", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            if (account.kind() != Settings::AccountKind::eGroup) {
+                return failure(409, "only a group takes posts; a bot writes with /v1/messages");
+            }
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            return json({{"id", account.postToGroup(body.value("text", std::string()))}});
         });
     });
 
@@ -1113,9 +1124,17 @@ void HttpFace::accountRoutes()
                 rows.push_back({{"id", post.id}, {"author", post.author},
                     {"authorName", nameOf(members, post.author)}, {"type", post.type},
                     {"text", post.text}, {"sentAt", post.sentAt}, {"edited", post.edited},
-                    {"deleted", post.deleted}, {"reactions", group.reactionCounts(post.id)}});
+                    {"deleted", post.deleted}, {"fromHost", post.author.empty()},
+                    {"reactions", group.reactionCounts(post.id)}});
             }
             return json(rows);
+        });
+    });
+
+    server_->post(base + "/group/posts", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            return json({{"id", account.postToGroup(body.value("text", std::string()))}});
         });
     });
 

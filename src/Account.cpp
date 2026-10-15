@@ -331,6 +331,13 @@ GroupLink Account::groupLink()
     return link;
 }
 
+std::string Account::postToGroup(const std::string& text)
+{
+    const std::string id = freshMessageId();
+    group().hostPost(id, text);
+    return id;
+}
+
 GroupEngine& Account::group() const
 {
     if (group_ == nullptr) {
