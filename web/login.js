@@ -32,8 +32,7 @@ el("signIn").onclick = async () => {
         location.href = "/";
     } catch (error) {
         el("signinError").textContent = error.message;
-        await el("languageSlot").append(languagePicker(start));
-start();
+        await start();
     }
 };
 

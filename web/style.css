@@ -121,6 +121,14 @@ body.centred {
     width: auto;
 }
 
+.sheet-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
 .brand {
     display: flex;
     align-items: center;
