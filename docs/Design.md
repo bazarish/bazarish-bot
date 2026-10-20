@@ -100,7 +100,7 @@ Two things follow:
   destination in the project. Nothing is forced back to a plain b32.
 - The SAM transport asks an external router for the same encrypted leaseset, so
   borrowing a router already running on the host stays possible. It needs
-  i2pd >= 2.61.0, and the one
+  i2pd >= 3.0.0, and the one
   thing SAM will not do is swap a live transient in place: a re-issue there
   rebuilds the session, which keeps the address because the master is unchanged.
 
