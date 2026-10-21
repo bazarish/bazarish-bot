@@ -142,7 +142,7 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     accountOptions.version = kVersion;
     accountOptions.settings = nodeSettings_;
     accountOptions.forgetMailbox = [this](const std::string& user) {
-        destinations_->revoke(user);
+        destinations_->forget(user);
         storage_->forgetUser(user);
         return true;
     };
@@ -333,7 +333,7 @@ void ServerSide::forget(const std::string& account)
         const std::lock_guard<std::mutex> lock(expiresMutex_);
         destinationExpires_.erase(account);
     }
-    destinations_->revoke(account);
+    destinations_->forget(account);
     storage_->forgetUser(account);
     std::error_code ignored;
     fs::remove(keyFileFor(account), ignored);
