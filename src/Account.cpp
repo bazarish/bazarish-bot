@@ -815,6 +815,33 @@ Account::Sent Account::sendKeyboard(
     return {line.e2eId, false};
 }
 
+Account::Sent Account::sendPicture(const std::string& peer, const Bytes& bytes,
+    const std::string& name, const std::string& mime, const std::string& replyTo)
+{
+    Line line;
+    line.e2eId = freshMessageId();
+    bool confirmed = false;
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        client::Session& session = openSession();
+        confirmed = session.sendPicture(
+            peer, bytes, name, mime, line.e2eId, statusWatch(peer, line.e2eId), replyTo);
+        line.status = "sending";
+        line.peer = peer;
+        line.outgoing = true;
+        line.type = "image";
+        line.text = name;
+        line.replyTo = replyTo;
+        line.sentAt = static_cast<std::int64_t>(
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count());
+        transcript_->append(line);
+    }
+    waiters_.notify_all();
+    return {line.e2eId, confirmed};
+}
+
 void Account::clearChat(const std::string& peer)
 {
     {

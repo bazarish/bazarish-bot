@@ -2,6 +2,7 @@
 #include "HttpFace.hpp"
 #include "Backup.hpp"
 #include "GroupCopy.hpp"
+#include "PictureRules.hpp"
 #include "SystemInfo.hpp"
 #include "Version.hpp"
 
@@ -518,6 +519,24 @@ void HttpFace::apiRoutes()
             const Account::Sent sent = body.contains("keyboard")
                 ? account.sendKeyboard(peer, text, body.at("keyboard").dump())
                 : account.sendText(peer, text, body.value("replyTo", std::string()));
+            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
+        });
+    });
+
+    server_->post("/v1/pictures", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string peer = body.value("peer", std::string());
+            if (peer.empty()) {
+                return failure(400, "a picture is a \"peer\" and the bytes in \"data\"");
+            }
+            const PictureCheck picture = checkPicture(
+                body.value("data", std::string()), body.value("name", std::string()));
+            if (!picture.accepted) {
+                return failure(picture.refusal, picture.problem);
+            }
+            const Account::Sent sent = account.sendPicture(peer, picture.bytes, picture.name,
+                picture.mime, body.value("replyTo", std::string()));
             return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
         });
     });

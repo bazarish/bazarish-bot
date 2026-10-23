@@ -36,6 +36,7 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `GET /v1/chats` | the last line of every conversation |
 | `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first |
 | `POST /v1/messages` | `{"peer": "...", "text": "...", "replyTo": "<messageId>", "keyboard": [...]}`; `replyTo` and `keyboard` are optional |
+| `POST /v1/pictures` | `{"peer": "...", "data": "<base64>", "name": "qr.png", "replyTo": "<messageId>"}` sends a picture; `name` and `replyTo` are optional |
 | `POST /v1/forward` | `{"from": "<fingerprint>", "messageId": "...", "to": "<fingerprint>"}` sends a text message on, marked forwarded |
 | `POST /v1/messages/{id}` | `{"peer": "...", "text": "..."}` revises a message this account sent |
 | `DELETE /v1/messages/{id}?peer=` | takes a message this account sent back, on both sides |
@@ -90,6 +91,29 @@ An inline keyboard is rows of buttons, each with a `text` and either a `data`
 {"peer": "...", "text": "Pick one:",
  "keyboard": [[{"text": "Ping", "data": "ping"}, {"text": "Help", "command": "help"}]]}
 ```
+
+### Sending a picture
+
+```bash
+curl -s -X POST http://127.0.0.1:8440/v1/pictures \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d "{\"peer\": \"<fingerprint>\", \"name\": \"qr.png\", \"data\": \"$(base64 -w0 qr.png)\"}"
+```
+
+```json
+{"messageId": "a1c3f0e29b4d7765", "confirmed": false}
+```
+
+A picture travels inside the message, so it has a limit: the decoded bytes are at
+most **256 KiB**, the same cap the client's composer shrinks a photo to, which
+keeps the picture and its envelope inside the 512 KiB message. The daemon does
+not shrink or re-encode anything; a larger picture is refused with `413`.
+
+Only PNG and JPEG are taken, told by their first bytes rather than by any field
+of the request; anything else is refused with `415`, and `data` that is not
+base64 with `400`. `name` is kept when it is a plain file name of at most 128
+bytes, and becomes `picture.png` or `picture.jpg` otherwise. The line it leaves
+in the conversation has the type `image` and the name as its text.
 
 ### Waiting for something to happen
 
