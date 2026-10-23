@@ -97,6 +97,7 @@ public:
         const std::string& peer, const std::string& text, const std::string& keyboardJson);
     Sent sendPicture(const std::string& peer, const Bytes& bytes, const std::string& name,
         const std::string& mime, const std::string& replyTo = {});
+    bool setMenu(const std::string& peer, std::vector<client::BotMenuItem> items);
     void editMessage(
         const std::string& peer, const std::string& messageId, const std::string& text);
     void deleteMessage(const std::string& peer, const std::string& messageId);

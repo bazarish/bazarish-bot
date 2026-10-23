@@ -541,6 +541,22 @@ void HttpFace::apiRoutes()
         });
     });
 
+    server_->post("/v1/menu", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string peer = body.value("peer", std::string());
+            if (peer.empty() || !body.contains("items") || !body.at("items").is_array()) {
+                return failure(400, "a menu is a \"peer\" and its \"items\"");
+            }
+            std::vector<client::BotMenuItem> items;
+            for (const nlohmann::json& item : body.at("items")) {
+                items.push_back(
+                    {item.at("title").get<std::string>(), item.at("command").get<std::string>()});
+            }
+            return json({{"sent", account.setMenu(peer, std::move(items))}});
+        });
+    });
+
     server_->post("/v1/forward", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
             const nlohmann::json body = nlohmann::json::parse(call.body);

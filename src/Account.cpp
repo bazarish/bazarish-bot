@@ -1,5 +1,6 @@
 // Bazarish project (c) 2026
 #include "Account.hpp"
+#include "MenuRules.hpp"
 
 #include <ApiClient.hpp>
 
@@ -644,6 +645,12 @@ void Account::drainMailbox()
             line.sentAt = item.sentAt;
             if (transcript_->append(line) != 0) {
                 wrote = true;
+                const std::optional<client::BotMenu> menu = transcript_->menu(line.peer);
+                if (owesMenu(menu, item)) {
+                    openSession().sendMenu(line.peer, *menu);
+                    log::info("account {}: menu {} sent again to {}", id_, menu->id,
+                        log::redact(line.peer));
+                }
             }
             if (item.contentType == "contact.request" && !item.sentByUs
                 && settings_.acceptsContacts(id_)) {
@@ -840,6 +847,19 @@ Account::Sent Account::sendPicture(const std::string& peer, const Bytes& bytes,
     }
     waiters_.notify_all();
     return {line.e2eId, confirmed};
+}
+
+bool Account::setMenu(const std::string& peer, std::vector<client::BotMenuItem> items)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    const std::optional<client::BotMenu> menu
+        = replacingMenu(transcript_->menu(peer), std::move(items));
+    if (!menu) {
+        return false;
+    }
+    openSession().sendMenu(peer, *menu);
+    transcript_->setMenu(peer, *menu);
+    return true;
 }
 
 void Account::clearChat(const std::string& peer)

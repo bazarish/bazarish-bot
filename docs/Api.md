@@ -37,6 +37,7 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first |
 | `POST /v1/messages` | `{"peer": "...", "text": "...", "replyTo": "<messageId>", "keyboard": [...]}`; `replyTo` and `keyboard` are optional |
 | `POST /v1/pictures` | `{"peer": "...", "data": "<base64>", "name": "qr.png", "replyTo": "<messageId>"}` sends a picture; `name` and `replyTo` are optional |
+| `POST /v1/menu` | `{"peer": "...", "items": [{"title": "Balance", "command": "balance"}]}` sets the commands this account offers that contact; `[]` takes them away |
 | `POST /v1/forward` | `{"from": "<fingerprint>", "messageId": "...", "to": "<fingerprint>"}` sends a text message on, marked forwarded |
 | `POST /v1/messages/{id}` | `{"peer": "...", "text": "..."}` revises a message this account sent |
 | `DELETE /v1/messages/{id}?peer=` | takes a message this account sent back, on both sides |
@@ -114,6 +115,30 @@ of the request; anything else is refused with `415`, and `data` that is not
 base64 with `400`. `name` is kept when it is a plain file name of at most 128
 bytes, and becomes `picture.png` or `picture.jpg` otherwise. The line it leaves
 in the conversation has the type `image` and the name as its text.
+
+### The menu
+
+```bash
+curl -s -X POST http://127.0.0.1:8440/v1/menu \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"peer": "<fingerprint>", "items": [{"title": "Balance", "command": "balance"}]}'
+```
+
+```json
+{"sent": true}
+```
+
+A menu is the list of commands a contact's client shows above the chat; a press
+sends the command as a `/name` line. The daemon keeps one menu per contact and
+sends it under a fresh random id when the items change; the same items again
+answer `"sent": false` and send nothing. The limits are the protocol's
+(`docs-main` `Bots.md`): at most 32 items, a title of 1 to 32 characters of plain
+text, a command of 1 to 32 of `a-z`, `0-9` and `_` with no slash. Anything else
+is refused with `400`.
+
+Every message a contact writes names the menu it holds. When a message names none
+or another one, the daemon sends the menu again at once, before the message
+reaches the event stream, and logs it; a bot does nothing for that.
 
 ### Waiting for something to happen
 

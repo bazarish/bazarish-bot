@@ -134,6 +134,17 @@ int main()
         Transcript transcript(file, "pw");
         CHECK(transcript.latestPerPeer().size() == 4);
         CHECK(transcript.conversation("bob", 0, 10).size() == 1);
+        CHECK(!transcript.menu("bob"));
+        transcript.setMenu("bob", {7, {{"Баланс", "balance"}}});
+        transcript.setMenu("bob", {9, {{"Help", "help"}, {"Prices", "prices"}}});
+    }
+
+    {
+        Transcript transcript(file, "pw");
+        const std::optional<bazarish::client::BotMenu> menu = transcript.menu("bob");
+        CHECK(menu && menu->id == 9 && menu->items.size() == 2);
+        CHECK(menu->items.back().command == "prices");
+        CHECK(!transcript.menu("carol"));
     }
 
     fs::remove_all(dir);

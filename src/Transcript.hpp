@@ -3,6 +3,8 @@
 
 #include "Database.hpp"
 
+#include <BotMenu.hpp>
+
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
@@ -60,6 +62,8 @@ public:
     int clearPeer(const std::string& peer);
     void setStatus(
         const std::string& peer, const std::string& messageId, const std::string& status);
+    void setMenu(const std::string& peer, const client::BotMenu& menu);
+    std::optional<client::BotMenu> menu(const std::string& peer) const;
 
     std::vector<Line> conversation(
         const std::string& peer, std::int64_t before, int limit) const;

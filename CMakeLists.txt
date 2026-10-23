@@ -38,6 +38,7 @@ add_library(bazarish_bot_lib STATIC
     src/GroupStore.cpp
     src/NameRules.cpp
     src/PictureRules.cpp
+    src/MenuRules.cpp
     src/Transcript.cpp
     src/ServerSide.cpp
     src/Settings.cpp
@@ -73,6 +74,7 @@ bazarish_bot_add_test(TestTranscript)
 bazarish_bot_add_test(TestGroupEngine)
 bazarish_bot_add_test(TestNameRules)
 bazarish_bot_add_test(TestPictureRules)
+bazarish_bot_add_test(TestMenuRules)
 bazarish_bot_add_test(TestGroupCopy)
 bazarish_bot_add_test(TestBackup)
 

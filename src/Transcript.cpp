@@ -3,6 +3,8 @@
 
 #include <bazarish/Bytes.hpp>
 
+#include <nlohmann/json.hpp>
+
 #include <stdexcept>
 
 namespace bazarish::bot {
@@ -54,6 +56,31 @@ Transcript::Transcript(const std::filesystem::path& file, const std::string& pas
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "kind TEXT NOT NULL, peer TEXT NOT NULL, messageId TEXT, text TEXT,"
         " actor TEXT, at INTEGER)");
+    database_.run("CREATE TABLE IF NOT EXISTS menus ("
+                  "peer TEXT PRIMARY KEY, menuId INTEGER NOT NULL, items TEXT NOT NULL)");
+}
+
+void Transcript::setMenu(const std::string& peer, const client::BotMenu& menu)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    Statement upsert(
+        database_, "INSERT OR REPLACE INTO menus (peer, menuId, items) VALUES (?, ?, ?)");
+    upsert.bind(1, peer);
+    upsert.bind(2, menu.id);
+    upsert.bind(3, client::botMenuItemsJson(menu.items).dump());
+    (void)upsert.step();
+}
+
+std::optional<client::BotMenu> Transcript::menu(const std::string& peer) const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    Statement query(database_, "SELECT menuId, items FROM menus WHERE peer = ?");
+    query.bind(1, peer);
+    if (!query.step()) {
+        return std::nullopt;
+    }
+    return client::botMenuFromJson(
+        {{"menuId", query.number(0)}, {"items", nlohmann::json::parse(query.text(1))}});
 }
 
 std::int64_t Transcript::noteLocked(const std::string& kind, const std::string& peer,
