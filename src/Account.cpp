@@ -155,7 +155,7 @@ void Account::bringUp()
 
     client::ServerEndpoint endpoint;
     endpoint.serverFingerprint = mailbox.fingerprint();
-    endpoint.facades.push_back(client::Facade{false, mailbox.host(), mailbox.port(), {}});
+    endpoint.facades.push_back(client::Facade{mailbox.host(), mailbox.port()});
     session->connectServer(endpoint);
     session->registerSelfHosted();
     log::info("account {}: registered and up", id_);
