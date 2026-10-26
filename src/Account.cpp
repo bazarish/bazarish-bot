@@ -158,6 +158,8 @@ void Account::bringUp()
     endpoint.facades.push_back(client::Facade{mailbox.host(), mailbox.port()});
     session->connectServer(endpoint);
     session->registerSelfHosted();
+    // A bot takes no calls: the session declines each invitation as it arrives.
+    session->setAcceptCalls(false);
     log::info("account {}: registered and up", id_);
     const client::Session::ContactFetchContext waiterContext = session->contactFetchContext();
     const std::shared_ptr<client::LoginSigner> signer = session->loginSigner();
