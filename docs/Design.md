@@ -19,7 +19,10 @@ issued for; the web interface is the operator's and sees every account.
 ## Bot and group
 
 Every account is one of two kinds, chosen when it is added and fixed from then
-on: a group with members cannot meaningfully become a bot again.
+on: a group with members cannot meaningfully become a bot again. The account
+database stores it, and its contact card says it as `bot` or `chat`
+(`docs-main`, `Identity.md`). A file or pairing import whose account was made as
+another kind is refused, a client's `user` account among them.
 
 - A **bot** sends the way every client does: from an outbound address held for
   that one correspondent, never reused for another.

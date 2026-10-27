@@ -150,12 +150,15 @@ std::string Runtime::adopt(const client::AccountInfo& info, const Settings::Acco
 
 std::string Runtime::createAccount(const std::string& name, const Settings::AccountKind kind)
 {
-    return adopt(manager_.create(name), kind);
+    return adopt(manager_.create(name, storedAccountKind(kind)), kind);
 }
 
 std::string Runtime::importAccount(
     const Bytes& bundle, const std::string& bundlePassphrase, const Settings::AccountKind kind)
 {
+    if (client::Session::bundleKind(bundle, bundlePassphrase) != storedAccountKind(kind)) {
+        throw std::runtime_error("this account was created as another kind of account");
+    }
     return adopt(manager_.import(std::string(), bundle, bundlePassphrase), kind);
 }
 

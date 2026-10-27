@@ -142,6 +142,7 @@ void Account::bringUp()
     ServerSide& mailbox = serverSide_();
 
     log::info("account {}: opening", id_);
+    client::Session::assignHostedKind(accountFile_, storedAccountKind(settings_.kind(id_)));
     auto session
         = std::make_unique<client::Session>(client::Session::open(accountFile_));
     applyKind(*session);

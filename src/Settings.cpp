@@ -39,6 +39,12 @@ std::string accountKindName(const Settings::AccountKind kind)
     return kind == Settings::AccountKind::eGroup ? "group" : "bot";
 }
 
+bazarish::AccountKind storedAccountKind(const Settings::AccountKind kind)
+{
+    return kind == Settings::AccountKind::eGroup ? bazarish::AccountKind::eChat
+                                                 : bazarish::AccountKind::eBot;
+}
+
 std::optional<Settings::AccountKind> accountKindFromName(const std::string& name)
 {
     if (name == "bot") {

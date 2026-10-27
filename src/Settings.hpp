@@ -1,6 +1,7 @@
 // Bazarish project (c) 2026
 #pragma once
 
+#include <bazarish/AccountKind.hpp>
 #include <bazarish/I2p.hpp>
 
 #include <cstdint>
@@ -76,5 +77,6 @@ private:
 
 std::string accountKindName(Settings::AccountKind kind);
 std::optional<Settings::AccountKind> accountKindFromName(const std::string& name);
+bazarish::AccountKind storedAccountKind(Settings::AccountKind kind);
 
 }  // namespace bazarish::bot
