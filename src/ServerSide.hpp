@@ -14,6 +14,8 @@
 #include <PerUserDestinations.hpp>
 #include <SubscriptionStore.hpp>
 
+#include <Client.hpp>
+
 #include <bazarish/Crypto.hpp>
 #include <bazarish/I2p.hpp>
 
@@ -42,9 +44,10 @@ public:
     const std::string& fingerprint() const { return fingerprint_; }
     Bytes card() const;
 
-    std::string serveDestinationFor(const std::string& account);
+    // The keys are the account's own: its session issues them, this side only operates them.
+    std::string serveDestinationFor(const std::string& account, const client::AddressKeys& keys);
     bool destinationNeedsRenewal(const std::string& account, std::int64_t now) const;
-    std::string replaceDestinationFor(const std::string& account);
+    std::string replaceDestinationFor(const std::string& account, const client::AddressKeys& keys);
     std::string destination(const std::string& account) const;
     void forget(const std::string& account);
     void endMailWait(const std::string& account);

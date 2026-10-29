@@ -150,7 +150,7 @@ void Account::bringUp()
     const std::string fingerprint = session->fingerprint();
     settings_.rememberAccount(id_, fingerprint, settings_.kind(id_));
 
-    const std::string destination = mailbox.serveDestinationFor(fingerprint);
+    const std::string destination = mailbox.serveDestinationFor(fingerprint, session->addressKeys());
     log::info("account {}: destination {}", id_,
         destination.empty() ? "still building" : destination);
 
@@ -437,10 +437,10 @@ void Account::rename(const std::string& name)
 void Account::newAddress()
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
-    openSession();
-    const std::string address = mailbox_->replaceDestinationFor(fingerprint());
+    client::Session& session = openSession();
+    session.issueAddressKeys();
+    const std::string address = mailbox_->replaceDestinationFor(fingerprint(), session.addressKeys());
     cardCarriesDestination_ = false;
-    announceRoutingWhenCardIsOut_ = true;
     log::info("account {}: address replaced: {}", id_, address.empty() ? "building" : address);
 }
 
@@ -452,7 +452,7 @@ void Account::maintain()
             try {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
                 if (session_ != nullptr) {
-                    mailbox_->serveDestinationFor(fingerprint);
+                    mailbox_->serveDestinationFor(fingerprint, session_->addressKeys());
                     log::info("account {}: delegation re-issued for {}", id_,
                         mailbox_->destination(fingerprint));
                 }
@@ -499,11 +499,11 @@ void Account::maintain()
             try {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
                 if (session_ != nullptr) {
-                    session_->refreshOwnCard();
+                    const bool moved = session_->refreshOwnCard();
                     cardCarriesDestination_ = true;
                     log::info("account {}: card re-issued with the destination {}", id_,
                         mailbox_->destination(fingerprint));
-                    if (announceRoutingWhenCardIsOut_.exchange(false)) {
+                    if (moved) {
                         session_->announceNewRouting();
                     } else {
                         session_->runRoutingFanout();

@@ -263,12 +263,16 @@ fs::path ServerSide::keyFileFor(const std::string& account) const
     return stateDir_ / "server" / "destinations" / (account + ".key");
 }
 
-std::string ServerSide::serveDestinationFor(const std::string& account)
+std::string ServerSide::serveDestinationFor(
+    const std::string& account, const client::AddressKeys& keys)
 {
     const fs::path keyFile = keyFileFor(account);
     // Raised again, an address leaves a dead lease set that senders keep using: a live one stays.
     const std::int64_t held = destinations_->heldUntil(account);
-    if (held > 0 && fs::exists(keyFile) && !renewalDue(held, nowSeconds())) {
+    const std::shared_ptr<Key> served = destinations_->assignmentFor(account, nowSeconds()).sealingKey;
+    const bool sameKeys
+        = served && served->publicDer() == Key::fromPrivatePem(keys.sealingPem).publicDer();
+    if (held > 0 && sameKeys && fs::exists(keyFile) && !renewalDue(held, nowSeconds())) {
         {
             const std::lock_guard<std::mutex> lock(expiresMutex_);
             destinationExpires_[account] = held;
@@ -291,7 +295,8 @@ std::string ServerSide::serveDestinationFor(const std::string& account)
         const std::lock_guard<std::mutex> lock(expiresMutex_);
         destinationExpires_[account] = delegated.transientExpires();
     }
-    destinations_->provision(account, toBase64(delegated.blob()), delegated.transientExpires());
+    destinations_->provision(account, toBase64(delegated.blob()), delegated.transientExpires(),
+        keys.sealingPem, keys.signingPem);
     return destinations_->assignmentFor(account, nowSeconds()).dest;
 }
 
@@ -309,11 +314,12 @@ bool ServerSide::destinationNeedsRenewal(const std::string& account, const std::
     return renewalDue(expires, now);
 }
 
-std::string ServerSide::replaceDestinationFor(const std::string& account)
+std::string ServerSide::replaceDestinationFor(
+    const std::string& account, const client::AddressKeys& keys)
 {
     std::error_code ignored;
     fs::remove(keyFileFor(account), ignored);
-    return serveDestinationFor(account);
+    return serveDestinationFor(account, keys);
 }
 
 std::string ServerSide::destination(const std::string& account) const
