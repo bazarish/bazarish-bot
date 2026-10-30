@@ -229,8 +229,12 @@ An event says what happened, and to which message:
 
 ```json
 {"id": 42, "kind": "message", "peer": "<fingerprint>",
- "messageId": "4054cd273aa34b4b", "text": "hello", "sentAt": 1787932486147}
+ "messageId": "4054cd273aa34b4b", "text": "hello", "actor": "<fingerprint>",
+ "sentAt": 1787932486147}
 ```
+
+For a `message`, `actor` is the peer when the line came from them; a line this account
+sent has no `actor`.
 
 `kind` is one of `message`, `edit`, `delete`, `reaction`, `receipt`, `status` or
 `transfer`. Only a `message` is a new line; the others are about a line that is already there,
@@ -259,12 +263,12 @@ while :; do
   ANSWER=$(curl -s "http://127.0.0.1:8440/v1/events?since=$SINCE&wait=60" \
            -H "Authorization: Bearer $TOKEN")
   SINCE=$(echo "$ANSWER" | jq -r .lastEventId)
-  echo "$ANSWER" | jq -c '.events[] | select(.outgoing == false and .type == "text")' |
-  while read -r LINE; do
-    PEER=$(echo "$LINE" | jq -r .peer)
+  echo "$ANSWER" | jq -c '.events[] | select(.kind == "message" and .actor == .peer)
+                          | {peer, text: ("you said: " + .text)}' |
+  while read -r REPLY; do
     curl -s -X POST http://127.0.0.1:8440/v1/messages \
       -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-      -d "{\"peer\": \"$PEER\", \"text\": \"you said: $(echo "$LINE" | jq -r .text)\"}" > /dev/null
+      -d "$REPLY" > /dev/null
   done
 done
 ```
