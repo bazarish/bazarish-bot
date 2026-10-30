@@ -14,6 +14,15 @@
 
 namespace bazarish::bot {
 
+// A file a line announces: sha256 and mime as its sender named them, path where it is here.
+struct FileInfo {
+    std::string name;
+    std::uint64_t size = 0;
+    std::string mime;
+    std::string sha256;
+    std::string path;
+};
+
 struct Reaction {
     std::string messageId;
     std::string reactor;
@@ -33,6 +42,7 @@ struct Line {
     bool edited = false;
     std::vector<Reaction> reactions;
     std::string status;
+    std::optional<FileInfo> file;
 };
 
 struct Event {
@@ -62,6 +72,10 @@ public:
     int clearPeer(const std::string& peer);
     void setStatus(
         const std::string& peer, const std::string& messageId, const std::string& status);
+    void keepFileAt(
+        const std::string& peer, const std::string& messageId, const std::string& path);
+    void noteTransfer(
+        const std::string& peer, const std::string& messageId, const std::string& state);
     void setMenu(const std::string& peer, const client::BotMenu& menu);
     std::optional<client::BotMenu> menu(const std::string& peer) const;
 
@@ -77,6 +91,7 @@ private:
         const std::string& messageId, const std::string& text, const std::string& actor,
         std::int64_t at);
     void loadReactionsLocked(std::vector<Line>& lines) const;
+    void loadFileLocked(Line& line) const;
 
     Database database_;
     mutable std::mutex mutex_;

@@ -1,11 +1,14 @@
 // Bazarish project (c) 2026
 #pragma once
 
+#include "FileRules.hpp"
 #include "GroupEngine.hpp"
 #include "ServerSide.hpp"
 #include "Settings.hpp"
 #include "Transcript.hpp"
+#include "Transfers.hpp"
 
+#include <FileTransfer.hpp>
 #include <LoginSigner.hpp>
 #include <Session.hpp>
 
@@ -97,6 +100,13 @@ public:
         const std::string& peer, const std::string& text, const std::string& keyboardJson);
     Sent sendPicture(const std::string& peer, const Bytes& bytes, const std::string& name,
         const std::string& mime, const std::string& replyTo = {});
+    Sent sendFile(
+        const std::string& peer, const std::string& path, const std::string& replyTo = {});
+    FileCheck download(
+        const std::string& peer, const std::string& messageId, const std::string& path);
+    std::vector<Transfer> transfers() const;
+    std::optional<Transfer> transfer(const std::string& peer, const std::string& messageId) const;
+    bool cancelTransfer(const std::string& peer, const std::string& messageId);
     bool setMenu(const std::string& peer, std::vector<client::BotMenuItem> items);
     void editMessage(
         const std::string& peer, const std::string& messageId, const std::string& text);
@@ -168,7 +178,9 @@ private:
     mutable std::mutex sessionMutex_;
     ServerSide* mailbox_ = nullptr;
     std::unique_ptr<client::Session> session_;
-    std::unique_ptr<Transcript> transcript_;
+    std::shared_ptr<Transcript> transcript_;
+    std::shared_ptr<Transfers> transfers_;
+    const std::shared_ptr<const client::FileSource> files_ = client::localFiles();
     std::unique_ptr<GroupEngine> group_;
 
     mutable std::mutex stateMutex_;
@@ -196,7 +208,9 @@ private:
     bool aliasErrandByHand_ = false;
     std::atomic<bool> aliasesAnswered_{false};
     mutable std::mutex waitMutex_;
-    mutable std::condition_variable waiters_;
+    // Shared with the transfer handler, which the session calls from threads of its own.
+    const std::shared_ptr<std::condition_variable> waiters_
+        = std::make_shared<std::condition_variable>();
 };
 
 }  // namespace bazarish::bot

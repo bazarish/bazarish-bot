@@ -37,6 +37,11 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first |
 | `POST /v1/messages` | `{"peer": "...", "text": "...", "replyTo": "<messageId>", "keyboard": [...]}`; `replyTo` and `keyboard` are optional |
 | `POST /v1/pictures` | `{"peer": "...", "data": "<base64>", "name": "qr.png", "replyTo": "<messageId>"}` sends a picture; `name` and `replyTo` are optional |
+| `POST /v1/files` | `{"peer": "...", "path": "/srv/outbox/report.pdf", "replyTo": "<messageId>"}` offers a file on this host; `replyTo` is optional |
+| `POST /v1/downloads` | `{"peer": "...", "messageId": "...", "path": "/srv/inbox/report.pdf"}` fetches a file the peer offered into a path on this host |
+| `GET /v1/transfers` | every file transfer since the account opened, each as `GET /v1/transfers/{messageId}` shows it |
+| `GET /v1/transfers/{messageId}?peer=` | how far one transfer has got |
+| `DELETE /v1/transfers/{messageId}?peer=` | stops a transfer under way |
 | `POST /v1/menu` | `{"peer": "...", "items": [{"title": "Balance", "command": "balance"}]}` sets the commands this account offers that contact; `[]` takes them away |
 | `POST /v1/forward` | `{"from": "<fingerprint>", "messageId": "...", "to": "<fingerprint>"}` sends a text message on, marked forwarded |
 | `POST /v1/messages/{id}` | `{"peer": "...", "text": "..."}` revises a message this account sent |
@@ -116,6 +121,70 @@ base64 with `400`. `name` is kept when it is a plain file name of at most 128
 bytes, and becomes `picture.png` or `picture.jpg` otherwise. The line it leaves
 in the conversation has the type `image` and the name as its text.
 
+### Files
+
+A file does not travel in a message. The message announces it - name, size, type and
+SHA-256 - and the bytes go from one side to the other over a one-time I2P address
+when the receiver asks for them, so a file of any size is sent by naming it:
+
+```bash
+curl -s -X POST http://127.0.0.1:8440/v1/files \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"peer": "<fingerprint>", "path": "/srv/outbox/report.pdf"}'
+```
+
+```json
+{"messageId": "9f1c0a77e2d34b58", "confirmed": false}
+```
+
+The path is absolute and names a regular file on this host; otherwise the answer is
+`400` or `404`. The daemon reads the file once to announce it and again each time the
+peer asks for it, so it stays at that path, unchanged, until the peer has it.
+
+A file that comes in is a line of the type `file`:
+
+```json
+{"id": 7, "messageId": "4c2e81d07a5b9f13", "outgoing": false, "type": "file",
+ "text": "report.pdf", "file": {"name": "report.pdf", "size": 3145728,
+ "mime": "application/pdf", "sha256": "5d41..."}}
+```
+
+`mime` and `sha256` are what the sender announced. Nothing is fetched until it is asked
+for:
+
+```bash
+curl -s -X POST http://127.0.0.1:8440/v1/downloads \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"peer": "<fingerprint>", "messageId": "4c2e81d07a5b9f13", "path": "/srv/inbox/report.pdf"}'
+```
+
+The path is absolute, its directory exists and nothing is there yet: what is already
+at a path is never written over, and the answer is `409`. The bytes gather in
+`<path>.part`, and the file appears at the path once it is whole and its SHA-256 is the
+announced one; the line's `file` then carries that `path`. A download already under way
+for the message is also `409`.
+
+```bash
+curl -s "http://127.0.0.1:8440/v1/transfers/4c2e81d07a5b9f13?peer=<fingerprint>" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+```json
+{"peer": "...", "messageId": "4c2e81d07a5b9f13", "direction": "receive", "state": "running",
+ "stage": "receiving", "bytes": 1048576, "total": 3145728, "path": "/srv/inbox/report.pdf"}
+```
+
+`state` is `requested`, `running`, `done` or `failed`, the last with an `error`; `stage`
+names the step it is at. `bytes` and `total` count what crosses the network: the file
+encrypted, which is 1 to 16 bytes longer than its `size`. Each change of `state` is an event of the kind `transfer`
+carrying the new state, so a long poll waits for `done` without asking. A file this
+account sent shows the same while the peer fetches it, with the `direction` `send`.
+Transfers are remembered from the moment the account opens.
+
+Under the packaged unit the daemon does not see `/home` and writes only under
+`/var/lib/bazarish` and `/etc/bazarish`; a drop-in with `ReadWritePaths=` opens another
+directory for downloads.
+
 ### The menu
 
 ```bash
@@ -163,8 +232,8 @@ An event says what happened, and to which message:
  "messageId": "4054cd273aa34b4b", "text": "hello", "sentAt": 1787932486147}
 ```
 
-`kind` is one of `message`, `edit`, `delete`, `reaction`, `receipt` or `status`. Only a
-`message` is a new line; the other four are about a line that is already there,
+`kind` is one of `message`, `edit`, `delete`, `reaction`, `receipt`, `status` or
+`transfer`. Only a `message` is a new line; the others are about a line that is already there,
 so a bot that keeps its own copy applies them to it. Read the conversation back
 with `GET /v1/messages` and each line carries its reactions and whether it has
 been edited:

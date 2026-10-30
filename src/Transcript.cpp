@@ -56,6 +56,10 @@ Transcript::Transcript(const std::filesystem::path& file, const std::string& pas
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "kind TEXT NOT NULL, peer TEXT NOT NULL, messageId TEXT, text TEXT,"
         " actor TEXT, at INTEGER)");
+    database_.run(
+        "CREATE TABLE IF NOT EXISTS files ("
+        "peer TEXT NOT NULL, messageId TEXT NOT NULL, name TEXT, size INTEGER, mime TEXT,"
+        " sha256 TEXT, path TEXT, PRIMARY KEY (peer, messageId))");
     database_.run("CREATE TABLE IF NOT EXISTS menus ("
                   "peer TEXT PRIMARY KEY, menuId INTEGER NOT NULL, items TEXT NOT NULL)");
 }
@@ -121,6 +125,19 @@ std::int64_t Transcript::append(const Line& line)
         return 0;
     }
     const std::int64_t id = database_.lastInsertId();
+    if (line.file.has_value()) {
+        Statement file(database_,
+            "INSERT OR REPLACE INTO files (peer, messageId, name, size, mime, sha256, path)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)");
+        file.bind(1, line.peer);
+        file.bind(2, line.e2eId);
+        file.bind(3, line.file->name);
+        file.bind(4, static_cast<std::int64_t>(line.file->size));
+        file.bind(5, line.file->mime);
+        file.bind(6, line.file->sha256);
+        file.bind(7, line.file->path);
+        (void)file.step();
+    }
     (void)noteLocked("message", line.peer, line.e2eId, line.text, line.outgoing ? "" : line.peer,
         line.sentAt);
     return id;
@@ -159,10 +176,13 @@ bool Transcript::applyDelete(
     if (database_.changes() == 0) {
         return false;
     }
-    Statement clear(database_, "DELETE FROM reactions WHERE peer = ? AND messageId = ?");
-    clear.bind(1, peer);
-    clear.bind(2, messageId);
-    (void)clear.step();
+    for (const char* const table : {"reactions", "files"}) {
+        Statement clear(
+            database_, std::string("DELETE FROM ") + table + " WHERE peer = ? AND messageId = ?");
+        clear.bind(1, peer);
+        clear.bind(2, messageId);
+        (void)clear.step();
+    }
     (void)noteLocked("delete", peer, messageId, {}, outgoing ? "" : peer, 0);
     return true;
 }
@@ -198,9 +218,11 @@ int Transcript::clearPeer(const std::string& peer)
     lines.bind(1, peer);
     (void)lines.step();
     const int gone = database_.changes();
-    Statement marks(database_, "DELETE FROM reactions WHERE peer = ?");
-    marks.bind(1, peer);
-    (void)marks.step();
+    for (const char* const table : {"reactions", "files"}) {
+        Statement marks(database_, std::string("DELETE FROM ") + table + " WHERE peer = ?");
+        marks.bind(1, peer);
+        (void)marks.step();
+    }
     (void)noteLocked("chat-cleared", peer, {}, {}, {}, 0);
     return gone;
 }
@@ -235,6 +257,37 @@ void Transcript::applyReceipt(const std::string& peer, const std::string& messag
     update.bind(3, messageId);
     (void)update.step();
     (void)noteLocked("receipt", peer, messageId, {}, peer, 0);
+}
+
+void Transcript::keepFileAt(
+    const std::string& peer, const std::string& messageId, const std::string& path)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    Statement update(database_, "UPDATE files SET path = ? WHERE peer = ? AND messageId = ?");
+    update.bind(1, path);
+    update.bind(2, peer);
+    update.bind(3, messageId);
+    (void)update.step();
+}
+
+void Transcript::noteTransfer(
+    const std::string& peer, const std::string& messageId, const std::string& state)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    (void)noteLocked("transfer", peer, messageId, state, {}, 0);
+}
+
+void Transcript::loadFileLocked(Line& line) const
+{
+    Statement query(database_,
+        "SELECT name, size, mime, sha256, path FROM files WHERE peer = ? AND messageId = ?");
+    query.bind(1, line.peer);
+    query.bind(2, line.e2eId);
+    if (!query.step()) {
+        return;
+    }
+    line.file = FileInfo{query.text(0), static_cast<std::uint64_t>(query.number(1)),
+        query.text(2), query.text(3), query.text(4)};
 }
 
 void Transcript::loadReactionsLocked(std::vector<Line>& lines) const
@@ -272,6 +325,9 @@ std::vector<Line> Transcript::conversation(
         lines.push_back(readLine(query));
     }
     loadReactionsLocked(lines);
+    for (Line& line : lines) {
+        loadFileLocked(line);
+    }
     return lines;
 }
 
@@ -285,7 +341,9 @@ std::optional<Line> Transcript::find(const std::string& peer, const std::string&
     if (!query.step()) {
         return std::nullopt;
     }
-    return readLine(query);
+    Line line = readLine(query);
+    loadFileLocked(line);
+    return line;
 }
 
 std::vector<Line> Transcript::latestPerPeer() const

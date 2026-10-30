@@ -33,6 +33,7 @@ add_library(bazarish_bot_lib STATIC
     src/OperatorAuth.cpp
     src/Runtime.cpp
     src/Database.cpp
+    src/FileRules.cpp
     src/GroupCopy.cpp
     src/GroupEngine.cpp
     src/GroupStore.cpp
@@ -40,6 +41,7 @@ add_library(bazarish_bot_lib STATIC
     src/PictureRules.cpp
     src/MenuRules.cpp
     src/Transcript.cpp
+    src/Transfers.cpp
     src/ServerSide.cpp
     src/Settings.cpp
     src/SystemInfo.cpp
@@ -74,6 +76,8 @@ bazarish_bot_add_test(TestTranscript)
 bazarish_bot_add_test(TestGroupEngine)
 bazarish_bot_add_test(TestNameRules)
 bazarish_bot_add_test(TestPictureRules)
+bazarish_bot_add_test(TestFileRules)
+bazarish_bot_add_test(TestTransfers)
 bazarish_bot_add_test(TestMenuRules)
 bazarish_bot_add_test(TestGroupCopy)
 bazarish_bot_add_test(TestBackup)

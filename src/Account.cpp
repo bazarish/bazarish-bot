@@ -7,6 +7,7 @@
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Clock.hpp>
 #include <bazarish/Log.hpp>
+#include <bazarish/PathText.hpp>
 
 #include <nlohmann/json.hpp>
 #include <openssl/rand.h>
@@ -31,6 +32,7 @@ constexpr std::size_t kMessageIdBytes = 8;
 constexpr const char* kClosed = "closed";
 constexpr const char* kStarting = "starting";
 constexpr const char* kRunning = "running";
+constexpr const char* kFileType = "file";
 
 std::int64_t wallMillis()
 {
@@ -67,6 +69,23 @@ std::string stageName(const client::Session::PairingStage stage)
         return "failed";
     }
     return "failed";
+}
+
+client::TransferEventFn transferHandler(const std::shared_ptr<Transfers>& transfers,
+    const std::shared_ptr<Transcript>& transcript,
+    const std::shared_ptr<std::condition_variable>& waiters)
+{
+    return [transfers, transcript, waiters](const client::TransferEvent& event) {
+        const std::optional<Transfer> moved = transfers->note(event);
+        if (!moved.has_value()) {
+            return;
+        }
+        if (!moved->outgoing && moved->state == transferStateName(client::TransferState::eDone)) {
+            transcript->keepFileAt(moved->peer, moved->messageId, moved->path);
+        }
+        transcript->noteTransfer(moved->peer, moved->messageId, moved->state);
+        waiters->notify_all();
+    };
 }
 
 bool pairingSettled(const client::Session::PairingStage stage)
@@ -166,7 +185,10 @@ void Account::bringUp()
     const std::shared_ptr<client::LoginSigner> signer = session->loginSigner();
     noteAliases(*session);
 
-    auto transcript = std::make_unique<Transcript>(transcriptFile_, std::string());
+    auto transcript = std::make_shared<Transcript>(transcriptFile_, std::string());
+    auto transfers = std::make_shared<Transfers>();
+    session->setFileSource(files_);
+    session->setTransferHandler(transferHandler(transfers, transcript, waiters_));
     std::unique_ptr<GroupEngine> group;
     if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
         group = std::make_unique<GroupEngine>(groupFile_, std::string(), groupLink(),
@@ -190,6 +212,7 @@ void Account::bringUp()
         mailbox_ = &mailbox;
         session_ = std::move(session);
         transcript_ = std::move(transcript);
+        transfers_ = std::move(transfers);
         group_ = std::move(group);
     }
     if (group_ != nullptr) {
@@ -220,7 +243,7 @@ void Account::close()
     if (starter_.joinable()) {
         starter_.join();
     }
-    waiters_.notify_all();
+    waiters_->notify_all();
     if (maintainer_.joinable()) {
         maintainer_.join();
     }
@@ -251,6 +274,7 @@ void Account::close()
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         session = std::move(session_);
         transcript_.reset();
+        transfers_.reset();
     }
     session.reset();
     group_.reset();
@@ -472,6 +496,13 @@ void Account::maintain()
                 error.what());
         }
 
+        {
+            const std::lock_guard<std::mutex> lock(sessionMutex_);
+            if (session_ != nullptr) {
+                session_->expireFileRequests(wallMillis());
+            }
+        }
+
         try {
             std::optional<client::Session::AliasErrandContext> errand;
             {
@@ -515,7 +546,7 @@ void Account::maintain()
         }
 
         std::unique_lock<std::mutex> lock(waitMutex_);
-        waiters_.wait_for(lock, std::chrono::seconds(kMaintenanceSeconds),
+        waiters_->wait_for(lock, std::chrono::seconds(kMaintenanceSeconds),
             [this]() { return stopping_.load(); });
     }
 }
@@ -559,7 +590,7 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
         } catch (const std::exception& error) {
             log::info("mail wait failed, asking again: {}", error.what());
             std::unique_lock<std::mutex> lock(waitMutex_);
-            waiters_.wait_until(lock, askedAt + std::chrono::seconds(kEventWaitSeconds),
+            waiters_->wait_until(lock, askedAt + std::chrono::seconds(kEventWaitSeconds),
                 [this]() { return stopping_.load(); });
             continue;
         }
@@ -646,6 +677,11 @@ void Account::drainMailbox()
             line.keyboard = item.keyboardJson;
             line.replyTo = item.contentType == "bot.callback" ? item.refId : item.replyTo;
             line.sentAt = item.sentAt;
+            if (item.contentType == kFileType) {
+                line.text = item.attachmentName;
+                line.file = FileInfo{item.attachmentName, item.attachmentSize,
+                    item.attachmentMime, item.attachmentRef, {}};
+            }
             if (transcript_->append(line) != 0) {
                 wrote = true;
                 const std::optional<client::BotMenu> menu = transcript_->menu(line.peer);
@@ -665,7 +701,7 @@ void Account::drainMailbox()
     }
 
     if (wrote) {
-        waiters_.notify_all();
+        waiters_->notify_all();
     }
 }
 
@@ -741,7 +777,7 @@ client::DeliveryWatch Account::statusWatch(const std::string& peer, const std::s
         } catch (const std::exception& error) {
             log::warn("account {}: transcript: {}", id_, error.what());
         }
-        waiters_.notify_all();
+        waiters_->notify_all();
     };
     return watch;
 }
@@ -769,7 +805,7 @@ Account::Sent Account::sendText(const std::string& peer, const std::string& text
                 .count());
         transcript_->append(line);
     }
-    waiters_.notify_all();
+    waiters_->notify_all();
     return {line.e2eId, confirmed};
 }
 
@@ -821,7 +857,7 @@ Account::Sent Account::sendKeyboard(
                 .count());
         transcript_->append(line);
     }
-    waiters_.notify_all();
+    waiters_->notify_all();
     return {line.e2eId, false};
 }
 
@@ -848,8 +884,82 @@ Account::Sent Account::sendPicture(const std::string& peer, const Bytes& bytes,
                 .count());
         transcript_->append(line);
     }
-    waiters_.notify_all();
+    waiters_->notify_all();
     return {line.e2eId, confirmed};
+}
+
+Account::Sent Account::sendFile(
+    const std::string& peer, const std::string& path, const std::string& replyTo)
+{
+    Line line;
+    line.e2eId = freshMessageId();
+    bool confirmed = false;
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        client::Session& session = openSession();
+        confirmed
+            = session.sendFile(peer, path, line.e2eId, statusWatch(peer, line.e2eId), replyTo);
+        line.status = "sending";
+        line.peer = peer;
+        line.outgoing = true;
+        line.type = kFileType;
+        line.text = files_->name(path);
+        line.file = FileInfo{
+            line.text, std::filesystem::file_size(pathFromUtf8(path)), {}, {}, path};
+        line.replyTo = replyTo;
+        line.sentAt = wallMillis();
+        transcript_->append(line);
+    }
+    waiters_->notify_all();
+    return {line.e2eId, confirmed};
+}
+
+FileCheck Account::download(
+    const std::string& peer, const std::string& messageId, const std::string& path)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    client::Session& session = openSession();
+    const std::optional<Line> line = transcript_->find(peer, messageId);
+    if (!line.has_value() || line->outgoing || !line->file.has_value()) {
+        return FileCheck{false, kFileMissing, "no file came in the message " + messageId};
+    }
+    if (transfers_->active(peer, messageId)) {
+        return FileCheck{false, kFileInTheWay, "this file is already on its way"};
+    }
+    transfers_->expect(peer, messageId, path);
+    try {
+        session.requestFile(
+            peer, messageId, line->file->sha256, client::fileTargetAt(pathFromUtf8(path)));
+    } catch (const std::exception& error) {
+        (void)transfers_->note(client::TransferEvent{messageId, peer,
+            client::TransferState::eFailed, 0, 0, error.what(), client::TransferStage::eNone});
+        throw;
+    }
+    return FileCheck{true, 0, {}};
+}
+
+std::vector<Transfer> Account::transfers() const
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    return transfers_ == nullptr ? std::vector<Transfer>() : transfers_->all();
+}
+
+std::optional<Transfer> Account::transfer(
+    const std::string& peer, const std::string& messageId) const
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    return transfers_ == nullptr ? std::nullopt : transfers_->find(peer, messageId);
+}
+
+bool Account::cancelTransfer(const std::string& peer, const std::string& messageId)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    client::Session& session = openSession();
+    if (!transfers_->active(peer, messageId)) {
+        return false;
+    }
+    session.cancelTransfer(messageId);
+    return true;
 }
 
 bool Account::setMenu(const std::string& peer, std::vector<client::BotMenuItem> items)
@@ -873,7 +983,7 @@ void Account::clearChat(const std::string& peer)
         session.sendChatClear(peer);
         transcript_->clearPeer(peer);
     }
-    waiters_.notify_all();
+    waiters_->notify_all();
 }
 
 void Account::acceptContact(const std::string& peer)
@@ -1035,7 +1145,7 @@ void Account::editMessage(
         }
         (void)session.sendEdit(peer, messageId, text);
     }
-    waiters_.notify_all();
+    waiters_->notify_all();
 }
 
 void Account::deleteMessage(const std::string& peer, const std::string& messageId)
@@ -1048,7 +1158,7 @@ void Account::deleteMessage(const std::string& peer, const std::string& messageI
         }
         session.sendDelete(peer, messageId);
     }
-    waiters_.notify_all();
+    waiters_->notify_all();
 }
 
 void Account::react(
@@ -1060,7 +1170,7 @@ void Account::react(
         session.sendReaction(peer, messageId, emoji);
         transcript_->applyReaction(peer, messageId, "me", emoji);
     }
-    waiters_.notify_all();
+    waiters_->notify_all();
 }
 
 void Account::confirmReceipt(const std::string& peer, const std::string& messageId)
@@ -1084,7 +1194,7 @@ std::vector<Event> Account::await(const std::int64_t sinceId, const int seconds)
     if (!ready()) {
         const int wait = seconds > kMaxWaitSeconds ? kMaxWaitSeconds : seconds;
         std::unique_lock<std::mutex> lock(waitMutex_);
-        waiters_.wait_for(lock, std::chrono::seconds(wait < 0 ? 0 : wait),
+        waiters_->wait_for(lock, std::chrono::seconds(wait < 0 ? 0 : wait),
             [&ready, this]() { return stopping_.load() || ready(); });
     }
     const std::lock_guard<std::mutex> lock(sessionMutex_);

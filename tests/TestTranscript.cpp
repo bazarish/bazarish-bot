@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <map>
 #include <string>
+#include <vector>
 
 #define CHECK(condition)                                                            \
     do {                                                                            \
@@ -145,6 +146,38 @@ int main()
         CHECK(menu && menu->id == 9 && menu->items.size() == 2);
         CHECK(menu->items.back().command == "prices");
         CHECK(!transcript.menu("carol"));
+    }
+
+    {
+        Transcript transcript(file, "pw");
+        const std::int64_t before = transcript.lastEventId();
+        Line offered = lineFor("erin", "report.pdf", "f1", false, 600);
+        offered.type = "file";
+        offered.file = bazarish::bot::FileInfo{"report.pdf", 3000, "application/pdf", "ab12", {}};
+        CHECK(transcript.append(offered) != 0);
+        CHECK(transcript.append(lineFor("erin", "thanks", "f2", true, 601)) != 0);
+        const std::vector<Line> lines = transcript.conversation("erin", 0, 10);
+        CHECK(lines.size() == 2);
+        CHECK(!lines[0].file.has_value());
+        CHECK(lines[1].file && lines[1].file->size == 3000 && lines[1].file->sha256 == "ab12");
+        CHECK(lines[1].file->path.empty());
+
+        transcript.keepFileAt("erin", "f1", "/srv/in/report.pdf");
+        transcript.noteTransfer("erin", "f1", "done");
+        CHECK(transcript.find("erin", "f1")->file->path == "/srv/in/report.pdf");
+        const std::vector<bazarish::bot::Event> events = transcript.since(before, 0);
+        CHECK(events.back().kind == "transfer" && events.back().text == "done");
+        CHECK(events.back().messageId == "f1");
+
+        CHECK(transcript.applyDelete("erin", "f1", false));
+        CHECK(transcript.append(lineFor("erin", "again", "f1", false, 602)) != 0);
+        CHECK(!transcript.find("erin", "f1")->file.has_value());
+
+        offered.e2eId = "f3";
+        CHECK(transcript.append(offered) != 0);
+        CHECK(transcript.clearPeer("erin") > 0);
+        CHECK(transcript.append(lineFor("erin", "after", "f3", false, 603)) != 0);
+        CHECK(!transcript.find("erin", "f3")->file.has_value());
     }
 
     fs::remove_all(dir);

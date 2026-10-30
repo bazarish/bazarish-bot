@@ -1,6 +1,7 @@
 // Bazarish project (c) 2026
 #include "HttpFace.hpp"
 #include "Backup.hpp"
+#include "FileRules.hpp"
 #include "GroupCopy.hpp"
 #include "PictureRules.hpp"
 #include "SystemInfo.hpp"
@@ -19,6 +20,7 @@
 #include <functional>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -110,6 +112,35 @@ nlohmann::json lineJson(const Line& line)
             reactions.push_back({{"reactor", reaction.reactor}, {"emoji", reaction.emoji}});
         }
         item["reactions"] = reactions;
+    }
+    if (line.file.has_value()) {
+        nlohmann::json file = {{"name", line.file->name}, {"size", line.file->size}};
+        for (const auto& [key, value] : {std::pair{"mime", &line.file->mime},
+                 std::pair{"sha256", &line.file->sha256}, std::pair{"path", &line.file->path}}) {
+            if (!value->empty()) {
+                file[key] = *value;
+            }
+        }
+        item["file"] = file;
+    }
+    return item;
+}
+
+nlohmann::json transferJson(const Transfer& transfer)
+{
+    nlohmann::json item = {
+        {"peer", transfer.peer},
+        {"messageId", transfer.messageId},
+        {"direction", transfer.outgoing ? "send" : "receive"},
+        {"state", transfer.state},
+        {"bytes", transfer.bytes},
+        {"total", transfer.total},
+    };
+    for (const auto& [key, value] : {std::pair{"stage", &transfer.stage},
+             std::pair{"error", &transfer.error}, std::pair{"path", &transfer.path}}) {
+        if (!value->empty()) {
+            item[key] = *value;
+        }
     }
     return item;
 }
@@ -538,6 +569,78 @@ void HttpFace::apiRoutes()
             const Account::Sent sent = account.sendPicture(peer, picture.bytes, picture.name,
                 picture.mime, body.value("replyTo", std::string()));
             return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
+        });
+    });
+
+    server_->post("/v1/files", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string peer = body.value("peer", std::string());
+            const std::string path = body.value("path", std::string());
+            if (peer.empty() || path.empty()) {
+                return failure(400, "a file is a \"peer\" and the \"path\" it is read from");
+            }
+            const FileCheck source = checkSource(path);
+            if (!source.accepted) {
+                return failure(source.refusal, source.problem);
+            }
+            const Account::Sent sent
+                = account.sendFile(peer, path, body.value("replyTo", std::string()));
+            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
+        });
+    });
+
+    server_->post("/v1/downloads", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const std::string peer = body.value("peer", std::string());
+            const std::string messageId = body.value("messageId", std::string());
+            const std::string path = body.value("path", std::string());
+            if (peer.empty() || messageId.empty() || path.empty()) {
+                return failure(400,
+                    "a download is a \"peer\", the \"messageId\" of their file and the"
+                    " \"path\" it is written to");
+            }
+            FileCheck check = checkTarget(path);
+            if (check.accepted) {
+                check = account.download(peer, messageId, path);
+            }
+            if (!check.accepted) {
+                return failure(check.refusal, check.problem);
+            }
+            return json({{"messageId", messageId}, {"path", path}});
+        });
+    });
+
+    server_->get("/v1/transfers", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request&) {
+            nlohmann::json listed = nlohmann::json::array();
+            for (const Transfer& transfer : account.transfers()) {
+                listed.push_back(transferJson(transfer));
+            }
+            return json({{"transfers", listed}});
+        });
+    });
+
+    server_->get("/v1/transfers/([0-9a-f]+)", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            const std::optional<Transfer> transfer
+                = account.transfer(call.query("peer"), call.captures.at(0));
+            if (!transfer.has_value()) {
+                return failure(404, "no transfer of the message " + call.captures.at(0)
+                        + " with \"peer\" " + call.query("peer") + " since the account opened");
+            }
+            return json(transferJson(*transfer));
+        });
+    });
+
+    server_->del("/v1/transfers/([0-9a-f]+)", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            if (!account.cancelTransfer(call.query("peer"), call.captures.at(0))) {
+                return failure(404, "no transfer of the message " + call.captures.at(0)
+                        + " with \"peer\" " + call.query("peer") + " is under way");
+            }
+            return json({{"cancelled", call.captures.at(0)}});
         });
     });
 
