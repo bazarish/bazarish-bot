@@ -290,4 +290,5 @@ comes back. A body meant to be shown as typed should avoid `*`, `~~` and `!!`;
 single markers that do not pair off are drawn as themselves.
 
 `client-qt/docs/Formatting.md` specifies the whole of it. The panel draws the
-same in a group's posts and in the preview of a new one.
+same in its conversations, where the pressable forms work as they do in the
+client, and in a group's posts and the preview of a new one, where they do not.

@@ -224,7 +224,18 @@
     const kClasses = {code: "markup-code", send: "markup-chip", alias: "markup-chip",
         link: "markup-link"};
 
-    function runNode(run) {
+    function pressable(tag, className, title, onPress) {
+        const made = document.createElement(tag);
+        made.className = className;
+        made.title = title;
+        made.addEventListener("click", (event) => {
+            event.preventDefault();
+            onPress();
+        });
+        return made;
+    }
+
+    function runNode(run, actions) {
         let made = document.createTextNode(run.text);
         for (const [flag, tag] of [["bold", "b"], ["italic", "i"], ["strike", "s"]]) {
             if (run[flag] && run.action !== "code") {
@@ -243,7 +254,9 @@
                     lines.append("\n");
                 }
                 if (line) {
-                    const code = document.createElement("code");
+                    const code = actions
+                        ? pressable("code", kClasses.code, actions.copyTitle, () => actions.copy(run.text))
+                        : document.createElement("code");
                     code.className = kClasses.code;
                     code.textContent = line;
                     lines.append(code);
@@ -251,13 +264,29 @@
             });
             return lines;
         }
-        const span = document.createElement("span");
-        span.className = kClasses[run.action];
-        span.append(made);
-        return span;
+        if (!actions) {
+            const span = document.createElement("span");
+            span.className = kClasses[run.action];
+            span.append(made);
+            return span;
+        }
+        let pressed;
+        if (run.action === "send") {
+            pressed = pressable("button", kClasses.send, actions.sendTitle, () => actions.send(run.text));
+            pressed.type = "button";
+        } else if (run.action === "alias") {
+            pressed = pressable("button", kClasses.alias, actions.aliasTitle, () => actions.alias(run.text));
+            pressed.type = "button";
+        } else {
+            pressed = pressable("a", kClasses.link, run.text, () => actions.link(run.text));
+            pressed.href = run.text;
+            pressed.rel = "noopener noreferrer";
+        }
+        pressed.append(made);
+        return pressed;
     }
 
-    function draw(into, text, contactLabel) {
+    function draw(into, text, contactLabel, actions) {
         into.textContent = "";
         const plates = invites(text);
         for (const plate of plates) {
@@ -279,7 +308,7 @@
             const body = document.createElement("div");
             body.className = "markup-body";
             for (const run of parse(rest)) {
-                body.append(runNode(run));
+                body.append(runNode(run, actions));
             }
             into.append(body);
         }

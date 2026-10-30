@@ -1398,6 +1398,22 @@ textarea.field {
     color: var(--bz-key);
 }
 
+button.markup-chip {
+    border: 0;
+    font: inherit;
+    cursor: pointer;
+}
+
+code.markup-code[title] {
+    cursor: pointer;
+}
+
+.markup-said {
+    margin: 0.3rem 0 0;
+    color: var(--bz-ink-faint);
+    font-size: 0.75rem;
+}
+
 .markup-link {
     color: var(--bz-key);
     text-decoration: underline;

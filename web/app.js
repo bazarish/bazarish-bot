@@ -12,6 +12,7 @@ let names = {};
 let lastEventId = 0;
 let watched = null;
 let editing = null;
+let aliasToAdd = "";
 let chatDraws = 0;
 let threadDraws = 0;
 let polling = 0;
@@ -20,6 +21,7 @@ const kReactions = ["\u{1F44D}", "❤️", "\u{1F602}", "\u{1F389}", "\u{1F440}"
 const kPollMs = 1000;
 const kEventWaitSeconds = 45;
 const kRetryMs = 3000;
+const kSaidShownMs = 1600;
 const kAliasSigil = "!";
 const kKinds = [
     ["bot", N_("Bot")],
@@ -682,13 +684,57 @@ function deliveryMark(status) {
     return failed;
 }
 
+function markupActions(chatPeer, bubble) {
+    const say = (text) => {
+        const said = node("p", "markup-said", text);
+        bubble.append(said);
+        window.setTimeout(() => said.remove(), kSaidShownMs);
+    };
+    return {
+        send: async (text) => {
+            try {
+                await call("POST", base() + "/messages", {peer: chatPeer, text});
+                await drawThread();
+                await drawChats();
+            } catch (error) {
+                say(error.message);
+            }
+        },
+        sendTitle: t("Send"),
+        alias: (name) => {
+            aliasToAdd = name;
+            go(accountId, "contacts");
+        },
+        aliasTitle: t("Add a contact"),
+        link: (address) => {
+            if (window.confirm(t("This is an external link. The site will probably learn your IP address.")
+                + "\n\n" + address)) {
+                window.open(address, "_blank", "noopener,noreferrer");
+            }
+        },
+        copy: async (text) => {
+            try {
+                await window.bazarishCopy.copy(text);
+                say(t("Copied to clipboard"));
+            } catch (error) {
+                say(t("Select it and copy"));
+            }
+        },
+        copyTitle: t("Copy"),
+    };
+}
+
 function lineNode(line) {
     const isNote = line.type !== "text";
     const held = node("div", "line" + (line.outgoing ? " is-out" : "")
         + (isNote ? " is-note" : ""));
 
     const bubble = node("div", "bubble");
-    bubble.textContent = isNote ? "[" + line.type + "] " + (line.text || "") : line.text;
+    if (isNote) {
+        bubble.textContent = "[" + line.type + "] " + (line.text || "");
+    } else {
+        window.bazarishMarkup.draw(bubble, line.text, t("Contact"), markupActions(peer, bubble));
+    }
     if (line.keyboard) {
         const keys = node("div", "keys");
         for (const row of line.keyboard) {
@@ -828,6 +874,8 @@ async function viewContacts() {
     const invite = node("input", "field");
     invite.type = "text";
     invite.placeholder = t("bazarish://invite?… or %1alias", kAliasSigil);
+    invite.value = aliasToAdd;
+    aliasToAdd = "";
     const intro = node("input", "field");
     intro.type = "text";
     intro.placeholder = t("a line to introduce yourself");

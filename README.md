@@ -90,4 +90,3 @@ its operator, so a second lock on the same disk would guard nothing.
 |---|---|
 | [docs/Api.md](docs/Api.md) | The REST API a bot is written against |
 | [docs/Design.md](docs/Design.md) | How the daemon is put together and why |
-| [TODO.md](TODO.md) | Known gaps, worth reading before the next change |
