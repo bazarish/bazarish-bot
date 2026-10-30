@@ -116,8 +116,8 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
         privacy_, kOwnDestTunnelQuantity);
     destinations_->reloadPersisted(nowSeconds());
 
-    card_ = ServerCard::issue(
-        *identity_, Key::fromPublicDer(sealing_->publicDer()), nowSeconds());
+    card_ = ServerCard::issue(*identity_, ServerCard::Service::eMessaging,
+        Key::fromPublicDer(sealing_->publicDer()), nowSeconds());
     {
         std::ofstream out(serverDir / "server-card.der", std::ios::binary | std::ios::trunc);
         out.write(reinterpret_cast<const char*>(card_.data()),
@@ -136,9 +136,17 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     nodeSettings_ = std::make_shared<service::NodeSettings>(
         serverDir / "node" / "node.json", nodeValues);
 
+    const auto nodeSealing
+        = std::make_shared<Key>(loadOrCreateSealingKey(serverDir / "node" / "sealing.pem"));
+    const tls::Credential credential = tls::selfSigned(serverDir);
     service::AccountApiOptions accountOptions;
     accountOptions.serverFingerprint = fingerprint_;
     accountOptions.serverCardDer = card_;
+    accountOptions.sealingKey = nodeSealing;
+    accountOptions.nodeCardDer = ServerCard::issue(*identity_, ServerCard::Service::eServiceNode,
+        Key::fromPublicDer(nodeSealing->publicDer()), nowSeconds());
+    accountOptions.tlsCertificate = credential.certificate.string();
+    accountOptions.tlsKey = credential.key.string();
     accountOptions.version = kVersion;
     accountOptions.settings = nodeSettings_;
     accountOptions.forgetMailbox = [this](const std::string& user) {
@@ -176,7 +184,6 @@ void ServerSide::start()
     options.serverCardDer = card_;
     options.sealingKey = sealing_;
     options.identity = identity_;
-    options.serviceNodeUrl = "http://" + host_ + ":" + std::to_string(nodePort_);
     if (router_ != nullptr) {
         options.reseedSample
             = [](const std::size_t count) { return i2p::sampleRouterInfos(count); };
@@ -194,9 +201,8 @@ void ServerSide::start()
     }
 
     facade::FacadeOptions facadeOptions;
-    facadeOptions.messagingHost = host_;
-    facadeOptions.messagingPort = mailboxPort_;
-    facadeOptions.messagingPin = credential.pin;
+    facadeOptions.messaging = {host_, mailboxPort_, credential.pin};
+    facadeOptions.serviceNode = {host_, nodePort_, credential.pin};
     facadeOptions.version = kVersion;
     facade_ = std::make_unique<facade::Facade>(facadeOptions);
     facadePort_ = facade_->bind(host_, 0);
@@ -207,8 +213,8 @@ void ServerSide::start()
     const std::string nodeHost = host_;
     const int nodePort = nodePort_;
     const std::shared_ptr<const Identity> identity = identity_;
-    destinations_->setGetCard(
-        [nodeHost, nodePort, identity](const std::string& fingerprint) -> std::optional<Bytes> {
+    destinations_->setGetCard([nodeHost, nodePort, identity, pin = credential.pin](
+                                  const std::string& fingerprint) -> std::optional<Bytes> {
             http::ClientRequest lookup;
             lookup.method = "GET";
             lookup.target = "/v1/account/card?user=" + fingerprint;
@@ -216,6 +222,8 @@ void ServerSide::start()
                 = auth::signRequest(*identity, nowSeconds(), "GET", "/v1/account/card", {});
             lookup.headers = std::map<std::string, std::string>(signature.begin(), signature.end());
             http::ClientOptions options;
+            options.tls = true;
+            options.pin = pin;
             options.connectTimeout = std::chrono::seconds(kNodeTimeoutSeconds);
             options.readTimeout = std::chrono::seconds(kNodeTimeoutSeconds);
             const http::ClientResponse answer

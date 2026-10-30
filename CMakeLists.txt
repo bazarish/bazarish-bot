@@ -77,6 +77,7 @@ bazarish_bot_add_test(TestPictureRules)
 bazarish_bot_add_test(TestMenuRules)
 bazarish_bot_add_test(TestGroupCopy)
 bazarish_bot_add_test(TestBackup)
+bazarish_bot_add_test(TestServerSide)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME WebTranslations
