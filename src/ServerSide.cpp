@@ -1,7 +1,7 @@
 // Bazarish project (c) 2026
 #include "ServerSide.hpp"
-#include "Version.hpp"
 
+#include <BuildVersion.hpp>
 #include <bazarish/Auth.hpp>
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Certificates.hpp>
@@ -147,7 +147,7 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
         Key::fromPublicDer(nodeSealing->publicDer()), nowSeconds());
     accountOptions.tlsCertificate = credential.certificate.string();
     accountOptions.tlsKey = credential.key.string();
-    accountOptions.version = kVersion;
+    accountOptions.version = kBuildVersion;
     accountOptions.settings = nodeSettings_;
     accountOptions.forgetMailbox = [this](const std::string& user) {
         destinations_->forget(user);
@@ -176,7 +176,7 @@ void ServerSide::start()
     const tls::Credential credential = tls::selfSigned(stateDir_ / "server");
 
     server::HttpApiOptions options;
-    options.version = kVersion;
+    options.version = kBuildVersion;
     options.tlsCertificate = credential.certificate.string();
     options.tlsKey = credential.key.string();
     options.defaultQuotaBytes = kOwnQuotaBytes;
@@ -203,7 +203,7 @@ void ServerSide::start()
     facade::FacadeOptions facadeOptions;
     facadeOptions.messaging = {host_, mailboxPort_, credential.pin};
     facadeOptions.serviceNode = {host_, nodePort_, credential.pin};
-    facadeOptions.version = kVersion;
+    facadeOptions.version = kBuildVersion;
     facade_ = std::make_unique<facade::Facade>(facadeOptions);
     facadePort_ = facade_->bind(host_, 0);
     if (facadePort_ <= 0) {

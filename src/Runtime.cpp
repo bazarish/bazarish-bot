@@ -2,8 +2,8 @@
 #include "Runtime.hpp"
 
 #include "Backup.hpp"
-#include "Version.hpp"
 
+#include <BuildVersion.hpp>
 #include <AccountKey.hpp>
 #include <DevicePairing.hpp>
 #include <I2pRouter.hpp>
@@ -482,7 +482,7 @@ Bytes Runtime::exportEverything()
 {
     Bytes archive;
     quiesced([this, &archive]() {
-        archive = exportBackup(config_.stateDir, config_.path, kVersion,
+        archive = exportBackup(config_.stateDir, config_.path, kBuildVersion,
             std::chrono::duration_cast<std::chrono::seconds>(
                 std::chrono::system_clock::now().time_since_epoch())
                 .count());

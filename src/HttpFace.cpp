@@ -5,8 +5,8 @@
 #include "GroupCopy.hpp"
 #include "PictureRules.hpp"
 #include "SystemInfo.hpp"
-#include "Version.hpp"
 
+#include <BuildVersion.hpp>
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Log.hpp>
 #include <bazarish/Portal.hpp>
@@ -771,7 +771,7 @@ void HttpFace::operatorRoutes()
             {"challenge", operator_.issueChallenge(nowSeconds())},
         };
         if (in) {
-            state["version"] = kVersion;
+            state["version"] = kBuildVersion;
         }
         return json(state);
     });
@@ -863,7 +863,7 @@ void HttpFace::operatorRoutes()
                 routerJson["connections"] = router.connections;
             }
             return json({
-                {"version", kVersion},
+                {"version", kBuildVersion},
                 {"uptimeSeconds", runtime_.uptimeSeconds()},
                 {"transport", runtime_.settings().transport() == Settings::Transport::eSam
                         ? "sam"

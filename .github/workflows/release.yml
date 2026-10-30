@@ -6,10 +6,6 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "The version to stamp on a package built by hand, as in 1.2.3"
-        required: true
 
 permissions:
   contents: write
@@ -44,11 +40,7 @@ jobs:
       - name: Build, test and pack
         run: |
           git config --global --add safe.directory '*'
-          version="${{ github.event.inputs.version }}"
-          if [ -z "$version" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            version="${GITHUB_REF_NAME#v}"
-          fi
-          bash packaging/deb/build.sh "$version" out
+          bash packaging/deb/build.sh out
       - uses: actions/upload-artifact@v4
         with:
           name: deb-${{ matrix.arch }}

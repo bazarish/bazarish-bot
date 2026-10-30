@@ -2,7 +2,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(bazarish-bot CXX)
 
-set(BAZARISH_BOT_VERSION "0.0.1" CACHE STRING "The version this build reports; a release sets it from its tag")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -47,7 +46,7 @@ add_library(bazarish_bot_lib STATIC
     src/SystemInfo.cpp
     src/Zip.cpp
 )
-target_compile_definitions(bazarish_bot_lib PUBLIC BAZARISH_BOT_VERSION="${BAZARISH_BOT_VERSION}")
+bazarish_stamp_version(bazarish_bot_lib)
 target_include_directories(bazarish_bot_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_include_directories(bazarish_bot_lib PRIVATE ${SQLCIPHER_INCLUDE_DIR})
 target_link_libraries(bazarish_bot_lib PUBLIC

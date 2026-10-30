@@ -51,7 +51,7 @@ apt install build-essential cmake ninja-build git libssl-dev zlib1g-dev \
             libboost-dev libboost-program-options-dev libsqlcipher-dev \
             libqrencode-dev libopus-dev libicu-dev dpkg-dev
 git clone --recursive https://github.com/bazarish/bazarish-bot
-cd bazarish-bot && packaging/deb/build.sh <version> out
+cd bazarish-bot && packaging/deb/build.sh out
 ```
 
 The embedded router is always built in and carries every account in the

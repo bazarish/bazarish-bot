@@ -3,8 +3,8 @@
 #include "Config.hpp"
 #include "HttpFace.hpp"
 #include "Runtime.hpp"
-#include "Version.hpp"
 
+#include <BuildVersion.hpp>
 #include <bazarish/Log.hpp>
 
 #include <Restart.hpp>
@@ -59,7 +59,7 @@ void usage()
                 "Everything else is set in that interface.\n\n"
                 "Usage:\n"
                 "  bazarish-bot --config <path>\n",
-        bazarish::bot::kVersion);
+        bazarish::kBuildVersion);
 }
 
 std::filesystem::path webDirectory(const char* const argv0)
@@ -122,7 +122,7 @@ int main(int argc, char** argv)
         });
         const int port = face.start();
         bazarish::log::info(
-            "bazarish-bot {} on http://{}:{}", bazarish::bot::kVersion, config.listenHost, port);
+            "bazarish-bot {} on http://{}:{}", bazarish::kBuildVersion, config.listenHost, port);
         if (config.operatorFingerprint.empty()) {
             bazarish::log::info(
                 "open that address: the first key to sign in there operates this host");

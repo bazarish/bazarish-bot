@@ -1,23 +1,29 @@
 #!/bin/bash
 # Bazarish project (c) 2026
-# Builds, tests and packs the daemon as a .deb for Debian 13: build.sh <version> <out-dir>.
-# Runs from the repository root on a Debian 13 host with the build dependencies.
+# Builds, tests and packs the daemon as a .deb for Debian 13: build.sh <out-dir>.
+# Runs from the repository root of a git checkout on a Debian 13 host with the build
+# dependencies.
 set -euo pipefail
 
-readonly kVersion=$1
-readonly kOut=$2
+readonly kOut=$1
 readonly kJobs=${BAZARISH_JOBS:-4}
 readonly kPackage=bazarish-bot
 readonly kBuild=build-deb
 readonly kStage=$kBuild/stage
 
-if [[ ! $kVersion =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    echo "the version is three numbers, as in 1.2.3: $kVersion" >&2
-    exit 1
+# The tag a release is cut from, or dev and the commit, counted so that apt takes a
+# later build for newer.
+if tag=$(git describe --tags --exact-match 2>/dev/null); then
+    if [[ ! $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        echo "a release tag is v and three numbers, as in v1.2.3: $tag" >&2
+        exit 1
+    fi
+    readonly kVersion=${tag#v}
+else
+    readonly kVersion=0~dev.$(git rev-list --count HEAD)+$(git rev-parse --short HEAD)
 fi
 
-cmake -S . -B "$kBuild" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DBAZARISH_BOT_VERSION="$kVersion"
+cmake -S . -B "$kBuild" -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build "$kBuild" -j"$kJobs"
 ctest --test-dir "$kBuild" -j"$kJobs" --output-on-failure
 

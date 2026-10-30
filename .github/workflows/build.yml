@@ -26,8 +26,6 @@ jobs:
             runner: ubuntu-24.04-arm
     env:
       BAZARISH_JOBS: 4
-      # What a package that is no release carries; a release takes its tag's.
-      BAZARISH_VERSION: 0.0.0
     steps:
       - name: Install the toolchain and the dependencies
         run: |
@@ -43,7 +41,7 @@ jobs:
       - name: Build, test and pack
         run: |
           git config --global --add safe.directory '*'
-          bash packaging/deb/build.sh "$BAZARISH_VERSION" out
+          bash packaging/deb/build.sh out
       - uses: actions/upload-artifact@v4
         with:
           name: deb-${{ matrix.arch }}
