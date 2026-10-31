@@ -2,14 +2,13 @@
 #include "Settings.hpp"
 
 #include <bazarish/Bytes.hpp>
-#include <bazarish/Log.hpp>
+#include <bazarish/Clock.hpp>
 
 #include <nlohmann/json.hpp>
 #include <openssl/crypto.h>
 #include <openssl/rand.h>
 
 #include <algorithm>
-#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -25,11 +24,6 @@ constexpr std::size_t kTokenBytes = 32;
 std::string transportName(const Settings::Transport transport)
 {
     return transport == Settings::Transport::eSam ? "sam" : "embedded";
-}
-
-std::int64_t nowSeconds()
-{
-    return static_cast<std::int64_t>(std::time(nullptr));
 }
 
 }  // namespace

@@ -2,8 +2,6 @@
 #include "Account.hpp"
 #include "MenuRules.hpp"
 
-#include <ApiClient.hpp>
-
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Clock.hpp>
 #include <bazarish/Log.hpp>
@@ -178,21 +176,19 @@ void Account::bringUp()
     endpoint.facades.push_back(client::Facade{mailbox.host(), mailbox.port()});
     session->connectServer(endpoint);
     session->registerSelfHosted();
-    // A bot takes no calls: the session declines each invitation as it arrives.
     session->setAcceptCalls(false);
     log::info("account {}: registered and up", id_);
     const client::Session::ContactFetchContext waiterContext = session->contactFetchContext();
     const std::shared_ptr<client::LoginSigner> signer = session->loginSigner();
     noteAliases(*session);
 
-    auto transcript = std::make_shared<Transcript>(transcriptFile_, std::string());
+    auto transcript = std::make_shared<Transcript>(transcriptFile_);
     auto transfers = std::make_shared<Transfers>();
     session->setFileSource(files_);
     session->setTransferHandler(transferHandler(transfers, transcript, waiters_));
     std::unique_ptr<GroupEngine> group;
     if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
-        group = std::make_unique<GroupEngine>(groupFile_, std::string(), groupLink(),
-            []() { return wallMillis(); });
+        group = std::make_unique<GroupEngine>(groupFile_, groupLink(), []() { return wallMillis(); });
         GroupEngine* const engine = group.get();
         session->setGroupBlockSource(
             [engine](const std::string& peer) { return engine->blockFor(peer); });
@@ -782,16 +778,15 @@ client::DeliveryWatch Account::statusWatch(const std::string& peer, const std::s
     return watch;
 }
 
-Account::Sent Account::sendText(const std::string& peer, const std::string& text,
+std::string Account::sendText(const std::string& peer, const std::string& text,
     const std::string& replyTo, const bool forwarded)
 {
     Line line;
     line.e2eId = freshMessageId();
-    bool confirmed = false;
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        confirmed = session.sendMessage(
+        (void)session.sendMessage(
             peer, text, line.e2eId, statusWatch(peer, line.e2eId), replyTo, forwarded);
         line.status = "sending";
         line.peer = peer;
@@ -799,17 +794,14 @@ Account::Sent Account::sendText(const std::string& peer, const std::string& text
         line.type = "text";
         line.text = text;
         line.replyTo = replyTo;
-        line.sentAt = static_cast<std::int64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count());
+        line.sentAt = wallMillis();
         transcript_->append(line);
     }
     waiters_->notify_all();
-    return {line.e2eId, confirmed};
+    return line.e2eId;
 }
 
-Account::Sent Account::forward(
+std::string Account::forward(
     const std::string& fromPeer, const std::string& messageId, const std::string& toPeer)
 {
     std::optional<Line> original;
@@ -827,7 +819,7 @@ Account::Sent Account::forward(
     return sendText(toPeer, original->text, {}, true);
 }
 
-Account::Sent Account::sendKeyboard(
+std::string Account::sendKeyboard(
     const std::string& peer, const std::string& text, const std::string& keyboardJson)
 {
     client::InlineKeyboard keyboard;
@@ -851,26 +843,22 @@ Account::Sent Account::sendKeyboard(
         line.type = "text";
         line.text = text;
         line.keyboard = client::inlineKeyboardJson(keyboard);
-        line.sentAt = static_cast<std::int64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count());
+        line.sentAt = wallMillis();
         transcript_->append(line);
     }
     waiters_->notify_all();
-    return {line.e2eId, false};
+    return line.e2eId;
 }
 
-Account::Sent Account::sendPicture(const std::string& peer, const Bytes& bytes,
+std::string Account::sendPicture(const std::string& peer, const Bytes& bytes,
     const std::string& name, const std::string& mime, const std::string& replyTo)
 {
     Line line;
     line.e2eId = freshMessageId();
-    bool confirmed = false;
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        confirmed = session.sendPicture(
+        (void)session.sendPicture(
             peer, bytes, name, mime, line.e2eId, statusWatch(peer, line.e2eId), replyTo);
         line.status = "sending";
         line.peer = peer;
@@ -878,27 +866,22 @@ Account::Sent Account::sendPicture(const std::string& peer, const Bytes& bytes,
         line.type = "image";
         line.text = name;
         line.replyTo = replyTo;
-        line.sentAt = static_cast<std::int64_t>(
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count());
+        line.sentAt = wallMillis();
         transcript_->append(line);
     }
     waiters_->notify_all();
-    return {line.e2eId, confirmed};
+    return line.e2eId;
 }
 
-Account::Sent Account::sendFile(
+std::string Account::sendFile(
     const std::string& peer, const std::string& path, const std::string& replyTo)
 {
     Line line;
     line.e2eId = freshMessageId();
-    bool confirmed = false;
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        confirmed
-            = session.sendFile(peer, path, line.e2eId, statusWatch(peer, line.e2eId), replyTo);
+        (void)session.sendFile(peer, path, line.e2eId, statusWatch(peer, line.e2eId), replyTo);
         line.status = "sending";
         line.peer = peer;
         line.outgoing = true;
@@ -911,7 +894,7 @@ Account::Sent Account::sendFile(
         transcript_->append(line);
     }
     waiters_->notify_all();
-    return {line.e2eId, confirmed};
+    return line.e2eId;
 }
 
 FileCheck Account::download(
@@ -1201,7 +1184,7 @@ std::vector<Event> Account::await(const std::int64_t sinceId, const int seconds)
     if (transcript_ == nullptr) {
         return {};
     }
-    return transcript_->since(sinceId, 0);
+    return transcript_->since(sinceId);
 }
 
 }  // namespace bazarish::bot

@@ -105,9 +105,6 @@ function node(tag, className, text) {
 
 function decorateCopies(root) {
     const marks = window.bazarishCopy;
-    if (!marks) {
-        return;
-    }
     for (const block of root.querySelectorAll("pre.copy:not([data-copyable]):not([hidden])")) {
         block.dataset.copyable = "yes";
         block.parentNode.insertBefore(
@@ -164,7 +161,7 @@ function kindPicker(value) {
         option.value = kind;
         picker.append(option);
     }
-    picker.value = value || "bot";
+    picker.value = value;
     return picker;
 }
 
@@ -1218,7 +1215,7 @@ async function viewAccount() {
     keyFooter.append(fresh);
     keys.append(keyFooter, keyResult);
 
-    const owed = account.pendingRouting || [];
+    const owed = account.pendingRouting;
     if (owed.length > 0 || account.pendingRegistry) {
         const stuck = node("div", "block");
         stuck.append(node("p", "block-title", t("The new card has not reached all contacts")));
@@ -1617,9 +1614,6 @@ function inFilter(member, filter) {
     if (filter === "admin") {
         return member.admin;
     }
-    if (filter === "left") {
-        return member.state === "left";
-    }
     return member.state === filter;
 }
 
@@ -1643,7 +1637,7 @@ function memberRow(member, refresh) {
     if (member.admin) {
         tags.append(node("span", "tag is-key", t("administrator")));
     }
-    const stateClass = {pending: " is-pending", banned: " is-banned", member: ""}[member.state];
+    const stateClass = {pending: " is-pending", banned: " is-banned"}[member.state];
     if (member.state !== "member") {
         tags.append(node("span", "tag" + (stateClass || ""), t(kStateLabels[member.state])));
     }
@@ -1926,7 +1920,7 @@ async function viewSystem() {
     const routed = [[t("Destinations ready / all"),
         system.router.readyDestinations + " / " + system.router.destinations]];
     if (system.router.counted) {
-        const links = system.router.connections || {};
+        const links = system.router.connections;
         routed.push([t("Tunnels in / out"),
             system.router.inboundTunnels + " / " + system.router.outboundTunnels]);
         routed.push([t("Transit tunnels"), String(system.router.transitTunnels)]);

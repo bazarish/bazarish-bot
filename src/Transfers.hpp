@@ -28,7 +28,6 @@ struct Transfer {
 class Transfers {
 public:
     void expect(const std::string& peer, const std::string& messageId, const std::string& path);
-    // The transfer as it stands, when the event moved it to another state.
     std::optional<Transfer> note(const client::TransferEvent& event);
     bool active(const std::string& peer, const std::string& messageId) const;
     std::optional<Transfer> find(const std::string& peer, const std::string& messageId) const;
@@ -40,6 +39,5 @@ private:
 };
 
 const char* transferStateName(client::TransferState state);
-const char* transferStageName(client::TransferStage stage);
 
 }  // namespace bazarish::bot

@@ -1,7 +1,6 @@
 // Bazarish project (c) 2026
 #include "GroupEngine.hpp"
 
-#include "NameRules.hpp"
 
 #include <bazarish/Descriptor.hpp>
 #include <bazarish/Log.hpp>
@@ -66,9 +65,8 @@ bool startsWith(const std::string& text, const std::string& prefix)
 
 }  // namespace
 
-GroupEngine::GroupEngine(const std::filesystem::path& file, const std::string& passphrase,
-    GroupLink link, Clock clock)
-    : store_(file, passphrase)
+GroupEngine::GroupEngine(const std::filesystem::path& file, GroupLink link, Clock clock)
+    : store_(file)
     , link_(std::move(link))
     , clock_(std::move(clock))
     , config_(store_.config())
@@ -919,12 +917,6 @@ void GroupEngine::refreshMemberCount()
     memberCount_ = static_cast<std::int64_t>(std::count_if(members_.begin(), members_.end(),
         [](const auto& entry) { return entry.second.state == MemberState::eMember; }));
     countedAt_ = clock_();
-}
-
-std::int64_t GroupEngine::memberCount() const
-{
-    const std::lock_guard<std::mutex> lock(mutex_);
-    return memberCount_;
 }
 
 GroupConfig GroupEngine::config() const

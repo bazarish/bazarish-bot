@@ -40,8 +40,8 @@ ten minutes without a delivery.
 
 ## The group host
 
-A group account runs the protocol of `docs-main/Groups.md` itself; nothing of
-it goes through the REST API, which refuses a group account outright. Its
+A group account runs the protocol of `docs-main/Groups.md` itself; of the REST
+API it answers only `GET /v1/status` and `POST /v1/posts`. Its
 state - settings, members, posts, the relay log, reactions, requests - lives in
 a database of its own, `groups/<id>.db`, encrypted like the transcripts and
 apart from them: a post is relayed under its author's id to everyone, which the
@@ -148,8 +148,8 @@ into the transcript, and a bot's waiting poll is answered from there at once.
 There is no periodic mailbox read and no fallback; a wait that fails is asked
 again. Upkeep - renewing the delegation, the routing fan-out after a new
 address, the alias status, re-issuing the card - runs on its own five-second
-turn and never reads the mailbox. Stopping the daemon waits for the open
-request to come back, up to the 30 seconds it is held.
+turn and never reads the mailbox. Stopping an account releases its open request
+at once.
 
 Authentication is a bearer token, issued in the web interface under a name and
 shown once. Whoever holds one holds the account, so the listener is on loopback
@@ -203,7 +203,7 @@ administrator.
 | From | What |
 |---|---|
 | `common-cpp` | the client core (accounts, session, courier, invites) and the crypto and I2P transport under it |
-| `bazarish-server` | `server-core` for the mailbox, the delivery engine and the federation this daemon serves to itself, and `service-node` for the account it registers with itself |
+| `bazarish-server` | `server-core` for the mailbox, the delivery engine and the federation this daemon serves to itself, `service-node` for the account it registers with itself, and `facade-http` in front of both |
 
 The client core is shared with the desktop client rather than copied, so both
 front-ends speak the protocol through exactly the same code.

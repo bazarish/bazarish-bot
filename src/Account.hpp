@@ -87,20 +87,15 @@ public:
     std::vector<Line> conversation(const std::string& peer, std::int64_t before, int limit) const;
     std::vector<Line> chats() const;
 
-    struct Sent {
-        std::string messageId;
-        bool confirmed = false;
-    };
-
-    Sent sendText(const std::string& peer, const std::string& text,
+    std::string sendText(const std::string& peer, const std::string& text,
         const std::string& replyTo = {}, bool forwarded = false);
-    Sent forward(const std::string& fromPeer, const std::string& messageId,
+    std::string forward(const std::string& fromPeer, const std::string& messageId,
         const std::string& toPeer);
-    Sent sendKeyboard(
+    std::string sendKeyboard(
         const std::string& peer, const std::string& text, const std::string& keyboardJson);
-    Sent sendPicture(const std::string& peer, const Bytes& bytes, const std::string& name,
+    std::string sendPicture(const std::string& peer, const Bytes& bytes, const std::string& name,
         const std::string& mime, const std::string& replyTo = {});
-    Sent sendFile(
+    std::string sendFile(
         const std::string& peer, const std::string& path, const std::string& replyTo = {});
     FileCheck download(
         const std::string& peer, const std::string& messageId, const std::string& path);

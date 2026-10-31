@@ -14,7 +14,6 @@
 
 namespace bazarish::bot {
 
-// A file a line announces: sha256 and mime as its sender named them, path where it is here.
 struct FileInfo {
     std::string name;
     std::uint64_t size = 0;
@@ -24,7 +23,6 @@ struct FileInfo {
 };
 
 struct Reaction {
-    std::string messageId;
     std::string reactor;
     std::string emoji;
 };
@@ -57,7 +55,7 @@ struct Event {
 
 class Transcript {
 public:
-    Transcript(const std::filesystem::path& file, const std::string& passphrase);
+    explicit Transcript(const std::filesystem::path& file);
 
     Transcript(const Transcript&) = delete;
     Transcript& operator=(const Transcript&) = delete;
@@ -83,7 +81,7 @@ public:
         const std::string& peer, std::int64_t before, int limit) const;
     std::vector<Line> latestPerPeer() const;
     std::optional<Line> find(const std::string& peer, const std::string& messageId) const;
-    std::vector<Event> since(std::int64_t id, int limit) const;
+    std::vector<Event> since(std::int64_t id) const;
     std::int64_t lastEventId() const;
 
 private:

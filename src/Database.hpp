@@ -14,7 +14,7 @@ namespace bazarish::bot {
 
 class Database {
 public:
-    Database(const std::filesystem::path& file, const std::string& passphrase, std::string label);
+    Database(const std::filesystem::path& file, std::string label);
     ~Database();
 
     Database(const Database&) = delete;

@@ -20,10 +20,10 @@
         return copied ? Promise.resolve() : Promise.reject(new Error("the browser refused"));
     }
 
-    function copyButton(label, source, className) {
+    function copyButton(label, source) {
         var button = document.createElement("button");
         button.type = "button";
-        button.className = className || "btn btn-quiet btn-copy";
+        button.className = "btn btn-quiet btn-copy";
         button.textContent = label;
         button.addEventListener("click", function () {
             copy(source()).then(function () {
@@ -43,7 +43,7 @@
         var button = document.createElement("button");
         button.type = "button";
         button.className = "icon-copy";
-        button.title = title || t("Copy");
+        button.title = title;
         button.setAttribute("aria-label", button.title);
         button.innerHTML = "<svg viewBox=\"0 0 16 16\" aria-hidden=\"true\">"
             + "<rect x=\"5.5\" y=\"5.5\" width=\"8\" height=\"9\" rx=\"1.5\"/>"

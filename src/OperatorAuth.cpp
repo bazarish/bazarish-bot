@@ -3,7 +3,6 @@
 
 #include <bazarish/Bytes.hpp>
 #include <bazarish/ConfigFile.hpp>
-#include <bazarish/Crypto.hpp>
 #include <bazarish/Log.hpp>
 
 #include <stdexcept>

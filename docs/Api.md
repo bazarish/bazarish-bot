@@ -28,14 +28,14 @@ the status in it: `{"error": "the account is not open: starting"}`.
 
 | Route | What it does |
 |---|---|
-| `GET /v1/status` | the account's fingerprint, name, kind (`bot` or `group`), address and the id of the last event |
+| `GET /v1/status` | the account's `fingerprint`, `name`, `kind` (`bot` or `group`), `destination`, `status` and the id of the last event |
 | `GET /v1/invite` | the invite URI to hand out to be added as a contact |
 | `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted, `accepting` while the acceptance is on its way, and `writable` for whether this account holds the pass that admits it to their mailbox |
 | `POST /v1/contacts` | `{"invite": "...", "text": "..."}` or `{"alias": "!name", "text": "..."}` adds one; `{"accept": "<fingerprint>"}` accepts a request |
 | `DELETE /v1/contacts/{fingerprint}` | removes a contact and revokes the pass it was issued, or declines a request; the conversation stays |
 | `GET /v1/chats` | the last line of every conversation |
 | `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first |
-| `POST /v1/messages` | `{"peer": "...", "text": "...", "replyTo": "<messageId>", "keyboard": [...]}`; `replyTo` and `keyboard` are optional |
+| `POST /v1/messages` | `{"peer": "...", "text": "...", "replyTo": "<messageId>", "keyboard": [...]}`; `replyTo` and `keyboard` are optional, and a message with a keyboard takes no `replyTo` |
 | `POST /v1/pictures` | `{"peer": "...", "data": "<base64>", "name": "qr.png", "replyTo": "<messageId>"}` sends a picture; `name` and `replyTo` are optional |
 | `POST /v1/files` | `{"peer": "...", "path": "/srv/outbox/report.pdf", "replyTo": "<messageId>"}` offers a file on this host; `replyTo` is optional |
 | `POST /v1/downloads` | `{"peer": "...", "messageId": "...", "path": "/srv/inbox/report.pdf"}` fetches a file the peer offered into a path on this host |
@@ -49,7 +49,7 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `POST /v1/reactions` | `{"peer": "...", "messageId": "...", "emoji": "👍"}`; an empty emoji takes it back |
 | `POST /v1/receipts` | `{"peer": "...", "messageId": "..."}` tells the peer their message was read, and every earlier one with it |
 | `POST /v1/chats/{fingerprint}/clear` | asks the peer to drop the conversation, and drops this side of it |
-| `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds |
+| `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds, at most 60 |
 | `POST /v1/posts` | `{"text": "..."}` posts in a group as the group itself; group accounts only |
 
 A group account answers `GET /v1/status` and `POST /v1/posts` and refuses every
@@ -81,14 +81,8 @@ curl -s -X POST http://127.0.0.1:8440/v1/messages \
 ```
 
 ```json
-{"messageId": "5373671a07d8b517", "confirmed": false}
+{"messageId": "5373671a07d8b517"}
 ```
-
-`confirmed` is whether the far side's server had stored it before the wait was
-up. **False is not a failure.** The mailbox took the message and keeps
-delivering it in the background with retries, exactly as it does for the desktop
-client; a bot that treats false as an error will resend what has already been
-sent.
 
 An inline keyboard is rows of buttons, each with a `text` and either a `data`
 (the peer's tap sends a `bot.callback` back) or a `command`:
@@ -107,7 +101,7 @@ curl -s -X POST http://127.0.0.1:8440/v1/pictures \
 ```
 
 ```json
-{"messageId": "a1c3f0e29b4d7765", "confirmed": false}
+{"messageId": "a1c3f0e29b4d7765"}
 ```
 
 A picture travels inside the message, so it has a limit: the decoded bytes are at
@@ -134,7 +128,7 @@ curl -s -X POST http://127.0.0.1:8440/v1/files \
 ```
 
 ```json
-{"messageId": "9f1c0a77e2d34b58", "confirmed": false}
+{"messageId": "9f1c0a77e2d34b58"}
 ```
 
 The path is absolute and names a regular file on this host; otherwise the answer is
@@ -236,8 +230,8 @@ An event says what happened, and to which message:
 For a `message`, `actor` is the peer when the line came from them; a line this account
 sent has no `actor`.
 
-`kind` is one of `message`, `edit`, `delete`, `reaction`, `receipt`, `status` or
-`transfer`. Only a `message` is a new line; the others are about a line that is already there,
+`kind` is one of `message`, `edit`, `delete`, `reaction`, `receipt`, `status`,
+`transfer` or `chat-cleared`. Only a `message` is a new line; the others are about a line that is already there,
 so a bot that keeps its own copy applies them to it. Read the conversation back
 with `GET /v1/messages` and each line carries its reactions and whether it has
 been edited:
@@ -250,8 +244,8 @@ been edited:
 A reaction's `reactor` is `me` for this account's own, and the peer's
 fingerprint for theirs.
 
-A line's `type` is the end-to-end content type - `text`, `contact.request`,
-`bot.command`, `bot.callback`. A bot answering commands watches for
+A line's `type` is the end-to-end content type - `text`, `image`, `audio`,
+`file`, `contact.request`, `bot.command`, `bot.callback`. A bot answering commands watches for
 `bot.command` and for text beginning with a slash, which the protocol says are
 two spellings of one thing.
 
@@ -297,9 +291,9 @@ keep failing, because only they can admit this account again.
 `DELETE /v1/contacts/{fingerprint}` declines it. A bot accepts
 requests automatically as they arrive unless that is switched off in the panel.
 
-**Delivery.** `POST /v1/messages` answers as soon as the mailbox takes the
-message, and `confirmed` says only whether the far side signed for it inside the
-send's own wait. What became of it afterwards is on the line and in the feed:
+**Delivery.** `POST /v1/messages` answers as soon as the message is queued; this
+account delivers it in the background with retries, as the desktop client does.
+What became of it is on the line and in the feed:
 
 ```json
 {"id": 12, "messageId": "5373671a07d8b517", "outgoing": true, "text": "notice",

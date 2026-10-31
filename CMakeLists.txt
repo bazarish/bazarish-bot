@@ -7,10 +7,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# The client core and the crypto come from common; the mailbox and the
-# federation this daemon serves to itself come from the server repository. Both
-# are submodules, and both are told to use this tree's copy of common so the
-# library is compiled once.
+# Both submodules build against this tree's copy of common, so it is compiled once.
 set(BAZARISH_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/common" CACHE PATH
     "Path to the bazarish common library repository")
 set(BAZARISH_SERVER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bazarish-server" CACHE PATH

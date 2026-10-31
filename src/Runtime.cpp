@@ -64,7 +64,6 @@ fs::path Runtime::groupFileFor(const std::string& id) const
 
 i2p::Router& Runtime::router()
 {
-    client::setI2pEnabled(true);
     client::setRouterTransit(settings_.transit());
     if (settings_.transport() == Settings::Transport::eSam) {
         client::setSamTransport(settings_.samHost(), settings_.samPort());

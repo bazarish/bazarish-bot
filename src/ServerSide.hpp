@@ -42,7 +42,6 @@ public:
     int port() const { return facadePort_; }
 
     const std::string& fingerprint() const { return fingerprint_; }
-    Bytes card() const;
 
     // The keys are the account's own: its session issues them, this side only operates them.
     std::string serveDestinationFor(const std::string& account, const client::AddressKeys& keys);

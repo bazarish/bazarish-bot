@@ -49,7 +49,7 @@ To build it yourself:
 ```
 apt install build-essential cmake ninja-build git libssl-dev zlib1g-dev \
             libboost-dev libboost-program-options-dev libsqlcipher-dev \
-            libqrencode-dev libopus-dev libicu-dev dpkg-dev
+            libqrencode-dev libopus-dev libicu-dev dpkg-dev python3 pkg-config
 git clone --recursive https://github.com/bazarish/bazarish-bot
 cd bazarish-bot && packaging/deb/build.sh out
 ```

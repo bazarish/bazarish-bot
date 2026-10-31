@@ -18,6 +18,8 @@ const char* transferStateName(const client::TransferState state)
     return "failed";
 }
 
+namespace {
+
 const char* transferStageName(const client::TransferStage stage)
 {
     switch (stage) {
@@ -42,6 +44,8 @@ const char* transferStageName(const client::TransferStage stage)
     }
     return "";
 }
+
+}  // namespace
 
 void Transfers::expect(
     const std::string& peer, const std::string& messageId, const std::string& path)

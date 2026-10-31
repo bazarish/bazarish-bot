@@ -103,7 +103,7 @@ client::GroupKind groupKindFromName(const std::string& name);
 
 class GroupStore {
 public:
-    GroupStore(const std::filesystem::path& file, const std::string& passphrase);
+    explicit GroupStore(const std::filesystem::path& file);
 
     GroupConfig config() const;
     void setConfig(const GroupConfig& config);

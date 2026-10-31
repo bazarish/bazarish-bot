@@ -45,7 +45,7 @@ int main()
     const fs::path file = dir / "transcript.db";
 
     {
-        Transcript transcript(file, "pw");
+        Transcript transcript(file);
         CHECK(transcript.lastEventId() == 0);
         CHECK(transcript.latestPerPeer().empty());
 
@@ -72,7 +72,7 @@ int main()
         CHECK(chats.size() == 2);
         CHECK(chats.front().peer == "bob");
 
-        const std::vector<bazarish::bot::Event> after = transcript.since(1, 50);
+        const std::vector<bazarish::bot::Event> after = transcript.since(1);
         CHECK(after.size() == 2);
         CHECK(after.front().messageId == "m2");
         CHECK(after.front().kind == "message");
@@ -101,11 +101,11 @@ int main()
         transcript.append(lineFor("carol", "notice", "n1", true, 50));
         transcript.setStatus("carol", "n1", "delivered");
         CHECK(transcript.conversation("carol", 0, 10).front().status == "delivered");
-        transcript.setStatus("carol", "n1", "failed: no tokens");
-        CHECK(transcript.conversation("carol", 0, 10).front().status == "failed: no tokens");
+        transcript.setStatus("carol", "n1", "failed: refused");
+        CHECK(transcript.conversation("carol", 0, 10).front().status == "failed: refused");
         transcript.setStatus("carol", "no-such-id", "delivered");
 
-        const std::vector<bazarish::bot::Event> feed = transcript.since(0, 100);
+        const std::vector<bazarish::bot::Event> feed = transcript.since(0);
         std::string kinds;
         for (const bazarish::bot::Event& event : feed) {
             kinds += event.kind + " ";
@@ -132,7 +132,7 @@ int main()
     }
 
     {
-        Transcript transcript(file, "pw");
+        Transcript transcript(file);
         CHECK(transcript.latestPerPeer().size() == 4);
         CHECK(transcript.conversation("bob", 0, 10).size() == 1);
         CHECK(!transcript.menu("bob"));
@@ -141,7 +141,7 @@ int main()
     }
 
     {
-        Transcript transcript(file, "pw");
+        Transcript transcript(file);
         const std::optional<bazarish::client::BotMenu> menu = transcript.menu("bob");
         CHECK(menu && menu->id == 9 && menu->items.size() == 2);
         CHECK(menu->items.back().command == "prices");
@@ -149,7 +149,7 @@ int main()
     }
 
     {
-        Transcript transcript(file, "pw");
+        Transcript transcript(file);
         const std::int64_t before = transcript.lastEventId();
         Line offered = lineFor("erin", "report.pdf", "f1", false, 600);
         offered.type = "file";
@@ -165,7 +165,7 @@ int main()
         transcript.keepFileAt("erin", "f1", "/srv/in/report.pdf");
         transcript.noteTransfer("erin", "f1", "done");
         CHECK(transcript.find("erin", "f1")->file->path == "/srv/in/report.pdf");
-        const std::vector<bazarish::bot::Event> events = transcript.since(before, 0);
+        const std::vector<bazarish::bot::Event> events = transcript.since(before);
         CHECK(events.back().kind == "transfer" && events.back().text == "done");
         CHECK(events.back().messageId == "f1");
 

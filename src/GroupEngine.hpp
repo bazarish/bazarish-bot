@@ -57,8 +57,7 @@ class GroupEngine {
 public:
     using Clock = std::function<std::int64_t()>;
 
-    GroupEngine(const std::filesystem::path& file, const std::string& passphrase, GroupLink link,
-        Clock clock);
+    GroupEngine(const std::filesystem::path& file, GroupLink link, Clock clock);
     ~GroupEngine();
 
     GroupEngine(const GroupEngine&) = delete;
@@ -83,7 +82,6 @@ public:
     std::map<std::string, std::int64_t> reactionCounts(const std::string& postId) const;
     void deletePost(const std::string& id);
     void hostPost(const std::string& id, const std::string& text);
-    std::int64_t memberCount() const;
 
     void pumpOnce();
     void refreshMemberCount();

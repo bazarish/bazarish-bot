@@ -134,8 +134,8 @@ client::GroupKind groupKindFromName(const std::string& name)
     throw std::runtime_error("the group kind is group or channel");
 }
 
-GroupStore::GroupStore(const std::filesystem::path& file, const std::string& passphrase)
-    : database_(file, passphrase, "group store")
+GroupStore::GroupStore(const std::filesystem::path& file)
+    : database_(file, "group store")
 {
     database_.run("CREATE TABLE IF NOT EXISTS config (row INTEGER PRIMARY KEY, kind TEXT NOT NULL,"
                   " joinMode TEXT NOT NULL, historySize INTEGER NOT NULL,"

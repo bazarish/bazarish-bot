@@ -8,13 +8,13 @@
 
 #include <BuildVersion.hpp>
 #include <bazarish/Bytes.hpp>
+#include <bazarish/Clock.hpp>
 #include <bazarish/Log.hpp>
 #include <bazarish/Portal.hpp>
 
 #include <nlohmann/json.hpp>
 #include <openssl/rand.h>
 
-#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -50,11 +50,6 @@ std::string sessionSecret()
     return toHex(secret);
 }
 
-std::int64_t nowSeconds()
-{
-    return static_cast<std::int64_t>(std::time(nullptr));
-}
-
 http::Response json(const nlohmann::json& body, const int status = 200)
 {
     http::Response response;
@@ -81,6 +76,13 @@ std::string backupFileName(const std::string& displayName)
 http::Response failure(const int status, const std::string& message)
 {
     return json({{"error", message}}, status);
+}
+
+http::Response tokenRefused(const http::Request& request)
+{
+    return failure(401, request.hasHeader("authorization")
+            ? "this token does not open the API"
+            : "the API is opened by a token in the Authorization header");
 }
 
 nlohmann::json lineJson(const Line& line)
@@ -242,7 +244,7 @@ int intParam(const http::Request& request, const std::string& key, const int fal
     try {
         return std::stoi(text);
     } catch (const std::exception&) {
-        return fallback;
+        throw std::invalid_argument("\"" + key + "\" is not a number");
     }
 }
 
@@ -255,15 +257,21 @@ std::int64_t longParam(const http::Request& request, const std::string& key)
     try {
         return std::stoll(text);
     } catch (const std::exception&) {
-        return 0;
+        throw std::invalid_argument("\"" + key + "\" is not a number");
     }
 }
 
-void answerEvents(const std::shared_ptr<Account>& account, const http::Request& request,
-    http::Responder respond)
+std::optional<http::Response> answerEvents(const std::shared_ptr<Account>& account,
+    const http::Request& request, http::Responder respond)
 {
-    const std::int64_t since = longParam(request, "since");
-    const int wait = intParam(request, "wait", kDefaultWaitSeconds);
+    std::int64_t since = 0;
+    int wait = 0;
+    try {
+        since = longParam(request, "since");
+        wait = intParam(request, "wait", kDefaultWaitSeconds);
+    } catch (const std::invalid_argument& error) {
+        return failure(400, error.what());
+    }
     std::thread([account, since, wait, respond = std::move(respond)]() {
         try {
             const std::vector<Event> events = account->await(since, wait);
@@ -273,6 +281,7 @@ void answerEvents(const std::shared_ptr<Account>& account, const http::Request& 
             respond(failure(503, error.what()));
         }
     }).detach();
+    return std::nullopt;
 }
 
 http::Response addContact(Account& account, const nlohmann::json& body)
@@ -345,7 +354,6 @@ nlohmann::json membersJson(const std::vector<Member>& members)
             {"name", member.name},
             {"state", memberStateName(member.state)},
             {"admin", member.admin},
-            {"contactable", member.contactable},
             {"joinedAt", member.joinedAt},
         });
     }
@@ -456,9 +464,7 @@ void HttpFace::apiRoutes()
     const auto guarded = [this](const http::Request& request, const Handler& handler) {
         const std::shared_ptr<Account> account = accountForToken(request);
         if (account == nullptr) {
-            return failure(401, request.hasHeader("authorization")
-                    ? "this token does not open the API"
-                    : "the API is opened by a token in the Authorization header");
+            return tokenRefused(request);
         }
         if (!account->running()) {
             return failure(503, "the account is not open: " + account->status());
@@ -547,10 +553,14 @@ void HttpFace::apiRoutes()
             if (peer.empty() || text.empty()) {
                 return failure(400, "a message is a \"peer\" and a \"text\"");
             }
-            const Account::Sent sent = body.contains("keyboard")
-                ? account.sendKeyboard(peer, text, body.at("keyboard").dump())
-                : account.sendText(peer, text, body.value("replyTo", std::string()));
-            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
+            const std::string replyTo = body.value("replyTo", std::string());
+            if (body.contains("keyboard") && !replyTo.empty()) {
+                return failure(400, "a message with a \"keyboard\" takes no \"replyTo\"");
+            }
+            return json({{"messageId",
+                body.contains("keyboard")
+                    ? account.sendKeyboard(peer, text, body.at("keyboard").dump())
+                    : account.sendText(peer, text, replyTo)}});
         });
     });
 
@@ -566,9 +576,9 @@ void HttpFace::apiRoutes()
             if (!picture.accepted) {
                 return failure(picture.refusal, picture.problem);
             }
-            const Account::Sent sent = account.sendPicture(peer, picture.bytes, picture.name,
-                picture.mime, body.value("replyTo", std::string()));
-            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
+            return json({{"messageId",
+                account.sendPicture(peer, picture.bytes, picture.name, picture.mime,
+                    body.value("replyTo", std::string()))}});
         });
     });
 
@@ -584,9 +594,8 @@ void HttpFace::apiRoutes()
             if (!source.accepted) {
                 return failure(source.refusal, source.problem);
             }
-            const Account::Sent sent
-                = account.sendFile(peer, path, body.value("replyTo", std::string()));
-            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
+            return json({{"messageId",
+                account.sendFile(peer, path, body.value("replyTo", std::string()))}});
         });
     });
 
@@ -669,8 +678,7 @@ void HttpFace::apiRoutes()
             if (from.empty() || messageId.empty() || to.empty()) {
                 return failure(400, "a forward is \"from\", \"messageId\" and \"to\"");
             }
-            const Account::Sent sent = account.forward(from, messageId, to);
-            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
+            return json({{"messageId", account.forward(from, messageId, to)}});
         });
     });
 
@@ -735,7 +743,7 @@ void HttpFace::apiRoutes()
             -> std::optional<http::Response> {
             const std::shared_ptr<Account> account = accountForToken(request);
             if (account == nullptr) {
-                return failure(401, "the API is opened by a token in the Authorization header");
+                return tokenRefused(request);
             }
             if (!account->running()) {
                 return failure(503, "the account is not open: " + account->status());
@@ -744,8 +752,7 @@ void HttpFace::apiRoutes()
                 return failure(
                     409, "a group relays its members itself; the API does not write for it");
             }
-            answerEvents(account, request, std::move(respond));
-            return std::nullopt;
+            return answerEvents(account, request, std::move(respond));
         });
 }
 
@@ -802,10 +809,6 @@ void HttpFace::operatorRoutes()
     server_->get("/ui/settings", [this, operatorOnly](const http::Request& request) {
         return operatorOnly(request, [this](const http::Request&) {
             Settings& settings = runtime_.settings();
-            bool anyRunning = false;
-            for (const Runtime::Summary& summary : runtime_.accounts()) {
-                anyRunning = anyRunning || summary.running;
-            }
             return json({
                 {"transport", settings.transport() == Settings::Transport::eSam ? "sam"
                                                                                 : "embedded"},
@@ -814,7 +817,6 @@ void HttpFace::operatorRoutes()
                 {"privacy", std::string(privacyName(settings.privacy()))},
                 {"transit", settings.transit()},
                 {"operator", operator_.operatorFingerprint()},
-                {"restartNeeded", anyRunning},
             });
         });
     });
@@ -1168,8 +1170,7 @@ void HttpFace::accountRoutes()
                 states[memberStateName(member.state)]
                     = states.value(memberStateName(member.state), 0) + 1;
             }
-            return json({{"config", groupConfigJson(group.config())},
-                {"memberCount", group.memberCount()}, {"states", states},
+            return json({{"config", groupConfigJson(group.config())}, {"states", states},
                 {"requests", group.requests().size()}});
         });
     });
@@ -1259,7 +1260,7 @@ void HttpFace::accountRoutes()
             const std::vector<Member> members = group.members();
             nlohmann::json rows = nlohmann::json::array();
             for (const Post& post : group.posts(intParam(call, "limit", kDefaultPage))) {
-                rows.push_back({{"id", post.id}, {"author", post.author},
+                rows.push_back({{"id", post.id},
                     {"authorName", nameOf(members, post.author)}, {"type", post.type},
                     {"text", post.text}, {"sentAt", post.sentAt}, {"edited", post.edited},
                     {"deleted", post.deleted}, {"fromHost", post.author.empty()},
@@ -1320,8 +1321,7 @@ void HttpFace::accountRoutes()
             if (peer.empty() || text.empty()) {
                 return failure(400, "a message is a \"peer\" and a \"text\"");
             }
-            const Account::Sent sent = account.sendText(peer, text);
-            return json({{"messageId", sent.messageId}, {"confirmed", sent.confirmed}});
+            return json({{"messageId", account.sendText(peer, text)}});
         });
     });
 
@@ -1365,8 +1365,7 @@ void HttpFace::accountRoutes()
             if (!account->running()) {
                 return failure(503, "the account is not open: " + account->status());
             }
-            answerEvents(account, request, std::move(respond));
-            return std::nullopt;
+            return answerEvents(account, request, std::move(respond));
         });
 }
 

@@ -184,7 +184,7 @@ int main()
     const std::string eve = Identity::generate().fingerprint();
 
     {
-        GroupEngine engine(dir / "group.db", {}, linkFor(fake), [&now]() { return now; });
+        GroupEngine engine(dir / "group.db", linkFor(fake), [&now]() { return now; });
 
         engine.onIncoming(incoming(ann, "contact.request"));
         CHECK(fake.accepted == std::vector<std::string>{ann});
@@ -479,9 +479,9 @@ int main()
     }
 
     {
-        GroupEngine engine(dir / "group.db", {}, linkFor(fake), [&now]() { return now; });
+        GroupEngine engine(dir / "group.db", linkFor(fake), [&now]() { return now; });
         CHECK(engine.config().joinMode == JoinMode::eApproval);
-        CHECK(engine.memberCount() == 4);
+        CHECK(engine.blockFor(ann).members == 4);
 
         GroupConfig custom = engine.config();
         custom.joinMode = JoinMode::eOpen;
@@ -510,7 +510,7 @@ int main()
     }
 
     {
-        GroupEngine engine(dir / "group.db", {}, linkFor(fake), [&now]() { return now; });
+        GroupEngine engine(dir / "group.db", linkFor(fake), [&now]() { return now; });
         CHECK(engine.config().greeting == "Pick a name.");
         CHECK(engine.config().welcome == "Hi, {name}! {name} is in.");
     }

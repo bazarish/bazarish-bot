@@ -1,7 +1,6 @@
 #!/bin/sh
 # Bazarish project (c) 2026
-# Even a purge leaves /etc/bazarish/bot.json and /var/lib/bazarish: they hold the
-# accounts and the operator, and only the operator removes those.
+# A purge leaves bot.json and /var/lib/bazarish: the accounts and the operator stay.
 set -e
 
 if [ "$1" = "purge" ]; then

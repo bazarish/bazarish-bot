@@ -1,11 +1,8 @@
 // Bazarish project (c) 2026
 #include "Transcript.hpp"
 
-#include <bazarish/Bytes.hpp>
-
 #include <nlohmann/json.hpp>
 
-#include <stdexcept>
 
 namespace bazarish::bot {
 
@@ -35,8 +32,8 @@ Line readLine(const Statement& statement)
 
 }  // namespace
 
-Transcript::Transcript(const std::filesystem::path& file, const std::string& passphrase)
-    : database_(file, passphrase, "transcript")
+Transcript::Transcript(const std::filesystem::path& file)
+    : database_(file, "transcript")
 {
     database_.run(
         "CREATE TABLE IF NOT EXISTS messages ("
@@ -301,7 +298,7 @@ void Transcript::loadReactionsLocked(std::vector<Line>& lines) const
         query.bind(1, line.peer);
         query.bind(2, line.e2eId);
         while (query.step()) {
-            line.reactions.push_back({line.e2eId, query.text(0), query.text(1)});
+            line.reactions.push_back({query.text(0), query.text(1)});
         }
     }
 }
@@ -360,14 +357,14 @@ std::vector<Line> Transcript::latestPerPeer() const
     return lines;
 }
 
-std::vector<Event> Transcript::since(const std::int64_t id, const int limit) const
+std::vector<Event> Transcript::since(const std::int64_t id) const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     Statement query(database_,
         "SELECT id, kind, peer, messageId, text, actor, at FROM events"
         " WHERE id > ? ORDER BY id LIMIT ?");
     query.bind(1, id);
-    query.bind(2, static_cast<std::int64_t>(limit > kMaxPage || limit <= 0 ? kMaxPage : limit));
+    query.bind(2, static_cast<std::int64_t>(kMaxPage));
     std::vector<Event> events;
     while (query.step()) {
         Event event;

@@ -21,12 +21,11 @@ std::string rawKeyLiteral(const Bytes& key)
 
 }  // namespace
 
-Database::Database(
-    const std::filesystem::path& file, const std::string& passphrase, std::string label)
+Database::Database(const std::filesystem::path& file, std::string label)
     : label_(std::move(label))
 {
     std::filesystem::create_directories(file.parent_path());
-    const Bytes key = client::accountkey::keyFor(file, passphrase);
+    const Bytes key = client::accountkey::keyFor(file, std::string());
     if (sqlite3_open(file.string().c_str(), &db_) != SQLITE_OK) {
         sqlite3_close(db_);
         db_ = nullptr;

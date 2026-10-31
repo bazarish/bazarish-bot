@@ -18,7 +18,6 @@
 #include <map>
 #include <optional>
 
-#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -34,11 +33,6 @@ constexpr int kOwnDelegationDays = static_cast<int>(bazarish::kMaxDelegationDays
 constexpr int kOwnDestTunnelQuantity = 3;
 constexpr std::uint64_t kOwnQuotaBytes = 4ULL * 1024 * 1024 * 1024;
 constexpr int kNodeTimeoutSeconds = 5;
-
-std::int64_t nowSeconds()
-{
-    return static_cast<std::int64_t>(std::time(nullptr));
-}
 
 std::string readFileText(const fs::path& path)
 {
@@ -109,8 +103,7 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
 
     server::DeliveryEngineOptions engineOptions;
     engineOptions.onDelivered = [this](const std::string& user) { gate_->notify(user); };
-    engine_ = std::make_unique<server::DeliveryEngine>(
-        *storage_, fingerprint_, sealing_, engineOptions);
+    engine_ = std::make_unique<server::DeliveryEngine>(*storage_, engineOptions);
 
     destinations_ = std::make_unique<server::PerUserDestinations>(router_, *engine_, serverDir,
         privacy_, kOwnDestTunnelQuantity);
@@ -184,15 +177,11 @@ void ServerSide::start()
     options.serverCardDer = card_;
     options.sealingKey = sealing_;
     options.identity = identity_;
-    if (router_ != nullptr) {
-        options.reseedSample
-            = [](const std::size_t count) { return i2p::sampleRouterInfos(count); };
-    }
     options.assignDestination
         = [this](const std::string& user) -> server::DestinationAssignment {
         const server::PerUserDestinations::Assignment assigned
             = destinations_->assignmentFor(user, nowSeconds());
-        return {assigned.dest, assigned.sealingKey, assigned.state};
+        return {assigned.dest, assigned.state};
     };
     api_ = std::make_unique<server::HttpApi>(*storage_, options);
     mailboxPort_ = api_->bind(host_, 0);
@@ -261,11 +250,6 @@ void ServerSide::stop()
     }
 }
 
-Bytes ServerSide::card() const
-{
-    return card_;
-}
-
 fs::path ServerSide::keyFileFor(const std::string& account) const
 {
     return stateDir_ / "server" / "destinations" / (account + ".key");
@@ -291,9 +275,6 @@ std::string ServerSide::serveDestinationFor(
     if (fs::exists(keyFile)) {
         blob = readFileText(keyFile);
     } else {
-        if (router_ == nullptr) {
-            throw std::runtime_error("no router: this daemon has no destination to serve on");
-        }
         blob = toBase64(bazarish::i2p::Keys::generate().blob());
         writePrivateFile(keyFile, blob);
     }
