@@ -51,7 +51,7 @@ cat > "$kStage/DEBIAN/control" <<CONTROL
 Package: $kPackage
 Version: $kVersion
 Architecture: $kArch
-Maintainer: Bazarish <noreply@bazarish.org>
+Maintainer: Bazarish <gusto@bazari.sh>
 Depends: adduser, systemd, $depends
 Section: net
 Priority: optional
