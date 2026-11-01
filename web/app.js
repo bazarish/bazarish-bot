@@ -458,7 +458,7 @@ function receiveCard(kind, opened) {
         t("Start sending the account on the other device. It shows a link and a code.")));
     const link = node("input", "field");
     link.type = "text";
-    link.placeholder = "bazarish://pair?…";
+    link.placeholder = "https://bazari.sh/#pair?…";
     card.append(node("label", "field-label", t("Transfer link")), link);
     const status = node("p", "hint");
     const codeBlock = node("div", "block");
@@ -870,7 +870,7 @@ async function viewContacts() {
     add.append(node("p", "block-title", t("Add a contact")));
     const invite = node("input", "field");
     invite.type = "text";
-    invite.placeholder = t("bazarish://invite?… or %1alias", kAliasSigil);
+    invite.placeholder = t("Invite link or %1alias", kAliasSigil);
     invite.value = aliasToAdd;
     aliasToAdd = "";
     const intro = node("input", "field");

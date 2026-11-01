@@ -11,8 +11,7 @@
     const kLinkSchemes = ["https://", "http://"];
     const kTrailingPunctuation = ".,;:!?'\"»";
     const kBrackets = [["(", ")"], ["[", "]"], ["{", "}"]];
-    const kInvite = /bazarish:\/\/invite\?\S+/g;
-    const kInvitePrefix = "bazarish://invite?";
+    const kInvite = /(?:https:\/\/bazari\.sh\/#|bazarish:\/\/)invite\?(\S+)/g;
     const kFingerprintShown = 16;
 
     const isWordChar = (c) => c !== undefined && /[\p{L}\p{N}]/u.test(c);
@@ -204,7 +203,7 @@
         const found = [];
         for (const match of text.matchAll(kInvite)) {
             const fields = {};
-            for (const pair of match[0].slice(kInvitePrefix.length).split("&")) {
+            for (const pair of match[1].split("&")) {
                 const eq = pair.indexOf("=");
                 if (eq > 0) {
                     try {

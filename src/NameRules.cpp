@@ -1,6 +1,8 @@
 // Bazarish project (c) 2026
 #include "NameRules.hpp"
 
+#include <bazarish/Links.hpp>
+
 #include <unicode/normalizer2.h>
 #include <unicode/uchar.h>
 #include <unicode/unistr.h>
@@ -13,7 +15,6 @@ namespace bazarish::bot {
 
 namespace {
 
-constexpr const char* kLinkMark = "bazarish://";
 
 struct SpoofCloser {
     void operator()(USpoofChecker* checker) const { uspoof_close(checker); }
@@ -72,8 +73,10 @@ NameCheck checkName(const std::string& typed)
     }
     std::string foldedText;
     folded.toUTF8String(foldedText);
-    if (foldedText.find(kLinkMark) != std::string::npos) {
-        return check;
+    for (const char* const mark : {bazarish::kWebLinkPrefix, bazarish::kSchemeLinkPrefix}) {
+        if (foldedText.find(mark) != std::string::npos) {
+            return check;
+        }
     }
 
     const SpoofChecker checker = openChecker();

@@ -45,6 +45,7 @@ int main()
     CHECK(!checkName("An​n").allowed);
     CHECK(!checkName("A\tnn").allowed);
     CHECK(!checkName("bazarish://invite").allowed);
+    CHECK(!checkName("https://bazari.sh/#invite").allowed);
 
     std::printf("TestNameRules passed\n");
     return 0;

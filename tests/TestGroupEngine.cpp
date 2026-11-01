@@ -371,7 +371,7 @@ int main()
         const std::vector<Sent> asked = fake.take("tell", bob);
         CHECK(asked.size() == 1);
         CHECK(asked[0].text.find("Ann asks you to write.") == 0);
-        CHECK(asked[0].text.find("bazarish://") != std::string::npos);
+        CHECK(asked[0].text.find("https://bazari.sh/#invite?") != std::string::npos);
         CHECK(fake.take("tell", ann).back().text == "Your contact request was sent to Bob.");
         engine.onIncoming(commandFrom(ann, "contact", "p2"));
         CHECK(fake.take("tell", bob).empty());
