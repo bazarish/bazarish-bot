@@ -1067,7 +1067,7 @@ async function viewSign() {
     return view;
 }
 
-const kBotDocs = "https://bazari.sh/docs/bots";
+const kBotDocs = "https://bazarish.org/docs/bots";
 
 function linkedText(text, href) {
     const holder = node("span");

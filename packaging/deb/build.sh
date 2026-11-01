@@ -51,11 +51,11 @@ cat > "$kStage/DEBIAN/control" <<CONTROL
 Package: $kPackage
 Version: $kVersion
 Architecture: $kArch
-Maintainer: Bazarish <noreply@bazari.sh>
+Maintainer: Bazarish <noreply@bazarish.org>
 Depends: adduser, systemd, $depends
 Section: net
 Priority: optional
-Homepage: https://bazari.sh
+Homepage: https://bazarish.org
 Description: Bazarish accounts that run as a service
  Bots and groups on one embedded I2P router, a REST API for automation and a
  web interface for the operator.
