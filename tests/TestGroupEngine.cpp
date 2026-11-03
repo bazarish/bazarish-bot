@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -29,7 +30,7 @@ namespace {
 
 constexpr const char* kDest = "dlkbeyqjykssca6o7qlbwgq4fr2hry7kw2ursn2sh3lt3acox6gq.b32.i2p";
 constexpr int kPumpRounds = 8;
-constexpr const char* kHint = "Bring this up again with !!/settings!!.";
+constexpr const char* kAskName = "Choose your name in this chat.";
 
 struct Sent {
     std::string kind;
@@ -48,6 +49,9 @@ struct Fake {
     std::vector<std::string> forgotten;
     std::vector<std::string> states;
     std::map<std::string, std::string> refuse;
+    std::map<std::string, std::string> names;
+    std::map<std::string, int> relayCalls;
+    std::size_t batchCap = std::numeric_limits<std::size_t>::max();
     int told = 0;
 
     client::OutboundCourier::Outcome outcomeFor(const std::string& peer) const
@@ -90,9 +94,13 @@ GroupLink linkFor(Fake& fake)
                       const client::InlineKeyboard& keyboard) {
         fake.sent.push_back({"retell", peer, id, text, {}, keyboard, {}, false});
     };
-    link.relay = [&fake](const std::string& peer, const client::RelayedPost& post,
+    link.relay = [&fake](const std::string& peer, const std::vector<client::RelayedPost>& posts,
                      const GroupLink::Outcome& done) {
-        fake.sent.push_back({"relay", peer, post.id, post.text, post.author, {}, {}, post.fromHost});
+        ++fake.relayCalls[peer];
+        for (const client::RelayedPost& post : posts) {
+            fake.sent.push_back(
+                {"relay", peer, post.id, post.text, post.author, {}, {}, post.fromHost});
+        }
         done(fake.outcomeFor(peer));
     };
     link.edit = [&fake](const std::string& peer, const std::string& ref, const std::string& text,
@@ -120,8 +128,18 @@ GroupLink linkFor(Fake& fake)
     link.descriptor = [](const std::string& peer) {
         return encodeDescriptor(Descriptor{peer, kDest, "theirs"});
     };
+    link.name = [&fake](const std::string& peer) {
+        const auto found = fake.names.find(peer);
+        return found == fake.names.end() ? std::string() : found->second;
+    };
     link.forget = [&fake](const std::string& peer) { fake.forgotten.push_back(peer); };
-    link.fits = [](const client::RelayedPost& post) { return post.text != "huge"; };
+    link.fitting = [&fake](const std::vector<client::RelayedPost>& posts) {
+        std::size_t count = 0;
+        while (count < posts.size() && count < fake.batchCap && posts[count].text != "huge") {
+            ++count;
+        }
+        return count;
+    };
     link.media = [](const std::string&, const std::string&) { return std::optional<Bytes>(); };
     return link;
 }
@@ -159,10 +177,10 @@ void pump(GroupEngine& engine)
     }
 }
 
-void join(GroupEngine& engine, const std::string& peer, const std::string& name)
+void join(GroupEngine& engine, Fake& fake, const std::string& peer, const std::string& name)
 {
+    fake.names[peer] = name;
     engine.onIncoming(incoming(peer, "contact.request"));
-    engine.onIncoming(textFrom(peer, name));
 }
 
 std::string member()
@@ -188,48 +206,57 @@ int main()
 
         engine.onIncoming(incoming(ann, "contact.request"));
         CHECK(fake.accepted == std::vector<std::string>{ann});
-        CHECK(fake.take("tell", ann).size() == 1);
+        const std::vector<Sent> named = fake.take("tell", ann);
+        CHECK(named.size() == 1);
+        CHECK(named[0].text == kAskName);
         engine.onIncoming(incoming(ann, "contact.request"));
         CHECK(fake.take("tell", ann).empty());
         engine.onIncoming(incoming(ann, "receipt"));
         CHECK(fake.take("tell", ann).empty());
         CHECK(engine.blockFor(ann).write);
         engine.onIncoming(textFrom(ann, "Ann"));
-        const std::vector<Sent> welcome = fake.take("tell", ann);
-        CHECK(welcome.size() == 1);
-        CHECK(welcome[0].text == std::string("Welcome, Ann.\n\n") + kHint);
-        CHECK(welcome[0].keyboard.size() == 1);
-        CHECK(welcome[0].keyboard.at(0).at(0).data == "settings");
+        CHECK(fake.take("tell", ann).empty());
+        CHECK(engine.blockFor(ann).write);
+
+        engine.onIncoming(commandFrom(ann, "settings", ""));
+        const std::vector<Sent> settings = fake.take("tell", ann);
+        CHECK(settings.size() == 1);
+        CHECK(settings[0].text == "Your name in this group: Ann.");
+        CHECK(settings[0].keyboard.size() == 2);
+        CHECK(settings[0].keyboard.at(0).at(0).data == "contactable off");
+        CHECK(settings[0].keyboard.at(1).at(0).data == "rename");
 
         const auto press = [&](const std::string& data) {
             client::IncomingMessage callback = incoming(ann, "bot.callback");
             callback.callbackData = data;
-            callback.refId = welcome[0].id;
+            callback.refId = settings[0].id;
             engine.onIncoming(callback);
             const std::vector<Sent> retold = fake.take("retell", ann);
             CHECK(retold.size() == 1);
-            CHECK(retold[0].id == welcome[0].id);
-            CHECK(retold[0].text == welcome[0].text);
+            CHECK(retold[0].id == settings[0].id);
+            CHECK(retold[0].text == settings[0].text);
             CHECK(retold[0].keyboard.size() == 2);
             CHECK(retold[0].keyboard.at(1).at(0).data == "rename");
             return retold[0].keyboard.at(0).at(0).data;
         };
-        CHECK(press("settings") == "contactable off");
         CHECK(press("contactable off") == "contactable on");
         CHECK(press("contactable on") == "contactable off");
 
         engine.onIncoming(textFrom(ann, " /settings\n", "p-settings"));
         const std::vector<Sent> offered = fake.take("tell", ann);
         CHECK(offered.size() == 1);
-        CHECK(offered[0].text == kHint);
-        CHECK(offered[0].keyboard.at(0).at(0).data == "settings");
+        CHECK(offered[0].text == "Your name in this group: Ann.");
+        CHECK(offered[0].keyboard.at(0).at(0).data == "contactable off");
 
-        join(engine, bob, "ann");
-        CHECK(fake.take("tell", bob).back().text == "That name is taken. Choose another.");
+        join(engine, fake, bob, "ann");
+        CHECK(fake.take("tell", bob).back().text == "The name ann is taken. Choose another.");
+        CHECK(engine.blockFor(bob).write);
         engine.onIncoming(textFrom(bob, "Bob"));
-        join(engine, cid, "Ace");
-        join(engine, dan, "Асе");
-        CHECK(fake.take("tell", dan).back().text == "That name is taken. Choose another.");
+        CHECK(fake.take("tell", bob).empty());
+        join(engine, fake, cid, "Ace");
+        CHECK(fake.take("tell", cid).empty());
+        join(engine, fake, dan, "Асе");
+        CHECK(fake.take("tell", dan).back().text == "The name Асе is taken. Choose another.");
         engine.onIncoming(textFrom(dan, "Dan"));
         fake.forget();
 
@@ -251,9 +278,7 @@ int main()
         client::IncomingMessage readded = incoming(ann, "contact.request");
         readded.e2eId = "a-new-request";
         engine.onIncoming(readded);
-        const std::vector<Sent> rewelcomed = fake.take("tell", ann);
-        CHECK(rewelcomed.size() == 1);
-        CHECK(rewelcomed[0].text == std::string("Welcome, Ann.\n\n") + kHint);
+        CHECK(fake.take("tell", ann).empty());
         engine.onIncoming(readded);
         CHECK(fake.take("tell", ann).empty());
 
@@ -322,7 +347,7 @@ int main()
         GroupConfig config = engine.config();
         config.historySize = 1;
         engine.setConfig(config);
-        join(engine, eve, "Eve");
+        join(engine, fake, eve, "Eve");
         pump(engine);
         const std::vector<Sent> history = fake.take("relay", eve);
         CHECK(history.size() == 1);
@@ -331,7 +356,7 @@ int main()
         const std::string zed = member();
         config.historySize = 0;
         engine.setConfig(config);
-        join(engine, zed, "Zed");
+        join(engine, fake, zed, "Zed");
         pump(engine);
         CHECK(fake.take("relay", zed).empty());
 
@@ -345,8 +370,8 @@ int main()
         engine.onIncoming(textFrom(bob, "closed", "p3"));
         CHECK(fake.take("tell", bob).back().text == "Only admins post here.");
         const std::string hal = member();
-        join(engine, hal, "Hal");
-        CHECK(fake.take("tell", hal).back().text == std::string("Welcome, Hal.\n\n") + kHint);
+        join(engine, fake, hal, "Hal");
+        CHECK(fake.take("tell", hal).empty());
         engine.exclude(hal);
         engine.setAdmin(bob, true);
         CHECK(engine.blockFor(bob).admin);
@@ -407,7 +432,7 @@ int main()
         config.joinMode = JoinMode::eApproval;
         engine.setConfig(config);
         const std::string fay = member();
-        join(engine, fay, "Fay");
+        join(engine, fake, fay, "Fay");
         CHECK(fake.take("tell", fay).back().text == "Your request is waiting for an admin.");
         CHECK(!engine.blockFor(fay).write);
         const std::vector<Sent> card = fake.take("tell", bob);
@@ -421,7 +446,7 @@ int main()
         const std::vector<Sent> settled = fake.take("retell", bob);
         CHECK(settled.size() == 1);
         CHECK(settled[0].text == "Fay: allowed by Bob.");
-        CHECK(fake.take("tell", fay).back().text == std::string("Welcome, Fay.\n\n") + kHint);
+        CHECK(fake.take("tell", fay).empty());
         CHECK(engine.requests().empty());
 
         fake.forget();
@@ -458,7 +483,7 @@ int main()
         engine.onIncoming(rename);
         CHECK(fake.take("tell", ann).back().text == "Send your new name.");
         engine.onIncoming(textFrom(ann, "/settings", "p-settings-2"));
-        CHECK(fake.take("tell", ann).back().text == kHint);
+        CHECK(fake.take("tell", ann).back().text == "Your name in this group: Ann.");
         engine.onIncoming(textFrom(ann, "Anna", "p-anna"));
         CHECK(fake.take("tell", ann).back().text == "Your name is now Anna.");
         engine.onIncoming(textFrom(ann, "after", "p-after"));
@@ -483,25 +508,15 @@ int main()
         CHECK(engine.config().joinMode == JoinMode::eApproval);
         CHECK(engine.blockFor(ann).members == 4);
 
-        GroupConfig custom = engine.config();
-        custom.joinMode = JoinMode::eOpen;
-        custom.greeting = "Pick a name.";
-        custom.welcome = "Hi, {name}! {name} is in.";
-        engine.setConfig(custom);
+        GroupConfig open = engine.config();
+        open.joinMode = JoinMode::eOpen;
+        engine.setConfig(open);
         const std::string gus = member();
-        engine.onIncoming(incoming(gus, "contact.request"));
-        CHECK(fake.take("tell", gus).back().text == "Pick a name.");
+        join(engine, fake, gus, "Аce");
+        CHECK(fake.take("tell", gus).back().text == "The name Аce is not allowed. Choose another.");
         engine.onIncoming(textFrom(gus, "Gus"));
-        CHECK(fake.take("tell", gus).back().text
-            == std::string("Hi, Gus! Gus is in.\n\n") + kHint);
-        custom.welcome = std::string(2048, 'w');
-        bool refused = false;
-        try {
-            engine.setConfig(custom);
-        } catch (const std::exception&) {
-            refused = true;
-        }
-        CHECK(refused);
+        CHECK(fake.take("tell", gus).empty());
+        CHECK(engine.blockFor(gus).write);
         for (const Member& held : engine.members()) {
             if (held.fingerprint == ann) {
                 CHECK(held.name == "Ann");
@@ -510,9 +525,40 @@ int main()
     }
 
     {
-        GroupEngine engine(dir / "group.db", linkFor(fake), [&now]() { return now; });
-        CHECK(engine.config().greeting == "Pick a name.");
-        CHECK(engine.config().welcome == "Hi, {name}! {name} is in.");
+        Fake batched;
+        GroupEngine engine(dir / "batched.db", linkFor(batched), [&now]() { return now; });
+        const std::string host = member();
+        join(engine, batched, host, "Hal");
+        for (const char* const id : {"b1", "b2", "b3", "b4"}) {
+            engine.onIncoming(textFrom(host, id, id));
+        }
+        client::IncomingMessage edit = incoming(host, "edit");
+        edit.refId = "b2";
+        edit.text = "b2, edited";
+        engine.onIncoming(edit);
+        engine.onIncoming(textFrom(host, "b5", "b5"));
+        pump(engine);
+        GroupConfig config = engine.config();
+        config.historySize = 5;
+        engine.setConfig(config);
+
+        const std::string uma = member();
+        join(engine, batched, uma, "Uma");
+        pump(engine);
+        const std::vector<Sent> history = batched.take("relay", uma);
+        CHECK(history.size() == 5);
+        for (std::size_t at = 0; at < history.size(); ++at) {
+            CHECK(history[at].id == "b" + std::to_string(at + 1));
+        }
+        CHECK(batched.relayCalls[uma] == 2);
+        CHECK(batched.take("edit", uma).size() == 1);
+
+        batched.batchCap = 2;
+        const std::string vic = member();
+        join(engine, batched, vic, "Vic");
+        pump(engine);
+        CHECK(batched.take("relay", vic).size() == 5);
+        CHECK(batched.relayCalls[vic] == 3);
     }
 
     fs::remove_all(dir);

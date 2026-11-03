@@ -62,6 +62,9 @@ const kStateLabels = {
     banned: N_("blocked"),
 };
 const kPostsPage = 100;
+// The desktop client's own avatar: a 256 px square JPEG.
+const kAvatarSide = 256;
+const kAvatarQuality = 0.9;
 let memberFilter = "all";
 let memberQuery = "";
 
@@ -297,10 +300,33 @@ async function viewOverview() {
         ? t("Members join with this invite.")
         : t("Anyone with the invite can write to this account.")));
     invite.append(node("pre", "copy", account.invite || ""));
+    const qr = node("button", "btn btn-quiet btn-copy", t("QR code"));
+    qr.type = "button";
+    qr.onclick = () => showQr(base() + "/invite.svg");
+    invite.append(qr);
     cards.append(invite);
 
     view.append(cards);
     return view;
+}
+
+function showQr(source) {
+    const sheet = node("dialog", "qr-sheet");
+    const picture = node("img", "qr-picture");
+    picture.src = source;
+    picture.alt = t("QR code");
+    const close = node("button", "btn btn-quiet", t("Close"));
+    close.type = "button";
+    close.onclick = () => sheet.close();
+    sheet.onclose = () => sheet.remove();
+    sheet.onclick = (event) => {
+        if (event.target === sheet) {
+            sheet.close();
+        }
+    };
+    sheet.append(picture, close);
+    document.body.append(sheet);
+    sheet.showModal();
 }
 
 function unlockCard(account) {
@@ -937,7 +963,7 @@ async function viewAliases() {
                 tags.append(node("span", "tag is-live", t("points here")));
             }
             row.append(keys, tags);
-            const toggle = node("button", "btn btn-copy",
+            const toggle = node("button", "btn btn-copy row-button",
                 alias.resolving ? t("Point nowhere") : t("Point here"));
             toggle.onclick = async () => {
                 toggle.disabled = true;
@@ -1191,6 +1217,7 @@ async function viewAccount() {
     };
     nameFooter.append(saveName);
     identity.append(nameFooter, renamed);
+    identity.append(avatarBlock(account));
     view.append(identity);
 
     const keys = node("article", "panel-box");
@@ -1250,6 +1277,87 @@ async function viewAccount() {
     }
     view.append(removeCard());
     return view;
+}
+
+function squareJpeg(file) {
+    return new Promise((resolve, reject) => {
+        const picture = new Image();
+        const address = URL.createObjectURL(file);
+        picture.onerror = () => {
+            URL.revokeObjectURL(address);
+            reject(new Error(t("that file is not a picture")));
+        };
+        picture.onload = () => {
+            URL.revokeObjectURL(address);
+            const side = Math.min(picture.naturalWidth, picture.naturalHeight);
+            const canvas = document.createElement("canvas");
+            canvas.width = kAvatarSide;
+            canvas.height = kAvatarSide;
+            canvas.getContext("2d").drawImage(picture,
+                (picture.naturalWidth - side) / 2, (picture.naturalHeight - side) / 2, side, side,
+                0, 0, kAvatarSide, kAvatarSide);
+            resolve(canvas.toDataURL("image/jpeg", kAvatarQuality).split(",")[1]);
+        };
+        picture.src = address;
+    });
+}
+
+function avatarBlock(account) {
+    const block = node("div", "block");
+    block.append(node("p", "block-title", t("Avatar")));
+    const row = node("div", "avatar-row");
+    const shown = node("img", "avatar-picture");
+    shown.alt = "";
+    const empty = node("span", "avatar-picture is-empty");
+    const said = node("p", "hint");
+    const pick = node("input");
+    pick.type = "file";
+    pick.accept = "image/png,image/jpeg";
+    pick.hidden = true;
+    const choose = node("button", "btn btn-quiet", t("Choose a picture"));
+    choose.type = "button";
+    choose.onclick = () => pick.click();
+    const drop = node("button", "btn btn-quiet btn-danger-quiet", t("Remove"));
+    drop.type = "button";
+    const reload = () => {
+        shown.hidden = true;
+        empty.hidden = false;
+        drop.hidden = true;
+        shown.src = base() + "/avatar?at=" + Date.now();
+    };
+    shown.onload = () => {
+        shown.hidden = false;
+        empty.hidden = true;
+        drop.hidden = false;
+    };
+    pick.onchange = async () => {
+        const file = pick.files[0];
+        pick.value = "";
+        if (!file) {
+            return;
+        }
+        said.textContent = "";
+        try {
+            await call("POST", base() + "/avatar", {data: await squareJpeg(file)});
+            reload();
+        } catch (error) {
+            said.textContent = error.message;
+        }
+    };
+    drop.onclick = async () => {
+        said.textContent = "";
+        try {
+            await call("DELETE", base() + "/avatar");
+            reload();
+        } catch (error) {
+            said.textContent = error.message;
+        }
+    };
+    reload();
+    row.append(shown, empty, choose, drop, pick);
+    block.append(row, node("p", "hint", account.kind === "group"
+        ? t("Members receive it.") : t("Contacts receive it.")), said);
+    return block;
 }
 
 function exportCard(account) {
@@ -1569,16 +1677,6 @@ async function viewGroup() {
     botLanguage.value = config.language;
     box.append(node("label", "field-label", t("Language of the bot's messages")), botLanguage);
 
-    const greeting = node("textarea", "field");
-    greeting.value = config.greeting;
-    greeting.placeholder = config.greetingDefault;
-    box.append(node("label", "field-label", t("Greeting")), greeting);
-    const welcome = node("textarea", "field");
-    welcome.value = config.welcome;
-    welcome.placeholder = config.welcomeDefault;
-    box.append(node("label", "field-label", t("After joining")), welcome);
-    box.append(node("p", "hint", t("{name} is the member's name.")));
-
     const said = node("p", "hint");
     const footer = node("p", "form-footer");
     const save = node("button", "btn", t("Save"));
@@ -1592,8 +1690,6 @@ async function viewGroup() {
                 historySize: Number(history.value),
                 contactRequests: contacts.checked,
                 language: botLanguage.value,
-                greeting: greeting.value.trim(),
-                welcome: welcome.value.trim(),
             });
             said.textContent = t("Saved.");
         } catch (error) {

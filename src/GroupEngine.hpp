@@ -37,7 +37,8 @@ struct GroupLink {
     std::function<void(const std::string& peer, const std::string& messageId,
         const std::string& text, const client::InlineKeyboard& keyboard)>
         retell;
-    std::function<void(const std::string& peer, const client::RelayedPost& post, Outcome done)>
+    std::function<void(
+        const std::string& peer, const std::vector<client::RelayedPost>& posts, Outcome done)>
         relay;
     std::function<void(
         const std::string& peer, const std::string& ref, const std::string& text, Outcome done)>
@@ -48,8 +49,9 @@ struct GroupLink {
     std::function<void(const std::string& peer, Outcome done)> state;
     std::function<void(const std::string& peer, const std::string& messageId)> receipt;
     std::function<std::string(const std::string& peer)> descriptor;
+    std::function<std::string(const std::string& peer)> name;
     std::function<void(const std::string& peer)> forget;
-    std::function<bool(const client::RelayedPost& post)> fits;
+    std::function<std::size_t(const std::vector<client::RelayedPost>& posts)> fitting;
     std::function<std::optional<Bytes>(const std::string& id, const std::string& type)> media;
 };
 
@@ -94,13 +96,14 @@ private:
     struct Prefetched {
         std::optional<Bytes> media;
         bool fits = false;
+        std::string offeredName;
     };
 
     void receiptLocked(const client::IncomingMessage& message, Actions& actions);
     void handleLocked(
         const client::IncomingMessage& message, const Prefetched& prefetched, Actions& actions);
     void joinLocked(Member& member, Actions& actions);
-    void admitLocked(Member& member, Actions& actions);
+    void admitLocked(Member& member);
     void decideLocked(std::int64_t number, bool allow, const std::string& byName, Actions& actions);
     void postLocked(Member& member, const client::IncomingMessage& message,
         const Prefetched& prefetched, Actions& actions);
@@ -115,11 +118,9 @@ private:
         Actions& actions, const client::InlineKeyboard& keyboard = {});
     void sayLocked(const std::string& peer, const std::string& words, Actions& actions,
         const client::InlineKeyboard& keyboard = {});
-    void askNameLocked(const std::string& peer, Actions& actions);
-    std::string welcomeTextLocked(const Member& member) const;
+    void nameAndJoinLocked(Member& member, const std::string& offered, Actions& actions);
     void offerSettingsLocked(const Member& member, Actions& actions);
     void showSettingsLocked(const Member& member, const std::string& ref, Actions& actions);
-    client::InlineKeyboard settingsButtonLocked() const;
     client::InlineKeyboard settingsKeyboardLocked(const Member& member) const;
     std::string chatDescriptor(const Member& member) const;
     std::string text(Copy key, const std::vector<std::string>& values = {}) const;
@@ -131,6 +132,7 @@ private:
     GroupLink::Outcome watchRefusal(const std::string& peer);
     void refusedLocked(const std::string& fingerprint);
     std::optional<std::function<void()>> nextRelayLocked(Member& member);
+    client::RelayedPost relayedLocked(const Post& post) const;
     void run(Actions& actions);
     void nudge();
     void loop();

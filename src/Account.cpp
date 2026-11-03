@@ -308,10 +308,10 @@ GroupLink Account::groupLink()
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         (void)openSession().sendEdit(peer, id, text, keyboard);
     };
-    link.relay = [this, watching](const std::string& peer, const client::RelayedPost& post,
-                     GroupLink::Outcome done) {
+    link.relay = [this, watching](const std::string& peer,
+                     const std::vector<client::RelayedPost>& posts, GroupLink::Outcome done) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
-        (void)openSession().relayPost(peer, post, watching(std::move(done)));
+        (void)openSession().relayPosts(peer, posts, watching(std::move(done)));
     };
     link.edit = [this, watching](const std::string& peer, const std::string& ref,
                     const std::string& text, GroupLink::Outcome done) {
@@ -340,13 +340,17 @@ GroupLink Account::groupLink()
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         return openSession().contactInviteUri(peer);
     };
+    link.name = [this](const std::string& peer) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        return openSession().contactDisplayName(peer);
+    };
     link.forget = [this](const std::string& peer) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         openSession().removeContact(peer);
     };
-    link.fits = [this](const client::RelayedPost& post) {
+    link.fitting = [this](const std::vector<client::RelayedPost>& posts) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
-        return openSession().relayFits(post);
+        return openSession().relayFitting(posts);
     };
     link.media = [this](const std::string& id, const std::string& type) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -452,6 +456,19 @@ void Account::rename(const std::string& name)
     }
     const std::lock_guard<std::mutex> lock(stateMutex_);
     name_ = name;
+}
+
+void Account::setAvatar(const Bytes& data, const std::string& mime)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    openSession().setAvatar(data, mime);
+}
+
+Account::Avatar Account::avatar() const
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    const client::Session& session = openSession();
+    return Avatar{session.avatar(), session.avatarMime()};
 }
 
 void Account::newAddress()

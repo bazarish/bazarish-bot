@@ -45,8 +45,6 @@ struct GroupConfig {
     std::int64_t historySize = kDefaultHistorySize;
     bool contactRequests = true;
     std::string language = kDefaultGroupLanguage;
-    std::string greeting;
-    std::string welcome;
 };
 
 struct Member {
@@ -59,7 +57,6 @@ struct Member {
     std::int64_t cursor = 0;
     std::int64_t historyFrom = 0;
     std::int64_t joinedAt = 0;
-    std::string welcomeId;
 };
 
 struct Post {

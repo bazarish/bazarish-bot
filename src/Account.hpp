@@ -71,6 +71,13 @@ public:
     void rename(const std::string& name);
     void newAddress();
 
+    struct Avatar {
+        Bytes data;
+        std::string mime;
+    };
+    void setAvatar(const Bytes& data, const std::string& mime);
+    Avatar avatar() const;
+
     std::string destination() const;
     std::string fingerprint() const;
     std::string displayName() const;

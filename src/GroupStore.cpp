@@ -11,7 +11,7 @@ namespace {
 constexpr std::int64_t kConfigRow = 1;
 
 constexpr const char* kMemberColumns = "fingerprint, name, nameKey, state, admin, contactable,"
-                                       " cursor, historyFrom, joinedAt, welcomeId";
+                                       " cursor, historyFrom, joinedAt";
 constexpr const char* kPostColumns = "id, author, type, text, mediaName, mime, media, durationMs,"
                                      " replyTo, sentAt, edited, deleted, seq";
 
@@ -67,7 +67,6 @@ Member readMember(const Statement& row)
     member.cursor = row.number(6);
     member.historyFrom = row.number(7);
     member.joinedAt = row.number(8);
-    member.welcomeId = row.text(9);
     return member;
 }
 
@@ -139,12 +138,11 @@ GroupStore::GroupStore(const std::filesystem::path& file)
 {
     database_.run("CREATE TABLE IF NOT EXISTS config (row INTEGER PRIMARY KEY, kind TEXT NOT NULL,"
                   " joinMode TEXT NOT NULL, historySize INTEGER NOT NULL,"
-                  " contactRequests INTEGER NOT NULL, language TEXT NOT NULL,"
-                  " greeting TEXT NOT NULL, welcome TEXT NOT NULL)");
+                  " contactRequests INTEGER NOT NULL, language TEXT NOT NULL)");
     database_.run("CREATE TABLE IF NOT EXISTS members (fingerprint TEXT PRIMARY KEY,"
                   " name TEXT NOT NULL, nameKey TEXT NOT NULL, state TEXT NOT NULL,"
                   " admin INTEGER NOT NULL, contactable INTEGER NOT NULL, cursor INTEGER NOT NULL,"
-                  " historyFrom INTEGER NOT NULL, joinedAt INTEGER NOT NULL, welcomeId TEXT NOT NULL)");
+                  " historyFrom INTEGER NOT NULL, joinedAt INTEGER NOT NULL)");
     database_.run("CREATE UNIQUE INDEX IF NOT EXISTS members_name ON members(nameKey)"
                   " WHERE nameKey <> ''");
     database_.run("CREATE TABLE IF NOT EXISTS posts (id TEXT PRIMARY KEY, author TEXT NOT NULL,"
@@ -164,8 +162,7 @@ GroupStore::GroupStore(const std::filesystem::path& file)
                   " PRIMARY KEY (requester, author))");
 
     Statement seed(database_, "INSERT OR IGNORE INTO config (row, kind, joinMode, historySize,"
-                              " contactRequests, language, greeting, welcome)"
-                              " VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                              " contactRequests, language) VALUES (?, ?, ?, ?, ?, ?)");
     const GroupConfig defaults;
     seed.bind(1, kConfigRow);
     seed.bind(2, groupKindName(defaults.kind));
@@ -173,15 +170,13 @@ GroupStore::GroupStore(const std::filesystem::path& file)
     seed.bind(4, defaults.historySize);
     seed.bind(5, flag(defaults.contactRequests));
     seed.bind(6, defaults.language);
-    seed.bind(7, defaults.greeting);
-    seed.bind(8, defaults.welcome);
     (void)seed.step();
 }
 
 GroupConfig GroupStore::config() const
 {
-    Statement query(database_, "SELECT kind, joinMode, historySize, contactRequests, language,"
-                               " greeting, welcome FROM config WHERE row = ?");
+    Statement query(database_, "SELECT kind, joinMode, historySize, contactRequests, language"
+                               " FROM config WHERE row = ?");
     query.bind(1, kConfigRow);
     if (!query.step()) {
         throw std::runtime_error("group store: the configuration row is missing");
@@ -192,24 +187,19 @@ GroupConfig GroupStore::config() const
     config.historySize = query.number(2);
     config.contactRequests = query.number(3) != 0;
     config.language = query.text(4);
-    config.greeting = query.text(5);
-    config.welcome = query.text(6);
     return config;
 }
 
 void GroupStore::setConfig(const GroupConfig& config)
 {
     Statement update(database_, "UPDATE config SET kind = ?, joinMode = ?, historySize = ?,"
-                                " contactRequests = ?, language = ?, greeting = ?, welcome = ?"
-                                " WHERE row = ?");
+                                " contactRequests = ?, language = ? WHERE row = ?");
     update.bind(1, groupKindName(config.kind));
     update.bind(2, joinModeName(config.joinMode));
     update.bind(3, config.historySize);
     update.bind(4, flag(config.contactRequests));
     update.bind(5, config.language);
-    update.bind(6, config.greeting);
-    update.bind(7, config.welcome);
-    update.bind(8, kConfigRow);
+    update.bind(6, kConfigRow);
     (void)update.step();
 }
 
@@ -226,7 +216,7 @@ std::vector<Member> GroupStore::members() const
 void GroupStore::putMember(const Member& member)
 {
     Statement upsert(database_, std::string("INSERT OR REPLACE INTO members (") + kMemberColumns
-            + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     upsert.bind(1, member.fingerprint);
     upsert.bind(2, member.name);
     upsert.bind(3, member.nameKey);
@@ -236,7 +226,6 @@ void GroupStore::putMember(const Member& member)
     upsert.bind(7, member.cursor);
     upsert.bind(8, member.historyFrom);
     upsert.bind(9, member.joinedAt);
-    upsert.bind(10, member.welcomeId);
     (void)upsert.step();
 }
 

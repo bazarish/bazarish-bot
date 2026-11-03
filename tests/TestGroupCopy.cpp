@@ -20,9 +20,9 @@ using namespace bazarish::bot;
 int main()
 {
     CHECK(copyComplete());
-    CHECK(copyText("en", Copy::eWelcome, {"Ann"}) == "Welcome, Ann.");
+    CHECK(copyText("en", Copy::eSettings, {"Ann"}) == "Your name in this group: Ann.");
     CHECK(copyText("ru", Copy::eAllowedBy, {"Fay", "Bob"}) == "Fay: одобрено админом Bob.");
-    CHECK(copyText("ar", Copy::eWelcome, {"Ann"}).find("Ann") != std::string::npos);
+    CHECK(copyText("ar", Copy::eOfferedNameTaken, {"Ann"}).find("Ann") != std::string::npos);
     for (const char* const language : kGroupLanguages) {
         CHECK(copyText(language, Copy::eWantsToJoin, {"x", "y"}).find('x') != std::string::npos);
         CHECK(copyText(language, Copy::eWantsToJoin, {"x", "y"}).find('y') != std::string::npos);
@@ -30,7 +30,7 @@ int main()
     }
     bool refused = false;
     try {
-        (void)copyText("de", Copy::eWelcome);
+        (void)copyText("de", Copy::eSettings);
     } catch (const std::runtime_error&) {
         refused = true;
     }

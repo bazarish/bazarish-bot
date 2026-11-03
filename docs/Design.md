@@ -59,9 +59,16 @@ transcript's one-id-one-row rule would not hold.
   so a channel needs no member account behind it.
 - **History is a cursor.** A newcomer's cursor starts N posts back, so the last
   N arrive as ordinary relays, built from each post's current state.
+- **Posts go out packed.** The pump takes every consecutive post waiting for a
+  member, asks the session how many of them one envelope holds
+  (`relayFitting`), and sends that many as one array; the member's cursor moves
+  past the last of them once the envelope is stored. An edit, a delete or a
+  reactions update ends a pack.
 - **Names** are checked with ICU: case folding, NFKC, and the UTS #39 confusable
   skeleton as the uniqueness key, with names mixing scripts refused. A name
-  stays with its member until they change it from Settings.
+  stays with its member until they change it from Settings. A newcomer's name
+  is the display name their contact request carries; only a missing, taken or
+  refused one is asked for.
 - **Locks.** The block is filled in under the account's session lock, so the
   order is the session first, then the engine, never the reverse: the engine
   decides under its own lock and sends after releasing it.
@@ -69,8 +76,7 @@ transcript's one-id-one-row rule would not hold.
   carries the account alone: members, posts and settings stay on this host.
 
 The chat texts the host sends come in the group's own language, one of five,
-chosen by the owner, who may also replace the greeting and the welcome with
-texts of their own.
+chosen by the owner. A member who is let in gets no welcome message.
 
 Everything that makes a conversation a *bot* conversation - commands, inline
 keyboards, callbacks - is end-to-end content and nothing else. The

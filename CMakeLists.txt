@@ -35,6 +35,7 @@ add_library(bazarish_bot_lib STATIC
     src/GroupStore.cpp
     src/NameRules.cpp
     src/PictureRules.cpp
+    src/QrSvg.cpp
     src/MenuRules.cpp
     src/Transcript.cpp
     src/Transfers.cpp
@@ -46,9 +47,12 @@ add_library(bazarish_bot_lib STATIC
 bazarish_stamp_version(bazarish_bot_lib)
 target_include_directories(bazarish_bot_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_include_directories(bazarish_bot_lib PRIVATE ${SQLCIPHER_INCLUDE_DIR})
+find_library(QRENCODE_LIBRARY NAMES qrencode REQUIRED)
+find_path(QRENCODE_INCLUDE_DIR NAMES qrencode.h REQUIRED)
+target_include_directories(bazarish_bot_lib PRIVATE ${QRENCODE_INCLUDE_DIR})
 target_link_libraries(bazarish_bot_lib PUBLIC
     Bazarish::Client bazarish_server_lib bazarish_service_lib bazarish_facade_lib
-    ICU::uc ICU::i18n Threads::Threads)
+    ICU::uc ICU::i18n Threads::Threads ${QRENCODE_LIBRARY})
 target_compile_options(bazarish_bot_lib PRIVATE -Wall -Wextra -Werror)
 
 add_executable(bazarish-bot src/Main.cpp)
@@ -72,6 +76,7 @@ bazarish_bot_add_test(TestTranscript)
 bazarish_bot_add_test(TestGroupEngine)
 bazarish_bot_add_test(TestNameRules)
 bazarish_bot_add_test(TestPictureRules)
+bazarish_bot_add_test(TestQrSvg)
 bazarish_bot_add_test(TestFileRules)
 bazarish_bot_add_test(TestTransfers)
 bazarish_bot_add_test(TestMenuRules)

@@ -2,8 +2,8 @@
 #include "HttpFace.hpp"
 #include "Backup.hpp"
 #include "FileRules.hpp"
-#include "GroupCopy.hpp"
 #include "PictureRules.hpp"
+#include "QrSvg.hpp"
 #include "SystemInfo.hpp"
 
 #include <BuildVersion.hpp>
@@ -38,6 +38,7 @@ constexpr const char* kSessionCookie = "bazarish_bot";
 constexpr int kDefaultWaitSeconds = 30;
 constexpr int kDefaultPage = 50;
 constexpr const char* kAccountPath = "/ui/accounts/([0-9a-f]+)";
+constexpr const char* kAvatarName = "avatar";
 constexpr std::uint64_t kMebibyte = 1024 * 1024;
 constexpr std::uint64_t kMaxBackupBytes = 512 * kMebibyte;
 
@@ -338,10 +339,6 @@ nlohmann::json groupConfigJson(const GroupConfig& config)
         {"historySize", config.historySize},
         {"contactRequests", config.contactRequests},
         {"language", config.language},
-        {"greeting", config.greeting},
-        {"welcome", config.welcome},
-        {"greetingDefault", copyText(config.language, Copy::eAskName)},
-        {"welcomeDefault", copyText(config.language, Copy::eWelcome, {"{name}"})},
     };
 }
 
@@ -1028,6 +1025,53 @@ void HttpFace::accountRoutes()
         });
     });
 
+    server_->get(base + "/avatar", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            const Account::Avatar avatar = account.avatar();
+            if (avatar.data.empty()) {
+                return failure(404, "the account has no avatar");
+            }
+            http::Response response;
+            response.body.assign(avatar.data.begin(), avatar.data.end());
+            response.contentType = avatar.mime;
+            response.headers["Cache-Control"] = "no-store";
+            return response;
+        });
+    });
+
+    server_->post(base + "/avatar", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const PictureCheck picture
+                = checkPicture(body.value("data", std::string()), kAvatarName);
+            if (!picture.accepted) {
+                return failure(picture.refusal, picture.problem);
+            }
+            account.setAvatar(picture.bytes, picture.mime);
+            return json({{"ok", true}});
+        });
+    });
+
+    server_->del(base + "/avatar", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            account.setAvatar({}, {});
+            return json({{"ok", true}});
+        });
+    });
+
+    server_->get(base + "/invite.svg", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            const std::string invite = account.running() ? account.inviteUri() : std::string();
+            if (invite.empty()) {
+                return failure(409, "the account has no invite while it is closed");
+            }
+            http::Response response;
+            response.body = qrSvg(invite);
+            response.contentType = "image/svg+xml";
+            return response;
+        });
+    });
+
     server_->post(base, [this, forAccount](const http::Request& request) {
         return forAccount(request, [this](Account& account, const http::Request& call) {
             const nlohmann::json body = nlohmann::json::parse(call.body);
@@ -1194,12 +1238,6 @@ void HttpFace::accountRoutes()
             }
             if (body.contains("language")) {
                 config.language = body.at("language").get<std::string>();
-            }
-            if (body.contains("greeting")) {
-                config.greeting = body.at("greeting").get<std::string>();
-            }
-            if (body.contains("welcome")) {
-                config.welcome = body.at("welcome").get<std::string>();
             }
             group.setConfig(config);
             return json(groupConfigJson(group.config()));

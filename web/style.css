@@ -412,6 +412,65 @@ body.centred {
     gap: 0.35rem 0.6rem;
 }
 
+.avatar-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.5rem;
+}
+
+.avatar-row .btn {
+    margin-top: 0;
+}
+
+.avatar-picture {
+    width: 4rem;
+    height: 4rem;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+.avatar-picture.is-empty {
+    display: block;
+    background: var(--bz-deep);
+    border: 1px dashed var(--bz-line-2);
+}
+
+.avatar-picture[hidden] {
+    display: none;
+}
+
+.qr-sheet {
+    padding: 1.1rem;
+    background: var(--bz-surface);
+    border: 1px solid var(--bz-line-2);
+    border-radius: var(--bz-radius);
+    color: var(--bz-ink);
+    text-align: center;
+}
+
+.qr-sheet::backdrop {
+    background: rgb(0 0 0 / 0.6);
+}
+
+.qr-picture {
+    display: block;
+    width: min(22rem, 80vw);
+    height: auto;
+    border-radius: var(--bz-radius-sm);
+}
+
+.btn-copy + .btn-copy {
+    margin-left: 0.5rem;
+}
+
+.row > .row-button {
+    align-self: stretch;
+    min-height: 0;
+    margin: 0;
+}
+
 .row-quota {
     color: var(--bz-ink-dim);
     font-size: 0.72rem;
@@ -543,7 +602,7 @@ body.centred {
     margin-top: 1.1rem;
 }
 
-.view > :is(.panel-box, .rows, .stack-section, .tabbed) + :is(.panel-box, .rows, .stack-section, .tabbed) {
+.view > :is(.panel-box, .rows, .stack-section, .tabbed, .posts) + :is(.panel-box, .rows, .stack-section, .tabbed, .posts) {
     margin-top: 1rem;
 }
 

@@ -27,9 +27,6 @@ constexpr const char* kSettingsCommand = "settings";
 constexpr const char* kSettingsTyped = "/settings";
 constexpr const char* kContactableCommand = "contactable";
 constexpr const char* kRenameCommand = "rename";
-constexpr const char* kNameToken = "{name}";
-constexpr const char* kParagraph = "\n\n";
-constexpr std::size_t kMaxGroupTextBytes = 1024;
 constexpr const char* kTypeText = "text";
 constexpr const char* kTypeImage = "image";
 constexpr const char* kTypeAudio = "audio";
@@ -205,28 +202,38 @@ void GroupEngine::sayLocked(const std::string& peer, const std::string& words, A
     });
 }
 
-void GroupEngine::askNameLocked(const std::string& peer, Actions& actions)
+void GroupEngine::nameAndJoinLocked(Member& member, const std::string& offered, Actions& actions)
 {
-    sayLocked(peer, config_.greeting.empty() ? text(Copy::eAskName) : config_.greeting, actions);
-}
-
-std::string GroupEngine::welcomeTextLocked(const Member& member) const
-{
-    std::string welcome = config_.welcome;
-    if (welcome.empty()) {
-        welcome = text(Copy::eWelcome, {member.name});
+    const std::string& peer = member.fingerprint;
+    member.state = MemberState::eNaming;
+    if (offered.empty()) {
+        saveLocked(member);
+        tellLocked(peer, Copy::eAskName, {}, actions);
+        return;
     }
-    const std::string token = kNameToken;
-    for (std::size_t at = welcome.find(token); at != std::string::npos;
-         at = welcome.find(token, at + member.name.size())) {
-        welcome.replace(at, token.size(), member.name);
+    const NameCheck check = checkName(offered);
+    if (!check.allowed) {
+        saveLocked(member);
+        tellLocked(peer, Copy::eOfferedNameRefused, {offered}, actions);
+        return;
     }
-    return welcome + kParagraph + text(Copy::eSettingsHint);
+    const bool taken = std::any_of(members_.begin(), members_.end(), [&](const auto& entry) {
+        return entry.first != peer && entry.second.nameKey == check.key;
+    });
+    if (taken) {
+        saveLocked(member);
+        tellLocked(peer, Copy::eOfferedNameTaken, {check.name}, actions);
+        return;
+    }
+    member.name = check.name;
+    member.nameKey = check.key;
+    joinLocked(member, actions);
 }
 
 void GroupEngine::offerSettingsLocked(const Member& member, Actions& actions)
 {
-    sayLocked(member.fingerprint, text(Copy::eSettingsHint), actions, settingsButtonLocked());
+    tellLocked(member.fingerprint, Copy::eSettings, {member.name}, actions,
+        settingsKeyboardLocked(member));
 }
 
 void GroupEngine::showSettingsLocked(
@@ -235,17 +242,11 @@ void GroupEngine::showSettingsLocked(
     if (ref.empty()) {
         return;
     }
-    const std::string words
-        = ref == member.welcomeId ? welcomeTextLocked(member) : text(Copy::eSettingsHint);
+    const std::string words = text(Copy::eSettings, {member.name});
     actions.push_back([this, peer = member.fingerprint, ref, words,
                           keyboard = settingsKeyboardLocked(member)]() {
         link_.retell(peer, ref, words, keyboard);
     });
-}
-
-client::InlineKeyboard GroupEngine::settingsButtonLocked() const
-{
-    return {{{text(Copy::eButtonSettings), kSettingsCommand, {}}}};
 }
 
 client::InlineKeyboard GroupEngine::settingsKeyboardLocked(const Member& member) const
@@ -261,6 +262,9 @@ client::InlineKeyboard GroupEngine::settingsKeyboardLocked(const Member& member)
 void GroupEngine::onIncoming(const client::IncomingMessage& message)
 {
     Prefetched prefetched;
+    if (!message.sentByUs && message.contentType == "contact.request") {
+        prefetched.offeredName = link_.name(message.fromFingerprint);
+    }
     if (!message.sentByUs && isPost(message.contentType)) {
         if (message.contentType != kTypeText) {
             prefetched.media = link_.media(message.e2eId, message.contentType);
@@ -276,7 +280,7 @@ void GroupEngine::onIncoming(const client::IncomingMessage& message)
         sizing.durationMs = message.attachmentDurationMs;
         sizing.author = std::string(kMaxNameCodepoints * kMaxUtf8Bytes, 'x');
         sizing.sentAt = std::numeric_limits<std::int64_t>::max();
-        prefetched.fits = link_.fits(sizing);
+        prefetched.fits = link_.fitting({sizing}) == 1;
     }
     Actions actions;
     {
@@ -326,9 +330,7 @@ void GroupEngine::handleLocked(
         if (found == members_.end() || found->second.name.empty()) {
             Member member = found == members_.end() ? Member{} : found->second;
             member.fingerprint = peer;
-            member.state = MemberState::eNaming;
-            saveLocked(member);
-            askNameLocked(peer, actions);
+            nameAndJoinLocked(member, prefetched.offeredName, actions);
             return;
         }
         Member member = found->second;
@@ -350,7 +352,7 @@ void GroupEngine::handleLocked(
         if (member.name.empty()) {
             member.state = MemberState::eNaming;
             saveLocked(member);
-            askNameLocked(peer, actions);
+            tellLocked(peer, Copy::eAskName, {}, actions);
         } else {
             joinLocked(member, actions);
         }
@@ -360,7 +362,7 @@ void GroupEngine::handleLocked(
             return;
         }
         if (message.contentType != kTypeText) {
-            askNameLocked(peer, actions);
+            tellLocked(peer, Copy::eAskName, {}, actions);
             return;
         }
         const std::optional<NameCheck> check = freeNameLocked(peer, message.text, actions);
@@ -434,10 +436,6 @@ void GroupEngine::handleLocked(
             decideLocked(std::stoll(number), approve, member.name, actions);
             return;
         }
-        if (data == kSettingsCommand) {
-            showSettingsLocked(member, message.refId, actions);
-            return;
-        }
         commandLocked(member, data, actions);
         if (startsWith(data, kContactableCommand)) {
             showSettingsLocked(member, message.refId, actions);
@@ -448,7 +446,7 @@ void GroupEngine::handleLocked(
 void GroupEngine::joinLocked(Member& member, Actions& actions)
 {
     if (config_.joinMode == JoinMode::eOpen || member.admin) {
-        admitLocked(member, actions);
+        admitLocked(member);
         return;
     }
     member.state = MemberState::ePending;
@@ -473,7 +471,7 @@ void GroupEngine::joinLocked(Member& member, Actions& actions)
     }
 }
 
-void GroupEngine::admitLocked(Member& member, Actions& actions)
+void GroupEngine::admitLocked(Member& member)
 {
     member.state = MemberState::eMember;
     if (member.joinedAt == 0) {
@@ -482,17 +480,6 @@ void GroupEngine::admitLocked(Member& member, Actions& actions)
     member.cursor = store_.seqBeforeLastPosts(config_.historySize);
     member.historyFrom = member.cursor;
     saveLocked(member);
-    actions.push_back([this, peer = member.fingerprint, words = welcomeTextLocked(member),
-                          keyboard = settingsButtonLocked()]() {
-        const std::string id = link_.tell(peer, words, keyboard, watchRefusal(peer));
-        const std::lock_guard<std::mutex> lock(mutex_);
-        const auto found = members_.find(peer);
-        if (found != members_.end()) {
-            Member held = found->second;
-            held.welcomeId = id;
-            saveLocked(held);
-        }
-    });
 }
 
 void GroupEngine::decideLocked(
@@ -518,7 +505,7 @@ void GroupEngine::decideLocked(
     }
     store_.removeRequest(number);
     if (allow) {
-        admitLocked(member, actions);
+        admitLocked(member);
         return;
     }
     member.state = MemberState::eLeft;
@@ -746,6 +733,26 @@ void GroupEngine::pumpOnce()
     run(actions);
 }
 
+client::RelayedPost GroupEngine::relayedLocked(const Post& post) const
+{
+    const auto author = members_.find(post.author);
+    client::RelayedPost relayed;
+    relayed.type = post.type;
+    relayed.id = post.id;
+    relayed.sentAt = post.sentAt;
+    relayed.text = post.text;
+    relayed.replyTo = post.replyTo;
+    relayed.media = post.media;
+    relayed.mediaName = post.mediaName;
+    relayed.mime = post.mime;
+    relayed.durationMs = post.durationMs;
+    relayed.fromHost = post.author.empty();
+    relayed.author = author == members_.end() ? std::string() : author->second.name;
+    relayed.contactable = config_.contactRequests && author != members_.end()
+        && author->second.contactable;
+    return relayed;
+}
+
 std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member)
 {
     const std::string peer = member.fingerprint;
@@ -775,7 +782,8 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
     nlohmann::json reactions = nlohmann::json::array();
     std::set<std::string> counted;
     std::int64_t reactionsSeq = 0;
-    for (const LogEntry& entry : entries) {
+    for (std::size_t index = 0; index < entries.size(); ++index) {
+        const LogEntry& entry = entries[index];
         const std::optional<Post> post = store_.post(entry.postId);
         const bool behind = !post || post->seq <= member.historyFrom;
         if (entry.kind == LogKind::eReactions) {
@@ -799,23 +807,25 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
                 member.cursor = entry.seq;
                 continue;
             }
-            const auto author = members_.find(post->author);
-            client::RelayedPost relayed;
-            relayed.type = post->type;
-            relayed.id = post->id;
-            relayed.sentAt = post->sentAt;
-            relayed.text = post->text;
-            relayed.replyTo = post->replyTo;
-            relayed.media = post->media;
-            relayed.mediaName = post->mediaName;
-            relayed.mime = post->mime;
-            relayed.durationMs = post->durationMs;
-            relayed.fromHost = post->author.empty();
-            relayed.author = author == members_.end() ? std::string() : author->second.name;
-            relayed.contactable = config_.contactRequests && author != members_.end()
-                && author->second.contactable;
-            return guarded([this, peer, relayed, outcome = done(entry.seq)]() {
-                link_.relay(peer, relayed, outcome);
+            std::vector<client::RelayedPost> batch;
+            std::vector<std::int64_t> seqs;
+            for (std::size_t at = index; at < entries.size(); ++at) {
+                const LogEntry& next = entries[at];
+                if (next.kind != LogKind::ePost) {
+                    break;
+                }
+                const std::optional<Post> candidate = store_.post(next.postId);
+                if (!candidate || candidate->seq <= member.historyFrom
+                    || candidate->author == peer || candidate->deleted) {
+                    continue;
+                }
+                batch.push_back(relayedLocked(*candidate));
+                seqs.push_back(next.seq);
+            }
+            batch.resize(link_.fitting(batch));
+            const std::int64_t lastSeq = seqs[batch.size() - 1];
+            return guarded([this, peer, batch, outcome = done(lastSeq)]() {
+                link_.relay(peer, batch, outcome);
             });
         }
         if (entry.kind == LogKind::eEdit) {
@@ -929,10 +939,6 @@ void GroupEngine::setConfig(const GroupConfig& config)
 {
     if (config.historySize < 0) {
         throw std::runtime_error("the history size cannot be negative");
-    }
-    if (config.greeting.size() > kMaxGroupTextBytes || config.welcome.size() > kMaxGroupTextBytes) {
-        throw std::runtime_error(
-            "a group text is at most " + std::to_string(kMaxGroupTextBytes) + " bytes");
     }
     (void)copyText(config.language, Copy::eAskName);
     Actions actions;
@@ -1055,7 +1061,7 @@ void GroupEngine::hostPost(const std::string& id, const std::string& text)
     sizing.text = text;
     sizing.fromHost = true;
     sizing.sentAt = std::numeric_limits<std::int64_t>::max();
-    if (!link_.fits(sizing)) {
+    if (link_.fitting({sizing}) != 1) {
         throw std::invalid_argument("this post does not fit one message");
     }
     {
