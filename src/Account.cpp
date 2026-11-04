@@ -498,6 +498,19 @@ void Account::maintain()
         }
 
         try {
+            bool swept = false;
+            {
+                const std::lock_guard<std::mutex> lock(sessionMutex_);
+                swept = transcript_ != nullptr && transcript_->sweepExpired(nowMillis());
+            }
+            if (swept) {
+                waiters_->notify_all();
+            }
+        } catch (const std::exception& error) {
+            log::warn("account {}: expired messages not removed: {}", id_, error.what());
+        }
+
+        try {
             std::optional<client::Session::AliasErrandContext> errand;
             {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -954,6 +967,31 @@ void Account::clearChat(const std::string& peer, const bool forEveryone)
     waiters_->notify_all();
 }
 
+void Account::setChatTimer(const std::string& peer, const std::int64_t seconds)
+{
+    if (kind() == Settings::AccountKind::eGroup) {
+        throw std::invalid_argument("a group carries no auto-delete timer");
+    }
+    if (!client::isChatTimerChoice(seconds)) {
+        throw std::invalid_argument("not an auto-delete timer a chat can carry");
+    }
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        openSession().sendChatTimer(peer, seconds);
+        transcript_->setTimer(peer, seconds);
+    }
+    waiters_->notify_all();
+}
+
+std::int64_t Account::chatTimer(const std::string& peer) const
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    if (transcript_ == nullptr) {
+        throw std::runtime_error("the account is not open");
+    }
+    return transcript_->timer(peer);
+}
+
 client::DatabaseFootprint Account::storage() const
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -1181,6 +1219,7 @@ void Account::confirmReceipt(const std::string& peer, const std::string& message
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
     openSession().sendReceipt(peer, messageId);
+    transcript_->markRead(peer, messageId);
 }
 
 std::int64_t Account::lastEventId() const

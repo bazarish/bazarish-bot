@@ -50,6 +50,8 @@ answers `503` with the status in it: `{"error": "the account is not open: starti
 | `POST /v1/reactions` | `{"peer": "...", "messageId": "...", "emoji": "👍"}`; an empty emoji takes it back |
 | `POST /v1/receipts` | `{"peer": "...", "messageId": "..."}` tells the peer their message was read, and every earlier one with it |
 | `POST /v1/chats/{fingerprint}/clear` | `{"everyone": true}` drops the conversation on both sides, `{"everyone": false}` only here |
+| `GET /v1/chats/{fingerprint}/timer` | the conversation's auto-delete timer, `{"seconds": 3600}`; `0` is off |
+| `POST /v1/chats/{fingerprint}/timer` | `{"seconds": 86400}` sets the timer on both sides, `{"seconds": 0}` turns it off |
 | `GET /v1/storage` | the size of the account's database, `fileBytes`, and how much of it is free pages, `freeBytes` |
 | `POST /v1/storage/compact` | rewrites the database without its free pages; answers like `GET /v1/storage` |
 | `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds, at most 60 |
@@ -256,7 +258,7 @@ For a `message`, `type` is the line's type, and `actor` is the peer when the lin
 from them; a line this account sent has no `actor`.
 
 `kind` is one of `message`, `edit`, `delete`, `reaction`, `receipt`, `status`,
-`transfer` or `chat-cleared`. Only a `message` is a new line; the others are about a line that is already there,
+`transfer`, `timer` or `chat-cleared`. Only a `message` is a new line; the others are about a line that is already there,
 so a bot that keeps its own copy applies them to it. Read the conversation back
 with `GET /v1/messages` and each line carries its reactions and whether it has
 been edited:
@@ -347,6 +349,27 @@ honours it the way every client does. `{"everyone": false}` drops it here only.
 Either way its pictures and voice notes go with it. When the peer asks the same
 of this account, the conversation here is dropped and an event of kind
 `chat-cleared` says so.
+
+## Auto-delete timer
+
+A conversation can carry a timer after which its messages are deleted. The timer
+is one of `0` (off), `3600`, `86400`, `604800` or `2592000` seconds; any other value
+is refused with `400`. `POST /v1/chats/{fingerprint}/timer` with `{"seconds": 86400}`
+sets it on both sides, the way a client does; a group account has no timer.
+
+Either side's change arrives as an event of kind `timer`, with the new value in
+`seconds`; `actor` names the peer when they changed it:
+
+```json
+{"id": 31, "kind": "timer", "peer": "<fingerprint>", "messageId": "9d2c4e1a7b3f0658",
+ "seconds": 3600, "actor": "<fingerprint>"}
+```
+
+A message this account sends is deleted that many seconds after it was sent; a
+message from the peer, that many seconds after `POST /v1/receipts` marks it read.
+The daemon checks every few seconds, and each deleted message is an event of kind
+`delete` with its `messageId`. The timer deletes only here: the peer's copy follows
+the peer's own timer.
 
 ## The size of the database
 

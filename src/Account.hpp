@@ -118,6 +118,8 @@ public:
     void confirmReceipt(const std::string& peer, const std::string& messageId);
 
     void clearChat(const std::string& peer, bool forEveryone);
+    void setChatTimer(const std::string& peer, std::int64_t seconds);
+    std::int64_t chatTimer(const std::string& peer) const;
     client::DatabaseFootprint storage() const;
     client::DatabaseFootprint compact();
 

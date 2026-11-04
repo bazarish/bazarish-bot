@@ -93,6 +93,10 @@ public:
         const std::string& peer, const std::string& messageId, const std::string& path);
     void noteTransfer(
         const std::string& peer, const std::string& messageId, const std::string& state);
+    void setTimer(const std::string& peer, std::int64_t seconds);
+    std::int64_t timer(const std::string& peer) const;
+    void markRead(const std::string& peer, const std::string& messageId);
+    bool sweepExpired(std::int64_t nowMs);
     void setMenu(const std::string& peer, const client::BotMenu& menu);
     std::optional<client::BotMenu> menu(const std::string& peer) const;
 

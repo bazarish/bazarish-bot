@@ -18,6 +18,7 @@
     } while (false)
 
 namespace fs = std::filesystem;
+using bazarish::bot::Event;
 using bazarish::bot::Line;
 using bazarish::bot::Transcript;
 
@@ -254,6 +255,43 @@ int main()
         CHECK(transcript.conversation("gina", 0, 10).empty());
         CHECK(transcript.since(transcript.lastEventId() - 1).back().text == "Choose a language.");
         CHECK(transcript.latestPerPeer().empty());
+    }
+
+    {
+        constexpr std::int64_t kHour = 3600;
+        constexpr std::int64_t kMsPerSecond = 1000;
+        constexpr std::int64_t kSentAt = 1000;
+        Transcript transcript(dir / "timer.db", self, true);
+
+        bazarish::client::IncomingMessage timer;
+        timer.contentType = bazarish::client::kTypeChatTimer;
+        timer.fromFingerprint = "hana";
+        timer.e2eId = "t1";
+        timer.timerSeconds = kHour;
+        CHECK(transcript.takeIn(timer).wrote);
+        const std::vector<Event> set = transcript.since(0);
+        CHECK(set.size() == 1);
+        CHECK(set.back().kind == "timer" && set.back().text == std::to_string(kHour)
+            && set.back().actor == "hana");
+        CHECK(transcript.timer("hana") == kHour);
+        CHECK(transcript.conversation("hana", 0, 10).size() == 1);
+
+        CHECK(transcript.append(lineFor("hana", "gone in an hour", "o1", true, kSentAt)) != 0);
+        CHECK(!transcript.sweepExpired(kSentAt + kHour * kMsPerSecond - 1));
+        CHECK(transcript.sweepExpired(kSentAt + kHour * kMsPerSecond));
+        const Event gone = transcript.since(transcript.lastEventId() - 1).back();
+        CHECK(gone.kind == "delete" && gone.messageId == "o1");
+        CHECK(!transcript.find("hana", "o1").has_value());
+
+        CHECK(transcript.append(lineFor("hana", "read me", "i1", false, kSentAt)) != 0);
+        transcript.markRead("hana", "i1");
+        CHECK(!transcript.sweepExpired(kSentAt + kHour * kMsPerSecond));
+        CHECK(transcript.find("hana", "i1").has_value());
+
+        transcript.setTimer("hana", 0);
+        const Event off = transcript.since(transcript.lastEventId() - 1).back();
+        CHECK(off.kind == "timer" && off.text == "0" && off.actor.empty());
+        CHECK(transcript.timer("hana") == 0);
     }
 
     fs::remove_all(dir);

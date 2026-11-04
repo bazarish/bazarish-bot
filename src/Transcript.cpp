@@ -142,11 +142,21 @@ public:
         return "A message of the type " + rawType + " this host does not know.";
     }
 
+    void chatTimerChanged(const std::string& peer, const std::int64_t seconds) override
+    {
+        (void)owner_.noteLocked("timer", peer, current_->e2eId, std::to_string(seconds), actor(), 0);
+        timerNote_ = true;
+        taken_.wrote = true;
+    }
     void rowAdded(const std::string& peer, const std::int64_t id, bool) override
     {
         const Line line = owner_.lineOf(owner_.store_.messageById(id));
-        (void)owner_.noteLocked(
-            "message", peer, line.e2eId, line.text, actor(), line.sentAt, line.type);
+        if (timerNote_) {
+            timerNote_ = false;
+        } else {
+            (void)owner_.noteLocked(
+                "message", peer, line.e2eId, line.text, actor(), line.sentAt, line.type);
+        }
         if (!owner_.keepsHistory_) {
             owner_.require(owner_.store_.removeById(id));
         }
@@ -192,6 +202,7 @@ private:
     Transcript& owner_;
     const client::IncomingMessage* current_ = nullptr;
     Taken taken_;
+    bool timerNote_ = false;
 };
 
 Transcript::Taken Transcript::takeIn(const client::IncomingMessage& message)
@@ -236,6 +247,50 @@ Line Transcript::lineOf(const client::StoredMessage& row) const
             reaction.emoji});
     }
     return line;
+}
+
+void Transcript::setTimer(const std::string& peer, const std::int64_t seconds)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    require(store_.setChatTimer(peer, seconds));
+    const std::int64_t now = nowMillis();
+    if (keepsHistory_) {
+        Line note;
+        note.peer = peer;
+        note.type = client::kTypeSystem;
+        note.text = relay_->chatTimer(seconds, true, peer);
+        note.sentAt = now;
+        require(store_.append(rowOf(note)) != 0);
+    }
+    (void)noteLocked("timer", peer, {}, std::to_string(seconds), {}, now);
+}
+
+std::int64_t Transcript::timer(const std::string& peer) const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return store_.chatTimer(peer);
+}
+
+void Transcript::markRead(const std::string& peer, const std::string& messageId)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const std::int64_t id = store_.idForKey(peer, messageId, false);
+    if (id != 0) {
+        require(store_.setLastReadId(peer, id));
+    }
+}
+
+bool Transcript::sweepExpired(const std::int64_t nowMs)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    bool swept = false;
+    for (const auto& [peer, id] : store_.expiredBy(nowMs)) {
+        const std::string messageId = store_.messageById(id).e2eId;
+        require(store_.removeById(id));
+        (void)noteLocked("delete", peer, messageId, {}, {}, 0);
+        swept = true;
+    }
+    return swept;
 }
 
 void Transcript::setMenu(const std::string& peer, const client::BotMenu& menu)

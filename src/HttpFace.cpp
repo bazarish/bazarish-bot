@@ -40,6 +40,7 @@ constexpr const char* kAccountPath = "/ui/accounts/([0-9a-f]+)";
 constexpr const char* kStoragePath = "/v1/storage";
 constexpr const char* kAvatarName = "avatar";
 constexpr const char* kStatusPath = "/v1/status";
+constexpr const char* kTimerEvent = "timer";
 constexpr std::uint64_t kMebibyte = 1024 * 1024;
 constexpr std::uint64_t kMaxBackupBytes = 512 * kMebibyte;
 
@@ -172,7 +173,9 @@ nlohmann::json eventJson(const Event& event)
     if (!event.type.empty()) {
         item["type"] = event.type;
     }
-    if (!event.text.empty()) {
+    if (event.kind == kTimerEvent) {
+        item["seconds"] = std::stoll(event.text);
+    } else if (!event.text.empty()) {
         item["text"] = event.text;
     }
     if (!event.actor.empty()) {
@@ -762,6 +765,24 @@ void HttpFace::apiRoutes()
         return guarded(request, [](Account& account, const http::Request& call) {
             account.clearChat(call.captures.at(0), clearsForEveryone(call));
             return json({{"cleared", call.captures.at(0)}});
+        });
+    });
+
+    server_->get("/v1/chats/([a-z2-7]+)/timer", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            return json({{"seconds", account.chatTimer(call.captures.at(0))}});
+        });
+    });
+
+    server_->post("/v1/chats/([a-z2-7]+)/timer", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            if (!body.contains("seconds") || !body.at("seconds").is_number_integer()) {
+                return failure(400, "a timer is \"seconds\", a whole number");
+            }
+            const std::int64_t seconds = body.at("seconds").get<std::int64_t>();
+            account.setChatTimer(call.captures.at(0), seconds);
+            return json({{"seconds", seconds}});
         });
     });
 
