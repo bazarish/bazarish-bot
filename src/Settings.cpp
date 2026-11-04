@@ -3,6 +3,7 @@
 
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Clock.hpp>
+#include <bazarish/PrivateFile.hpp>
 
 #include <nlohmann/json.hpp>
 #include <openssl/crypto.h>
@@ -122,18 +123,7 @@ void Settings::save() const
     };
     const std::string text = document.dump(2);
     fs::create_directories(file_.parent_path());
-    const fs::path scratch = fs::path(file_).concat(".new");
-    {
-        std::ofstream out(scratch, std::ios::binary | std::ios::trunc);
-        out.write(text.data(), static_cast<std::streamsize>(text.size()));
-        out.close();
-        if (!out) {
-            throw std::runtime_error("cannot write " + scratch.string());
-        }
-    }
-    fs::rename(scratch, file_);
-    fs::permissions(file_, fs::perms::owner_read | fs::perms::owner_write,
-        fs::perm_options::replace);
+    writePrivateFile(file_, text);
 }
 
 Settings::Transport Settings::transport() const

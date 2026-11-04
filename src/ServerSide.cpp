@@ -10,6 +10,7 @@
 #include <bazarish/I2p.hpp>
 #include <bazarish/Limits.hpp>
 #include <bazarish/Log.hpp>
+#include <bazarish/PrivateFile.hpp>
 #include <bazarish/Tls.hpp>
 
 #include <nlohmann/json.hpp>
@@ -19,7 +20,6 @@
 #include <optional>
 
 #include <filesystem>
-#include <fstream>
 #include <stdexcept>
 
 namespace bazarish::bot {
@@ -34,36 +34,13 @@ constexpr int kOwnDestTunnelQuantity = 3;
 constexpr std::uint64_t kOwnQuotaBytes = 4ULL * 1024 * 1024 * 1024;
 constexpr int kNodeTimeoutSeconds = 5;
 
-std::string readFileText(const fs::path& path)
-{
-    std::ifstream in(path, std::ios::binary);
-    if (!in) {
-        throw std::runtime_error("cannot read " + path.string());
-    }
-    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-}
-
-void writePrivateFile(const fs::path& path, const std::string& text)
-{
-    fs::create_directories(path.parent_path());
-    {
-        std::ofstream out(path, std::ios::binary | std::ios::trunc);
-        out.write(text.data(), static_cast<std::streamsize>(text.size()));
-        out.close();
-        if (!out) {
-            throw std::runtime_error("cannot write " + path.string());
-        }
-    }
-    fs::permissions(path, fs::perms::owner_read | fs::perms::owner_write,
-        fs::perm_options::replace);
-}
-
 Identity loadOrCreateIdentity(const fs::path& path)
 {
     if (fs::exists(path)) {
         return Identity::fromPrivatePem(readFileText(path));
     }
     Identity identity = Identity::generate();
+    fs::create_directories(path.parent_path());
     writePrivateFile(path, identity.privatePem());
     return identity;
 }
@@ -74,6 +51,7 @@ Key loadOrCreateSealingKey(const fs::path& path)
         return Key::fromPrivatePem(readFileText(path));
     }
     Key key = Key::generateSealing();
+    fs::create_directories(path.parent_path());
     writePrivateFile(path, key.privatePem());
     return key;
 }
@@ -111,15 +89,7 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
 
     card_ = ServerCard::issue(*identity_, ServerCard::Service::eMessaging,
         Key::fromPublicDer(sealing_->publicDer()), nowSeconds());
-    {
-        std::ofstream out(serverDir / "server-card.der", std::ios::binary | std::ios::trunc);
-        out.write(reinterpret_cast<const char*>(card_.data()),
-            static_cast<std::streamsize>(card_.size()));
-        out.close();
-        if (!out) {
-            throw std::runtime_error("cannot write the server card");
-        }
-    }
+    writeFileAtomic(serverDir / "server-card.der", card_);
 
     subscriptions_ = std::make_unique<service::SubscriptionStore>(serverDir / "node");
     grants_ = std::make_unique<service::GrantStore>(serverDir / "node");
@@ -276,6 +246,7 @@ std::string ServerSide::serveDestinationFor(
         blob = readFileText(keyFile);
     } else {
         blob = toBase64(bazarish::i2p::Keys::generate().blob());
+        fs::create_directories(keyFile.parent_path());
         writePrivateFile(keyFile, blob);
     }
     const bazarish::i2p::Keys delegated
