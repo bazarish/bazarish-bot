@@ -31,7 +31,7 @@ int stateOf(const std::string& status)
     if (status.rfind(kFailedStatus, 0) == 0) {
         return static_cast<int>(DeliveryState::eFailed);
     }
-    return static_cast<int>(DeliveryState::eReceived);
+    return static_cast<int>(DeliveryState::ePreparing);
 }
 
 std::string statusOf(const int state)
@@ -330,13 +330,15 @@ void Transcript::setStatus(
     const std::string& peer, const std::string& messageId, const std::string& status)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    const client::StoredMessage row = store_.messageByE2e(messageId, peer);
-    if (row.id == 0 || !row.outgoing
-        || row.status == static_cast<int>(DeliveryState::eDelivered)) {
+    const std::int64_t id = store_.idForKey(peer, messageId, true);
+    if (id == 0) {
         return;
     }
-    require(store_.updateStatus(row.id, stateOf(status)));
-    (void)noteLocked("status", peer, messageId, status, {}, 0);
+    const std::optional<bool> moved = store_.advanceStatus(id, stateOf(status));
+    require(moved.has_value());
+    if (*moved) {
+        (void)noteLocked("status", peer, messageId, status, {}, 0);
+    }
 }
 
 void Transcript::keepFileAt(
