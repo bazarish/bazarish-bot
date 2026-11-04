@@ -95,12 +95,10 @@ bool pairingSettled(const client::Session::PairingStage stage)
 
 }  // namespace
 
-Account::Account(std::string id, fs::path accountFile, fs::path transcriptFile,
-    fs::path groupFile, Settings& settings, ServerSideFn serverSide)
+Account::Account(
+    std::string id, fs::path accountFile, Settings& settings, ServerSideFn serverSide)
     : id_(std::move(id))
     , accountFile_(std::move(accountFile))
-    , transcriptFile_(std::move(transcriptFile))
-    , groupFile_(std::move(groupFile))
     , settings_(settings)
     , serverSide_(std::move(serverSide))
     , status_(kClosed)
@@ -182,13 +180,13 @@ void Account::bringUp()
     const std::shared_ptr<client::LoginSigner> signer = session->loginSigner();
     noteAliases(*session);
 
-    auto transcript = std::make_shared<Transcript>(transcriptFile_);
+    auto transcript = std::make_shared<Transcript>(accountFile_, fingerprint);
     auto transfers = std::make_shared<Transfers>();
     session->setFileSource(files_);
     session->setTransferHandler(transferHandler(transfers, transcript, waiters_));
     std::unique_ptr<GroupEngine> group;
     if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
-        group = std::make_unique<GroupEngine>(groupFile_, groupLink(), []() { return wallMillis(); });
+        group = std::make_unique<GroupEngine>(accountFile_, groupLink(), []() { return wallMillis(); });
         GroupEngine* const engine = group.get();
         session->setGroupBlockSource(
             [engine](const std::string& peer) { return engine->blockFor(peer); });
@@ -975,15 +973,36 @@ bool Account::setMenu(const std::string& peer, std::vector<client::BotMenuItem> 
     return true;
 }
 
-void Account::clearChat(const std::string& peer)
+void Account::clearChat(const std::string& peer, const bool forEveryone)
 {
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        session.sendChatClear(peer);
+        if (forEveryone) {
+            session.sendChatClear(peer);
+        }
         transcript_->clearPeer(peer);
     }
     waiters_->notify_all();
+}
+
+client::DatabaseFootprint Account::storage() const
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    if (transcript_ == nullptr) {
+        throw std::runtime_error("the account is not open");
+    }
+    return transcript_->footprint();
+}
+
+client::DatabaseFootprint Account::compact()
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    if (transcript_ == nullptr) {
+        throw std::runtime_error("the account is not open");
+    }
+    transcript_->rebuild();
+    return transcript_->footprint();
 }
 
 void Account::acceptContact(const std::string& peer)

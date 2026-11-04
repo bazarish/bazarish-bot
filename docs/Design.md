@@ -43,9 +43,9 @@ ten minutes without a delivery.
 A group account runs the protocol of `docs-main/Groups.md` itself; of the REST
 API it answers only `GET /v1/status` and `POST /v1/posts`. Its
 state - settings, members, posts, the relay log, reactions, requests - lives in
-a database of its own, `groups/<id>.db`, encrypted like the transcripts and
-apart from them: a post is relayed under its author's id to everyone, which the
-transcript's one-id-one-row rule would not hold.
+the account's database in `hosted_` tables, apart from the conversations: a post
+is relayed under its author's id to everyone, which the conversations'
+one-id-one-row rule would not hold.
 
 - **Relaying is a log.** Every post, edit, delete and change of reaction counts
   is a row; every member has a cursor into it. A pump sends each member the next
@@ -188,6 +188,15 @@ the aliases it wants pointing at its current address, and repoints them after
 a new address. The ask runs off the account's lock, so a registry that does not
 answer holds up nothing else; stopping the daemon waits for an ask in flight to
 come back. A contact is added by alias as well as by invite.
+
+## One database per account
+
+An account is one encrypted file under `accounts/`, the same file a client
+keeps an account in. The conversations sit in it in the client's tables and
+through the client core's store, so deleting a message or clearing a chat takes
+its pictures and voice notes with it. The bot adds two tables of its own: the
+event feed of the API and the menus it gave out. A deleted row leaves free pages
+behind; compacting the database rewrites the file without them.
 
 ## Backing up the whole host
 

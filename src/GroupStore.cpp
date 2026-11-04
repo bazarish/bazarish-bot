@@ -136,32 +136,32 @@ client::GroupKind groupKindFromName(const std::string& name)
 GroupStore::GroupStore(const std::filesystem::path& file)
     : database_(file, "group store")
 {
-    database_.run("CREATE TABLE IF NOT EXISTS config (row INTEGER PRIMARY KEY, kind TEXT NOT NULL,"
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_config (row INTEGER PRIMARY KEY, kind TEXT NOT NULL,"
                   " joinMode TEXT NOT NULL, historySize INTEGER NOT NULL,"
                   " contactRequests INTEGER NOT NULL, language TEXT NOT NULL)");
-    database_.run("CREATE TABLE IF NOT EXISTS members (fingerprint TEXT PRIMARY KEY,"
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_members (fingerprint TEXT PRIMARY KEY,"
                   " name TEXT NOT NULL, nameKey TEXT NOT NULL, state TEXT NOT NULL,"
                   " admin INTEGER NOT NULL, contactable INTEGER NOT NULL, cursor INTEGER NOT NULL,"
                   " historyFrom INTEGER NOT NULL, joinedAt INTEGER NOT NULL)");
-    database_.run("CREATE UNIQUE INDEX IF NOT EXISTS members_name ON members(nameKey)"
+    database_.run("CREATE UNIQUE INDEX IF NOT EXISTS hosted_members_name ON hosted_members(nameKey)"
                   " WHERE nameKey <> ''");
-    database_.run("CREATE TABLE IF NOT EXISTS posts (id TEXT PRIMARY KEY, author TEXT NOT NULL,"
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_posts (id TEXT PRIMARY KEY, author TEXT NOT NULL,"
                   " type TEXT NOT NULL, text TEXT NOT NULL, mediaName TEXT NOT NULL,"
                   " mime TEXT NOT NULL, media BLOB, durationMs INTEGER NOT NULL,"
                   " replyTo TEXT NOT NULL, sentAt INTEGER NOT NULL, edited INTEGER NOT NULL,"
                   " deleted INTEGER NOT NULL, seq INTEGER NOT NULL)");
-    database_.run("CREATE TABLE IF NOT EXISTS log (seq INTEGER PRIMARY KEY AUTOINCREMENT,"
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_log (seq INTEGER PRIMARY KEY AUTOINCREMENT,"
                   " kind TEXT NOT NULL, postId TEXT NOT NULL)");
-    database_.run("CREATE TABLE IF NOT EXISTS reactions (postId TEXT NOT NULL, member TEXT NOT NULL,"
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_reactions (postId TEXT NOT NULL, member TEXT NOT NULL,"
                   " emoji TEXT NOT NULL, PRIMARY KEY (postId, member))");
-    database_.run("CREATE TABLE IF NOT EXISTS requests (number INTEGER PRIMARY KEY AUTOINCREMENT,"
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_requests (number INTEGER PRIMARY KEY AUTOINCREMENT,"
                   " fingerprint TEXT NOT NULL UNIQUE, at INTEGER NOT NULL)");
-    database_.run("CREATE TABLE IF NOT EXISTS cards (number INTEGER NOT NULL, admin TEXT NOT NULL,"
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_cards (number INTEGER NOT NULL, admin TEXT NOT NULL,"
                   " messageId TEXT NOT NULL, PRIMARY KEY (number, admin))");
-    database_.run("CREATE TABLE IF NOT EXISTS asks (requester TEXT NOT NULL, author TEXT NOT NULL,"
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_asks (requester TEXT NOT NULL, author TEXT NOT NULL,"
                   " PRIMARY KEY (requester, author))");
 
-    Statement seed(database_, "INSERT OR IGNORE INTO config (row, kind, joinMode, historySize,"
+    Statement seed(database_, "INSERT OR IGNORE INTO hosted_config (row, kind, joinMode, historySize,"
                               " contactRequests, language) VALUES (?, ?, ?, ?, ?, ?)");
     const GroupConfig defaults;
     seed.bind(1, kConfigRow);
@@ -176,7 +176,7 @@ GroupStore::GroupStore(const std::filesystem::path& file)
 GroupConfig GroupStore::config() const
 {
     Statement query(database_, "SELECT kind, joinMode, historySize, contactRequests, language"
-                               " FROM config WHERE row = ?");
+                               " FROM hosted_config WHERE row = ?");
     query.bind(1, kConfigRow);
     if (!query.step()) {
         throw std::runtime_error("group store: the configuration row is missing");
@@ -192,7 +192,7 @@ GroupConfig GroupStore::config() const
 
 void GroupStore::setConfig(const GroupConfig& config)
 {
-    Statement update(database_, "UPDATE config SET kind = ?, joinMode = ?, historySize = ?,"
+    Statement update(database_, "UPDATE hosted_config SET kind = ?, joinMode = ?, historySize = ?,"
                                 " contactRequests = ?, language = ? WHERE row = ?");
     update.bind(1, groupKindName(config.kind));
     update.bind(2, joinModeName(config.joinMode));
@@ -205,7 +205,7 @@ void GroupStore::setConfig(const GroupConfig& config)
 
 std::vector<Member> GroupStore::members() const
 {
-    Statement query(database_, std::string("SELECT ") + kMemberColumns + " FROM members");
+    Statement query(database_, std::string("SELECT ") + kMemberColumns + " FROM hosted_members");
     std::vector<Member> members;
     while (query.step()) {
         members.push_back(readMember(query));
@@ -215,7 +215,7 @@ std::vector<Member> GroupStore::members() const
 
 void GroupStore::putMember(const Member& member)
 {
-    Statement upsert(database_, std::string("INSERT OR REPLACE INTO members (") + kMemberColumns
+    Statement upsert(database_, std::string("INSERT OR REPLACE INTO hosted_members (") + kMemberColumns
             + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
     upsert.bind(1, member.fingerprint);
     upsert.bind(2, member.name);
@@ -231,7 +231,7 @@ void GroupStore::putMember(const Member& member)
 
 std::optional<Post> GroupStore::post(const std::string& id) const
 {
-    Statement query(database_, std::string("SELECT ") + kPostColumns + " FROM posts WHERE id = ?");
+    Statement query(database_, std::string("SELECT ") + kPostColumns + " FROM hosted_posts WHERE id = ?");
     query.bind(1, id);
     if (!query.step()) {
         return std::nullopt;
@@ -242,7 +242,7 @@ std::optional<Post> GroupStore::post(const std::string& id) const
 std::int64_t GroupStore::addPost(Post post)
 {
     post.seq = appendLog(LogKind::ePost, post.id);
-    Statement insert(database_, std::string("INSERT INTO posts (") + kPostColumns
+    Statement insert(database_, std::string("INSERT INTO hosted_posts (") + kPostColumns
             + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     insert.bind(1, post.id);
     insert.bind(2, post.author);
@@ -263,7 +263,7 @@ std::int64_t GroupStore::addPost(Post post)
 
 void GroupStore::updatePost(const Post& post)
 {
-    Statement update(database_, "UPDATE posts SET text = ?, edited = ?, deleted = ? WHERE id = ?");
+    Statement update(database_, "UPDATE hosted_posts SET text = ?, edited = ?, deleted = ? WHERE id = ?");
     update.bind(1, post.text);
     update.bind(2, flag(post.edited));
     update.bind(3, flag(post.deleted));
@@ -274,7 +274,7 @@ void GroupStore::updatePost(const Post& post)
 std::vector<Post> GroupStore::recentPosts(const std::int64_t limit) const
 {
     Statement query(database_, std::string("SELECT ") + kPostColumns
-            + " FROM posts ORDER BY seq DESC LIMIT ?");
+            + " FROM hosted_posts ORDER BY seq DESC LIMIT ?");
     query.bind(1, limit);
     std::vector<Post> posts;
     while (query.step()) {
@@ -285,14 +285,14 @@ std::vector<Post> GroupStore::recentPosts(const std::int64_t limit) const
 
 void GroupStore::dropMediaBefore(const std::int64_t seq)
 {
-    Statement update(database_, "UPDATE posts SET media = NULL WHERE seq <= ? AND media IS NOT NULL");
+    Statement update(database_, "UPDATE hosted_posts SET media = NULL WHERE seq <= ? AND media IS NOT NULL");
     update.bind(1, seq);
     (void)update.step();
 }
 
 std::int64_t GroupStore::appendLog(const LogKind kind, const std::string& postId)
 {
-    Statement insert(database_, "INSERT INTO log (kind, postId) VALUES (?, ?)");
+    Statement insert(database_, "INSERT INTO hosted_log (kind, postId) VALUES (?, ?)");
     insert.bind(1, std::string(kLogKindNames[static_cast<std::size_t>(kind)]));
     insert.bind(2, postId);
     (void)insert.step();
@@ -301,7 +301,7 @@ std::int64_t GroupStore::appendLog(const LogKind kind, const std::string& postId
 
 std::vector<LogEntry> GroupStore::logAfter(const std::int64_t seq, const std::int64_t limit) const
 {
-    Statement query(database_, "SELECT seq, kind, postId FROM log WHERE seq > ? ORDER BY seq LIMIT ?");
+    Statement query(database_, "SELECT seq, kind, postId FROM hosted_log WHERE seq > ? ORDER BY seq LIMIT ?");
     query.bind(1, seq);
     query.bind(2, limit);
     std::vector<LogEntry> entries;
@@ -313,7 +313,7 @@ std::vector<LogEntry> GroupStore::logAfter(const std::int64_t seq, const std::in
 
 std::int64_t GroupStore::lastSeq() const
 {
-    Statement query(database_, "SELECT COALESCE(MAX(seq), 0) FROM log");
+    Statement query(database_, "SELECT COALESCE(MAX(seq), 0) FROM hosted_log");
     if (!query.step()) {
         return 0;
     }
@@ -325,7 +325,7 @@ std::int64_t GroupStore::seqBeforeLastPosts(const std::int64_t count) const
     if (count <= 0) {
         return lastSeq();
     }
-    Statement query(database_, "SELECT seq FROM posts WHERE deleted = 0 ORDER BY seq DESC"
+    Statement query(database_, "SELECT seq FROM hosted_posts WHERE deleted = 0 ORDER BY seq DESC"
                                " LIMIT 1 OFFSET ?");
     query.bind(1, count - 1);
     if (!query.step()) {
@@ -338,13 +338,13 @@ void GroupStore::setReaction(
     const std::string& postId, const std::string& member, const std::string& emoji)
 {
     if (emoji.empty()) {
-        Statement remove(database_, "DELETE FROM reactions WHERE postId = ? AND member = ?");
+        Statement remove(database_, "DELETE FROM hosted_reactions WHERE postId = ? AND member = ?");
         remove.bind(1, postId);
         remove.bind(2, member);
         (void)remove.step();
         return;
     }
-    Statement upsert(database_, "INSERT OR REPLACE INTO reactions (postId, member, emoji)"
+    Statement upsert(database_, "INSERT OR REPLACE INTO hosted_reactions (postId, member, emoji)"
                                 " VALUES (?, ?, ?)");
     upsert.bind(1, postId);
     upsert.bind(2, member);
@@ -355,7 +355,7 @@ void GroupStore::setReaction(
 std::map<std::string, std::int64_t> GroupStore::reactionCounts(
     const std::string& postId, const std::string& leavingOut) const
 {
-    Statement query(database_, "SELECT emoji, COUNT(*) FROM reactions"
+    Statement query(database_, "SELECT emoji, COUNT(*) FROM hosted_reactions"
                                " WHERE postId = ? AND member <> ? GROUP BY emoji");
     query.bind(1, postId);
     query.bind(2, leavingOut);
@@ -368,7 +368,7 @@ std::map<std::string, std::int64_t> GroupStore::reactionCounts(
 
 std::int64_t GroupStore::addRequest(const std::string& fingerprint, const std::int64_t at)
 {
-    Statement insert(database_, "INSERT OR IGNORE INTO requests (fingerprint, at) VALUES (?, ?)");
+    Statement insert(database_, "INSERT OR IGNORE INTO hosted_requests (fingerprint, at) VALUES (?, ?)");
     insert.bind(1, fingerprint);
     insert.bind(2, at);
     (void)insert.step();
@@ -381,7 +381,7 @@ std::int64_t GroupStore::addRequest(const std::string& fingerprint, const std::i
 
 std::optional<JoinRequest> GroupStore::request(const std::int64_t number) const
 {
-    Statement query(database_, "SELECT number, fingerprint, at FROM requests WHERE number = ?");
+    Statement query(database_, "SELECT number, fingerprint, at FROM hosted_requests WHERE number = ?");
     query.bind(1, number);
     if (!query.step()) {
         return std::nullopt;
@@ -391,7 +391,7 @@ std::optional<JoinRequest> GroupStore::request(const std::int64_t number) const
 
 std::optional<JoinRequest> GroupStore::requestOf(const std::string& fingerprint) const
 {
-    Statement query(database_, "SELECT number, fingerprint, at FROM requests WHERE fingerprint = ?");
+    Statement query(database_, "SELECT number, fingerprint, at FROM hosted_requests WHERE fingerprint = ?");
     query.bind(1, fingerprint);
     if (!query.step()) {
         return std::nullopt;
@@ -401,7 +401,7 @@ std::optional<JoinRequest> GroupStore::requestOf(const std::string& fingerprint)
 
 std::vector<JoinRequest> GroupStore::requests() const
 {
-    Statement query(database_, "SELECT number, fingerprint, at FROM requests ORDER BY number");
+    Statement query(database_, "SELECT number, fingerprint, at FROM hosted_requests ORDER BY number");
     std::vector<JoinRequest> requests;
     while (query.step()) {
         requests.push_back({query.number(0), query.text(1), query.number(2)});
@@ -411,10 +411,10 @@ std::vector<JoinRequest> GroupStore::requests() const
 
 void GroupStore::removeRequest(const std::int64_t number)
 {
-    Statement remove(database_, "DELETE FROM requests WHERE number = ?");
+    Statement remove(database_, "DELETE FROM hosted_requests WHERE number = ?");
     remove.bind(1, number);
     (void)remove.step();
-    Statement cards(database_, "DELETE FROM cards WHERE number = ?");
+    Statement cards(database_, "DELETE FROM hosted_cards WHERE number = ?");
     cards.bind(1, number);
     (void)cards.step();
 }
@@ -422,7 +422,7 @@ void GroupStore::removeRequest(const std::int64_t number)
 void GroupStore::addCard(
     const std::int64_t number, const std::string& admin, const std::string& messageId)
 {
-    Statement insert(database_, "INSERT OR REPLACE INTO cards (number, admin, messageId)"
+    Statement insert(database_, "INSERT OR REPLACE INTO hosted_cards (number, admin, messageId)"
                                 " VALUES (?, ?, ?)");
     insert.bind(1, number);
     insert.bind(2, admin);
@@ -432,7 +432,7 @@ void GroupStore::addCard(
 
 std::vector<RequestCard> GroupStore::cards(const std::int64_t number) const
 {
-    Statement query(database_, "SELECT admin, messageId FROM cards WHERE number = ?");
+    Statement query(database_, "SELECT admin, messageId FROM hosted_cards WHERE number = ?");
     query.bind(1, number);
     std::vector<RequestCard> cards;
     while (query.step()) {
@@ -443,7 +443,7 @@ std::vector<RequestCard> GroupStore::cards(const std::int64_t number) const
 
 bool GroupStore::noteContactAsk(const std::string& requester, const std::string& author)
 {
-    Statement insert(database_, "INSERT OR IGNORE INTO asks (requester, author) VALUES (?, ?)");
+    Statement insert(database_, "INSERT OR IGNORE INTO hosted_asks (requester, author) VALUES (?, ?)");
     insert.bind(1, requester);
     insert.bind(2, author);
     (void)insert.step();

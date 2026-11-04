@@ -659,13 +659,32 @@ async function drawThread() {
         thread.querySelector(".log").replaceWith(log);
     } else {
         const head = node("div", "thread-head");
-        head.append(node("span", null, nameOf(shown)));
+        head.append(node("span", "thread-name", nameOf(shown)),
+            clearButton(shown, false), clearButton(shown, true));
         editing = null;
         const fresh = composerFor(shown);
         thread.replaceChildren(head, log, fresh);
         fresh.querySelector(".field").focus();
     }
     log.scrollTop = log.scrollHeight;
+}
+
+function clearButton(chatPeer, everyone) {
+    const button = node("button", "btn btn-quiet",
+        everyone ? t("Clear for everyone") : t("Clear for me"));
+    button.type = "button";
+    button.onclick = async () => {
+        const question = everyone
+            ? t("The conversation is deleted on both sides. Continue?")
+            : t("The conversation is deleted here. Continue?");
+        if (!window.confirm(question)) {
+            return;
+        }
+        await call("POST", base() + "/chats/" + chatPeer + "/clear", {everyone});
+        await drawChats();
+        await drawThread();
+    };
+    return button;
 }
 
 function composerFor(chatPeer) {
@@ -722,8 +741,7 @@ function deliveryMark(status) {
         return mark;
     }
     const failed = node("span", "delivery is-failed", "!");
-    const reason = status.replace(/^failed:?\s*/, "");
-    failed.title = reason ? t("Not delivered: %1", reason) : t("Not delivered");
+    failed.title = t("Not delivered");
     failed.setAttribute("aria-label", failed.title);
     return failed;
 }
@@ -1292,7 +1310,7 @@ async function viewAccount() {
     }
     view.append(keys);
 
-    view.append(exportCard(account));
+    view.append(storageCard(), exportCard(account));
     if (account.kind !== "group") {
         view.append(pairCard());
     }
@@ -1491,6 +1509,36 @@ function pairCard() {
             follow();
         }
     }, () => {});
+    return card;
+}
+
+function storageCard() {
+    const card = node("article", "panel-box");
+    card.append(node("p", "block-title", t("Database")));
+    const size = node("p", "hint");
+    const said = node("p", "hint");
+    const show = (storage) => {
+        size.textContent = t("%1, of which %2 is free.",
+            bytesText(storage.fileBytes), bytesText(storage.freeBytes));
+    };
+    const footer = node("p", "form-footer");
+    const compact = node("button", "btn btn-quiet", t("Compact"));
+    compact.onclick = async () => {
+        compact.disabled = true;
+        said.textContent = t("Compacting…");
+        try {
+            show(await call("POST", base() + "/storage/compact"));
+            said.textContent = t("Compacted.");
+        } catch (error) {
+            said.textContent = error.message;
+        }
+        compact.disabled = false;
+    };
+    call("GET", base() + "/storage").then(show, (error) => {
+        size.textContent = error.message;
+    });
+    footer.append(compact);
+    card.append(size, footer, said);
     return card;
 }
 

@@ -32,8 +32,8 @@ class Account {
 public:
     using ServerSideFn = std::function<ServerSide&()>;
 
-    Account(std::string id, std::filesystem::path accountFile, std::filesystem::path transcriptFile,
-        std::filesystem::path groupFile, Settings& settings, ServerSideFn serverSide);
+    Account(std::string id, std::filesystem::path accountFile, Settings& settings,
+        ServerSideFn serverSide);
     ~Account();
 
     Account(const Account&) = delete;
@@ -117,7 +117,9 @@ public:
         const std::string& peer, const std::string& messageId, const std::string& emoji);
     void confirmReceipt(const std::string& peer, const std::string& messageId);
 
-    void clearChat(const std::string& peer);
+    void clearChat(const std::string& peer, bool forEveryone);
+    client::DatabaseFootprint storage() const;
+    client::DatabaseFootprint compact();
 
     void acceptContact(const std::string& peer);
     void removeContact(const std::string& peer);
@@ -172,8 +174,6 @@ private:
 
     const std::string id_;
     const std::filesystem::path accountFile_;
-    const std::filesystem::path transcriptFile_;
-    const std::filesystem::path groupFile_;
     Settings& settings_;
     const ServerSideFn serverSide_;
 

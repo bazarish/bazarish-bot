@@ -42,10 +42,11 @@ int main()
 {
     const fs::path dir = fs::temp_directory_path() / "bz-bot-transcript";
     fs::remove_all(dir);
-    const fs::path file = dir / "transcript.db";
+    const fs::path file = dir / "account.db";
+    const std::string self = "selffingerprint";
 
     {
-        Transcript transcript(file);
+        Transcript transcript(file, self);
         CHECK(transcript.lastEventId() == 0);
         CHECK(transcript.latestPerPeer().empty());
 
@@ -102,7 +103,8 @@ int main()
         transcript.setStatus("carol", "n1", "delivered");
         CHECK(transcript.conversation("carol", 0, 10).front().status == "delivered");
         transcript.setStatus("carol", "n1", "failed: refused");
-        CHECK(transcript.conversation("carol", 0, 10).front().status == "failed: refused");
+        CHECK(transcript.conversation("carol", 0, 10).front().status == "failed");
+        CHECK(transcript.since(transcript.lastEventId() - 1).back().text == "failed: refused");
         transcript.setStatus("carol", "no-such-id", "delivered");
 
         const std::vector<bazarish::bot::Event> feed = transcript.since(0);
@@ -132,7 +134,7 @@ int main()
     }
 
     {
-        Transcript transcript(file);
+        Transcript transcript(file, self);
         CHECK(transcript.latestPerPeer().size() == 4);
         CHECK(transcript.conversation("bob", 0, 10).size() == 1);
         CHECK(!transcript.menu("bob"));
@@ -141,7 +143,7 @@ int main()
     }
 
     {
-        Transcript transcript(file);
+        Transcript transcript(file, self);
         const std::optional<bazarish::client::BotMenu> menu = transcript.menu("bob");
         CHECK(menu && menu->id == 9 && menu->items.size() == 2);
         CHECK(menu->items.back().command == "prices");
@@ -149,7 +151,7 @@ int main()
     }
 
     {
-        Transcript transcript(file);
+        Transcript transcript(file, self);
         const std::int64_t before = transcript.lastEventId();
         Line offered = lineFor("erin", "report.pdf", "f1", false, 600);
         offered.type = "file";
@@ -175,7 +177,8 @@ int main()
 
         offered.e2eId = "f3";
         CHECK(transcript.append(offered) != 0);
-        CHECK(transcript.clearPeer("erin") > 0);
+        transcript.clearPeer("erin");
+        CHECK(transcript.conversation("erin", 0, 10).empty());
         CHECK(transcript.append(lineFor("erin", "after", "f3", false, 603)) != 0);
         CHECK(!transcript.find("erin", "f3")->file.has_value());
     }

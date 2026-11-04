@@ -996,6 +996,14 @@ textarea.field {
     color: var(--bz-ink-dim);
 }
 
+.thread-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .log {
     flex: 1 1 auto;
     overflow-y: auto;

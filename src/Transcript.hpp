@@ -4,6 +4,7 @@
 #include "Database.hpp"
 
 #include <BotMenu.hpp>
+#include <TranscriptDb.hpp>
 
 #include <cstdint>
 #include <filesystem>
@@ -53,9 +54,11 @@ struct Event {
     std::int64_t at = 0;
 };
 
+// The conversations sit in the account's database the way the client keeps them; the event feed of
+// the API and the menus this account gave out are its own tables in the same file.
 class Transcript {
 public:
-    explicit Transcript(const std::filesystem::path& file);
+    Transcript(const std::filesystem::path& accountFile, std::string ownFingerprint);
 
     Transcript(const Transcript&) = delete;
     Transcript& operator=(const Transcript&) = delete;
@@ -67,7 +70,7 @@ public:
     void applyReaction(const std::string& peer, const std::string& messageId,
         const std::string& reactor, const std::string& emoji);
     void applyReceipt(const std::string& peer, const std::string& messageId);
-    int clearPeer(const std::string& peer);
+    void clearPeer(const std::string& peer);
     void setStatus(
         const std::string& peer, const std::string& messageId, const std::string& status);
     void keepFileAt(
@@ -84,14 +87,19 @@ public:
     std::vector<Event> since(std::int64_t id) const;
     std::int64_t lastEventId() const;
 
+    client::DatabaseFootprint footprint() const;
+    void rebuild();
+
 private:
     std::int64_t noteLocked(const std::string& kind, const std::string& peer,
         const std::string& messageId, const std::string& text, const std::string& actor,
         std::int64_t at);
-    void loadReactionsLocked(std::vector<Line>& lines) const;
-    void loadFileLocked(Line& line) const;
+    Line lineOf(const client::StoredMessage& row) const;
+    void require(bool done) const;
 
-    Database database_;
+    std::string own_;
+    client::TranscriptStore store_;
+    Database ledger_;
     mutable std::mutex mutex_;
 };
 

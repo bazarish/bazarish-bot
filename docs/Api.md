@@ -49,12 +49,14 @@ answers `503` with the status in it: `{"error": "the account is not open: starti
 | `DELETE /v1/messages/{id}?peer=` | takes a message this account sent back, on both sides |
 | `POST /v1/reactions` | `{"peer": "...", "messageId": "...", "emoji": "👍"}`; an empty emoji takes it back |
 | `POST /v1/receipts` | `{"peer": "...", "messageId": "..."}` tells the peer their message was read, and every earlier one with it |
-| `POST /v1/chats/{fingerprint}/clear` | asks the peer to drop the conversation, and drops this side of it |
+| `POST /v1/chats/{fingerprint}/clear` | `{"everyone": true}` drops the conversation on both sides, `{"everyone": false}` only here |
+| `GET /v1/storage` | the size of the account's database, `fileBytes`, and how much of it is free pages, `freeBytes` |
+| `POST /v1/storage/compact` | rewrites the database without its free pages; answers like `GET /v1/storage` |
 | `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds, at most 60 |
 | `POST /v1/posts` | `{"text": "..."}` posts in a group as the group itself; group accounts only |
 
-A group account answers `/v1/status` and `POST /v1/posts` and refuses every
-other route with `409`: its members' posts it relays itself.
+A group account answers `/v1/status`, `POST /v1/posts` and `/v1/storage` and
+refuses every other route with `409`: its members' posts it relays itself.
 
 ### Switching the account off
 
@@ -325,9 +327,10 @@ What became of it is on the line and in the feed:
 
 `status` is `sending` while the courier is working, `delivered` once the
 recipient's server has signed for it, `read` once the recipient's read receipt
-covers it, or `failed: <reason>`. A change to `delivered` or `failed` is an event
-of kind `status` carrying the same text, and a read one is an event of kind
-`receipt`, so a long poll sees both without re-reading the conversation.
+covers it, or `failed`. A change to `delivered` or `failed` is an event of kind
+`status`; its text is the status, and for a failure `failed: <reason>`. A read
+one is an event of kind `receipt`, so a long poll sees both without re-reading
+the conversation.
 
 ## Taking things back
 
@@ -336,10 +339,20 @@ sent, on both sides, leaving no tombstone. When the *peer* takes one of theirs
 back, it arrives as an event of kind `delete` naming the `messageId`, and the
 line is gone from the conversation.
 
-`POST /v1/chats/{fingerprint}/clear` asks the peer to drop the whole
-conversation and drops this side of it at once; the far side honours it the way
-every client does. When the peer asks the same of this account, the conversation
-here is dropped and an event of kind `chat-cleared` says so.
+`POST /v1/chats/{fingerprint}/clear` with `{"everyone": true}` asks the peer to
+drop the whole conversation and drops this side of it at once; the far side
+honours it the way every client does. `{"everyone": false}` drops it here only.
+Either way its pictures and voice notes go with it. When the peer asks the same
+of this account, the conversation here is dropped and an event of kind
+`chat-cleared` says so.
+
+## The size of the database
+
+What is deleted leaves free pages in the account's database, and the file does
+not shrink by itself. `GET /v1/storage` names the size and the free part;
+`POST /v1/storage/compact` rewrites the file without the free part. Compacting
+needs as much free disk as the file takes, and is refused while something still
+reads the file.
 
 ## Reactions the other side puts on a message
 

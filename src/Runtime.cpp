@@ -4,7 +4,6 @@
 #include "Backup.hpp"
 
 #include <BuildVersion.hpp>
-#include <AccountKey.hpp>
 #include <DevicePairing.hpp>
 #include <I2pRouter.hpp>
 
@@ -24,10 +23,7 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr const char* kAccountsDirectory = "accounts";
-constexpr const char* kTranscriptsDirectory = "transcripts";
-constexpr const char* kGroupsDirectory = "groups";
 constexpr const char* kI2pDirectory = "i2p";
-constexpr const char* kTranscriptSuffix = ".db";
 constexpr int kPairPollSeconds = 2;
 
 }  // namespace
@@ -37,29 +33,17 @@ Runtime::Runtime(Config config)
     , settings_(config_.stateDir / "settings.json")
     , manager_(config_.stateDir / kAccountsDirectory)
 {
-    fs::create_directories(config_.stateDir / kTranscriptsDirectory);
     bazarish::setSelfHostedFacadeOnLoopback(true);
     for (const client::AccountInfo& info : manager_.list()) {
         const std::lock_guard<std::mutex> lock(accountsMutex_);
-        accounts_[info.id] = std::make_shared<Account>(info.id, info.file,
-            transcriptFileFor(info.id), groupFileFor(info.id), settings_,
-            [this]() -> ServerSide& { return serverSide(); });
+        accounts_[info.id] = std::make_shared<Account>(
+            info.id, info.file, settings_, [this]() -> ServerSide& { return serverSide(); });
     }
 }
 
 Runtime::~Runtime()
 {
     stop();
-}
-
-fs::path Runtime::transcriptFileFor(const std::string& id) const
-{
-    return config_.stateDir / kTranscriptsDirectory / (id + kTranscriptSuffix);
-}
-
-fs::path Runtime::groupFileFor(const std::string& id) const
-{
-    return config_.stateDir / kGroupsDirectory / (id + kTranscriptSuffix);
 }
 
 i2p::Router& Runtime::router()
@@ -136,8 +120,8 @@ std::string Runtime::adopt(const client::AccountInfo& info, const Settings::Acco
         throw std::runtime_error("this account is already here as " + held);
     }
     settings_.rememberAccount(info.id, info.fingerprint, kind);
-    const auto added = std::make_shared<Account>(info.id, info.file, transcriptFileFor(info.id),
-        groupFileFor(info.id), settings_, [this]() -> ServerSide& { return serverSide(); });
+    const auto added = std::make_shared<Account>(
+        info.id, info.file, settings_, [this]() -> ServerSide& { return serverSide(); });
     {
         const std::lock_guard<std::mutex> lock(accountsMutex_);
         accounts_[info.id] = added;
@@ -176,12 +160,6 @@ void Runtime::removeAccount(const std::string& id)
     removed->close();
     serverSide().forget(fingerprint);
     manager_.remove(id);
-    std::error_code ignored;
-    for (const fs::path& file : {transcriptFileFor(id), groupFileFor(id)}) {
-        client::accountkey::forget(file);
-        fs::remove(file, ignored);
-        fs::remove(client::accountkey::sidecarFor(file), ignored);
-    }
     settings_.forgetAccount(id);
     log::info("account {} removed", id);
 }

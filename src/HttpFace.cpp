@@ -38,6 +38,7 @@ constexpr const char* kSessionCookie = "bazarish_bot";
 constexpr int kDefaultWaitSeconds = 30;
 constexpr int kDefaultPage = 50;
 constexpr const char* kAccountPath = "/ui/accounts/([0-9a-f]+)";
+constexpr const char* kStoragePath = "/v1/storage";
 constexpr const char* kAvatarName = "avatar";
 constexpr const char* kStatusPath = "/v1/status";
 constexpr std::uint64_t kMebibyte = 1024 * 1024;
@@ -128,6 +129,20 @@ nlohmann::json lineJson(const Line& line)
         item["file"] = file;
     }
     return item;
+}
+
+nlohmann::json storageJson(const client::DatabaseFootprint& footprint)
+{
+    return {{"fileBytes", footprint.fileBytes}, {"freeBytes", footprint.freeBytes}};
+}
+
+bool clearsForEveryone(const http::Request& request)
+{
+    const nlohmann::json body = nlohmann::json::parse(request.body);
+    if (!body.contains("everyone") || !body.at("everyone").is_boolean()) {
+        throw std::invalid_argument("\"everyone\" says whether the chat goes on both sides");
+    }
+    return body.at("everyone").get<bool>();
 }
 
 nlohmann::json transferJson(const Transfer& transfer)
@@ -478,7 +493,7 @@ void HttpFace::apiRoutes()
             return failure(503, "the account is not open: " + account->status());
         }
         if (account->kind() == Settings::AccountKind::eGroup && request.path != kStatusPath
-            && request.path != "/v1/posts") {
+            && request.path != "/v1/posts" && request.path.rfind(kStoragePath, 0) != 0) {
             return failure(409, "a group takes its own posts at /v1/posts and nothing else");
         }
         try {
@@ -747,8 +762,20 @@ void HttpFace::apiRoutes()
 
     server_->post("/v1/chats/([a-z2-7]+)/clear", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            account.clearChat(call.captures.at(0));
+            account.clearChat(call.captures.at(0), clearsForEveryone(call));
             return json({{"cleared", call.captures.at(0)}});
+        });
+    });
+
+    server_->get(kStoragePath, [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request&) {
+            return json(storageJson(account.storage()));
+        });
+    });
+
+    server_->post(std::string(kStoragePath) + "/compact", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request&) {
+            return json(storageJson(account.compact()));
         });
     });
 
@@ -1382,6 +1409,25 @@ void HttpFace::accountRoutes()
     server_->get(base + "/chats", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request&) {
             return json(linesJson(account.chats()));
+        });
+    });
+
+    server_->post(base + "/chats/([a-z2-7]+)/clear", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request& call) {
+            account.clearChat(call.captures.at(1), clearsForEveryone(call));
+            return json({{"cleared", call.captures.at(1)}});
+        });
+    });
+
+    server_->get(base + "/storage", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            return json(storageJson(account.storage()));
+        });
+    });
+
+    server_->post(base + "/storage/compact", [forAccount](const http::Request& request) {
+        return forAccount(request, [](Account& account, const http::Request&) {
+            return json(storageJson(account.compact()));
         });
     });
 

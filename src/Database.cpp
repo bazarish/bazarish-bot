@@ -2,6 +2,7 @@
 #include "Database.hpp"
 
 #include <AccountKey.hpp>
+#include <KeyedDatabase.hpp>
 
 #include <sqlcipher/sqlite3.h>
 
@@ -10,30 +11,14 @@
 
 namespace bazarish::bot {
 
-namespace {
-
-constexpr int kBusyTimeoutMs = 5000;
-
-std::string rawKeyLiteral(const Bytes& key)
-{
-    return "x'" + toHex(key) + "'";
-}
-
-}  // namespace
-
 Database::Database(const std::filesystem::path& file, std::string label)
     : label_(std::move(label))
 {
     std::filesystem::create_directories(file.parent_path());
-    const Bytes key = client::accountkey::keyFor(file, std::string());
-    if (sqlite3_open(file.string().c_str(), &db_) != SQLITE_OK) {
-        sqlite3_close(db_);
-        db_ = nullptr;
+    db_ = client::openKeyed(file, client::accountkey::keyFor(file, std::string()));
+    if (db_ == nullptr) {
         throw std::runtime_error(label_ + ": cannot open " + file.string());
     }
-    sqlite3_exec(db_, "PRAGMA cipher_log_level = NONE", nullptr, nullptr, nullptr);
-    run("PRAGMA key = \"" + rawKeyLiteral(key) + "\"");
-    sqlite3_busy_timeout(db_, kBusyTimeoutMs);
 }
 
 Database::~Database()

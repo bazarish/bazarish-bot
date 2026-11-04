@@ -3,69 +3,134 @@
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <stdexcept>
+#include <utility>
 
 namespace bazarish::bot {
 
 namespace {
 
+using client::DeliveryState;
+
 constexpr int kMaxPage = 500;
+constexpr const char* kOwnReactor = "me";
+constexpr const char* kFileType = "file";
+constexpr const char* kFailedStatus = "failed";
 
-constexpr const char* kLineColumns
-    = "id, peer, outgoing, type, e2eId, text, keyboard, replyTo, sentAt, edited, status";
-
-Line readLine(const Statement& statement)
+int stateOf(const std::string& status)
 {
-    Line line;
-    line.id = statement.number(0);
-    line.peer = statement.text(1);
-    line.outgoing = statement.number(2) != 0;
-    line.type = statement.text(3);
-    line.e2eId = statement.text(4);
-    line.text = statement.text(5);
-    line.keyboard = statement.text(6);
-    line.replyTo = statement.text(7);
-    line.sentAt = statement.number(8);
-    line.edited = statement.number(9) != 0;
-    line.status = statement.text(10);
-    return line;
+    if (status == "sending") {
+        return static_cast<int>(DeliveryState::eDelivering);
+    }
+    if (status == "delivered") {
+        return static_cast<int>(DeliveryState::eAtRecipientServer);
+    }
+    if (status == "read") {
+        return static_cast<int>(DeliveryState::eDelivered);
+    }
+    if (status.rfind(kFailedStatus, 0) == 0) {
+        return static_cast<int>(DeliveryState::eFailed);
+    }
+    return static_cast<int>(DeliveryState::eReceived);
+}
+
+std::string statusOf(const int state)
+{
+    switch (static_cast<DeliveryState>(state)) {
+    case DeliveryState::ePreparing:
+    case DeliveryState::eDelivering:
+        return "sending";
+    case DeliveryState::eAtRecipientServer:
+        return "delivered";
+    case DeliveryState::eDelivered:
+        return "read";
+    case DeliveryState::eFailed:
+        return kFailedStatus;
+    case DeliveryState::eReceived:
+        return {};
+    }
+    return {};
+}
+
+client::StoredMessage rowOf(const Line& line)
+{
+    client::StoredMessage row;
+    row.peer = line.peer;
+    row.outgoing = line.outgoing;
+    row.type = line.type;
+    row.e2eId = line.e2eId;
+    row.text = line.text;
+    row.keyboard = line.keyboard;
+    row.replyTo = line.replyTo;
+    row.ts = line.sentAt;
+    row.status = line.outgoing ? stateOf(line.status) : static_cast<int>(DeliveryState::eReceived);
+    if (line.file.has_value()) {
+        row.attName = line.file->name;
+        row.attSize = static_cast<std::int64_t>(line.file->size);
+        row.attMime = line.file->mime;
+        row.attRef = line.file->sha256;
+        (line.outgoing ? row.attSrcPath : row.savedPath) = line.file->path;
+    }
+    return row;
 }
 
 }  // namespace
 
-Transcript::Transcript(const std::filesystem::path& file)
-    : database_(file, "transcript")
+Transcript::Transcript(const std::filesystem::path& accountFile, std::string ownFingerprint)
+    : own_(std::move(ownFingerprint))
+    , ledger_(accountFile, "transcript")
 {
-    database_.run(
-        "CREATE TABLE IF NOT EXISTS messages ("
-        "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "peer TEXT NOT NULL, outgoing INTEGER NOT NULL, type TEXT, e2eId TEXT,"
-        "text TEXT, keyboard TEXT, replyTo TEXT, sentAt INTEGER,"
-        "edited INTEGER NOT NULL DEFAULT 0, status TEXT)");
-    database_.run("CREATE UNIQUE INDEX IF NOT EXISTS messages_e2e ON messages(e2eId)"
-             " WHERE e2eId IS NOT NULL AND e2eId <> ''");
-    database_.run("CREATE INDEX IF NOT EXISTS messages_peer ON messages(peer, id)");
-    database_.run(
-        "CREATE TABLE IF NOT EXISTS reactions ("
-        "peer TEXT NOT NULL, messageId TEXT NOT NULL, reactor TEXT NOT NULL, emoji TEXT,"
-        " PRIMARY KEY (peer, messageId, reactor))");
-    database_.run(
+    if (!store_.open(accountFile)) {
+        throw std::runtime_error("transcript: " + accountFile.string() + " did not open: "
+            + store_.lastError());
+    }
+    ledger_.run(
         "CREATE TABLE IF NOT EXISTS events ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "kind TEXT NOT NULL, peer TEXT NOT NULL, messageId TEXT, text TEXT,"
         " actor TEXT, at INTEGER)");
-    database_.run(
-        "CREATE TABLE IF NOT EXISTS files ("
-        "peer TEXT NOT NULL, messageId TEXT NOT NULL, name TEXT, size INTEGER, mime TEXT,"
-        " sha256 TEXT, path TEXT, PRIMARY KEY (peer, messageId))");
-    database_.run("CREATE TABLE IF NOT EXISTS menus ("
-                  "peer TEXT PRIMARY KEY, menuId INTEGER NOT NULL, items TEXT NOT NULL)");
+    ledger_.run("CREATE TABLE IF NOT EXISTS issued_menus ("
+                "peer TEXT PRIMARY KEY, menuId INTEGER NOT NULL, items TEXT NOT NULL)");
+}
+
+void Transcript::require(const bool done) const
+{
+    if (!done) {
+        throw std::runtime_error("transcript: " + store_.lastError());
+    }
+}
+
+Line Transcript::lineOf(const client::StoredMessage& row) const
+{
+    Line line;
+    line.id = row.id;
+    line.peer = row.peer;
+    line.outgoing = row.outgoing;
+    line.type = row.type;
+    line.e2eId = row.e2eId;
+    line.text = row.text;
+    line.keyboard = row.keyboard;
+    line.replyTo = row.replyTo;
+    line.sentAt = row.ts;
+    line.edited = row.edited;
+    line.status = statusOf(row.status);
+    if (row.type == kFileType) {
+        line.file = FileInfo{row.attName, static_cast<std::uint64_t>(row.attSize), row.attMime,
+            row.attRef, row.outgoing ? row.attSrcPath : row.savedPath};
+    }
+    for (const client::Reaction& reaction : store_.reactionsFor(row.peer, row.e2eId)) {
+        line.reactions.push_back({reaction.reactor == own_ ? kOwnReactor : reaction.reactor,
+            reaction.emoji});
+    }
+    return line;
 }
 
 void Transcript::setMenu(const std::string& peer, const client::BotMenu& menu)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     Statement upsert(
-        database_, "INSERT OR REPLACE INTO menus (peer, menuId, items) VALUES (?, ?, ?)");
+        ledger_, "INSERT OR REPLACE INTO issued_menus (peer, menuId, items) VALUES (?, ?, ?)");
     upsert.bind(1, peer);
     upsert.bind(2, menu.id);
     upsert.bind(3, client::botMenuItemsJson(menu.items).dump());
@@ -75,7 +140,7 @@ void Transcript::setMenu(const std::string& peer, const client::BotMenu& menu)
 std::optional<client::BotMenu> Transcript::menu(const std::string& peer) const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement query(database_, "SELECT menuId, items FROM menus WHERE peer = ?");
+    Statement query(ledger_, "SELECT menuId, items FROM issued_menus WHERE peer = ?");
     query.bind(1, peer);
     if (!query.step()) {
         return std::nullopt;
@@ -88,7 +153,7 @@ std::int64_t Transcript::noteLocked(const std::string& kind, const std::string& 
     const std::string& messageId, const std::string& text, const std::string& actor,
     const std::int64_t at)
 {
-    Statement insert(database_,
+    Statement insert(ledger_,
         "INSERT INTO events (kind, peer, messageId, text, actor, at)"
         " VALUES (?, ?, ?, ?, ?, ?)");
     insert.bind(1, kind);
@@ -98,43 +163,17 @@ std::int64_t Transcript::noteLocked(const std::string& kind, const std::string& 
     insert.bind(5, actor);
     insert.bind(6, at);
     (void)insert.step();
-    return database_.lastInsertId();
+    return ledger_.lastInsertId();
 }
 
 std::int64_t Transcript::append(const Line& line)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement insert(database_,
-        "INSERT OR IGNORE INTO messages"
-        " (peer, outgoing, type, e2eId, text, keyboard, replyTo, sentAt, status)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    insert.bind(1, line.peer);
-    insert.bind(2, static_cast<std::int64_t>(line.outgoing ? 1 : 0));
-    insert.bind(3, line.type);
-    insert.bind(4, line.e2eId);
-    insert.bind(5, line.text);
-    insert.bind(6, line.keyboard);
-    insert.bind(7, line.replyTo);
-    insert.bind(8, line.sentAt);
-    insert.bind(9, line.status);
-    (void)insert.step();
-    if (database_.changes() == 0) {
+    if (store_.idForKey(line.peer, line.e2eId, line.outgoing) != 0) {
         return 0;
     }
-    const std::int64_t id = database_.lastInsertId();
-    if (line.file.has_value()) {
-        Statement file(database_,
-            "INSERT OR REPLACE INTO files (peer, messageId, name, size, mime, sha256, path)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)");
-        file.bind(1, line.peer);
-        file.bind(2, line.e2eId);
-        file.bind(3, line.file->name);
-        file.bind(4, static_cast<std::int64_t>(line.file->size));
-        file.bind(5, line.file->mime);
-        file.bind(6, line.file->sha256);
-        file.bind(7, line.file->path);
-        (void)file.step();
-    }
+    const std::int64_t id = store_.append(rowOf(line));
+    require(id != 0);
     (void)noteLocked("message", line.peer, line.e2eId, line.text, line.outgoing ? "" : line.peer,
         line.sentAt);
     return id;
@@ -144,18 +183,11 @@ bool Transcript::applyEdit(const std::string& peer, const std::string& messageId
     const std::string& text, const std::string& keyboard, const bool outgoing)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement update(database_,
-        "UPDATE messages SET text = ?, keyboard = ?, edited = 1"
-        " WHERE peer = ? AND e2eId = ? AND outgoing = ?");
-    update.bind(1, text);
-    update.bind(2, keyboard);
-    update.bind(3, peer);
-    update.bind(4, messageId);
-    update.bind(5, static_cast<std::int64_t>(outgoing ? 1 : 0));
-    (void)update.step();
-    if (database_.changes() == 0) {
+    const std::int64_t id = store_.idForKey(peer, messageId, outgoing);
+    if (id == 0) {
         return false;
     }
+    require(store_.editContent(id, text, keyboard));
     (void)noteLocked("edit", peer, messageId, text, outgoing ? "" : peer, 0);
     return true;
 }
@@ -164,22 +196,11 @@ bool Transcript::applyDelete(
     const std::string& peer, const std::string& messageId, const bool outgoing)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement remove(database_,
-        "DELETE FROM messages WHERE peer = ? AND e2eId = ? AND outgoing = ?");
-    remove.bind(1, peer);
-    remove.bind(2, messageId);
-    remove.bind(3, static_cast<std::int64_t>(outgoing ? 1 : 0));
-    (void)remove.step();
-    if (database_.changes() == 0) {
+    const std::int64_t id = store_.idForKey(peer, messageId, outgoing);
+    if (id == 0) {
         return false;
     }
-    for (const char* const table : {"reactions", "files"}) {
-        Statement clear(
-            database_, std::string("DELETE FROM ") + table + " WHERE peer = ? AND messageId = ?");
-        clear.bind(1, peer);
-        clear.bind(2, messageId);
-        (void)clear.step();
-    }
+    require(store_.removeById(id));
     (void)noteLocked("delete", peer, messageId, {}, outgoing ? "" : peer, 0);
     return true;
 }
@@ -188,71 +209,41 @@ void Transcript::applyReaction(const std::string& peer, const std::string& messa
     const std::string& reactor, const std::string& emoji)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    if (emoji.empty()) {
-        Statement remove(database_,
-            "DELETE FROM reactions WHERE peer = ? AND messageId = ? AND reactor = ?");
-        remove.bind(1, peer);
-        remove.bind(2, messageId);
-        remove.bind(3, reactor);
-        (void)remove.step();
-    } else {
-        Statement put(database_,
-            "INSERT INTO reactions (peer, messageId, reactor, emoji) VALUES (?, ?, ?, ?)"
-            " ON CONFLICT(peer, messageId, reactor) DO UPDATE SET emoji = excluded.emoji");
-        put.bind(1, peer);
-        put.bind(2, messageId);
-        put.bind(3, reactor);
-        put.bind(4, emoji);
-        (void)put.step();
-    }
+    require(store_.setReaction(peer, messageId, reactor == kOwnReactor ? own_ : reactor, emoji));
     (void)noteLocked("reaction", peer, messageId, emoji, reactor, 0);
 }
 
-int Transcript::clearPeer(const std::string& peer)
+void Transcript::clearPeer(const std::string& peer)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement lines(database_, "DELETE FROM messages WHERE peer = ?");
-    lines.bind(1, peer);
-    (void)lines.step();
-    const int gone = database_.changes();
-    for (const char* const table : {"reactions", "files"}) {
-        Statement marks(database_, std::string("DELETE FROM ") + table + " WHERE peer = ?");
-        marks.bind(1, peer);
-        (void)marks.step();
-    }
+    require(store_.clearPeer(peer));
     (void)noteLocked("chat-cleared", peer, {}, {}, {}, 0);
-    return gone;
 }
 
 void Transcript::setStatus(
     const std::string& peer, const std::string& messageId, const std::string& status)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement update(database_,
-        "UPDATE messages SET status = ? WHERE peer = ? AND e2eId = ? AND outgoing = 1"
-        " AND status IS NOT 'read'");
-    update.bind(1, status);
-    update.bind(2, peer);
-    update.bind(3, messageId);
-    (void)update.step();
-    if (database_.changes() == 0) {
+    const client::StoredMessage row = store_.messageByE2e(messageId, peer);
+    if (row.id == 0 || !row.outgoing
+        || row.status == static_cast<int>(DeliveryState::eDelivered)) {
         return;
     }
+    require(store_.updateStatus(row.id, stateOf(status)));
     (void)noteLocked("status", peer, messageId, status, {}, 0);
 }
 
 void Transcript::applyReceipt(const std::string& peer, const std::string& messageId)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
+    const std::int64_t upTo = store_.idForKey(peer, messageId, true);
     // A read receipt is a high-water mark: it covers every earlier line their server took.
-    Statement update(database_,
-        "UPDATE messages SET status = 'read' WHERE peer = ? AND outgoing = 1"
-        " AND status = 'delivered' AND id <= (SELECT id FROM messages"
-        " WHERE peer = ? AND e2eId = ? AND outgoing = 1)");
-    update.bind(1, peer);
-    update.bind(2, peer);
-    update.bind(3, messageId);
-    (void)update.step();
+    if (upTo != 0) {
+        require(store_.markOutgoingReadUpTo(peer, upTo,
+            static_cast<int>(DeliveryState::eDelivered),
+            static_cast<int>(DeliveryState::eAtRecipientServer),
+            static_cast<int>(DeliveryState::eAtRecipientServer)));
+    }
     (void)noteLocked("receipt", peer, messageId, {}, peer, 0);
 }
 
@@ -260,11 +251,10 @@ void Transcript::keepFileAt(
     const std::string& peer, const std::string& messageId, const std::string& path)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement update(database_, "UPDATE files SET path = ? WHERE peer = ? AND messageId = ?");
-    update.bind(1, path);
-    update.bind(2, peer);
-    update.bind(3, messageId);
-    (void)update.step();
+    const std::int64_t id = store_.idForKey(peer, messageId, false);
+    if (id != 0) {
+        require(store_.setSavedPath(id, path));
+    }
 }
 
 void Transcript::noteTransfer(
@@ -274,56 +264,17 @@ void Transcript::noteTransfer(
     (void)noteLocked("transfer", peer, messageId, state, {}, 0);
 }
 
-void Transcript::loadFileLocked(Line& line) const
-{
-    Statement query(database_,
-        "SELECT name, size, mime, sha256, path FROM files WHERE peer = ? AND messageId = ?");
-    query.bind(1, line.peer);
-    query.bind(2, line.e2eId);
-    if (!query.step()) {
-        return;
-    }
-    line.file = FileInfo{query.text(0), static_cast<std::uint64_t>(query.number(1)),
-        query.text(2), query.text(3), query.text(4)};
-}
-
-void Transcript::loadReactionsLocked(std::vector<Line>& lines) const
-{
-    for (Line& line : lines) {
-        if (line.e2eId.empty()) {
-            continue;
-        }
-        Statement query(database_,
-            "SELECT reactor, emoji FROM reactions WHERE peer = ? AND messageId = ?");
-        query.bind(1, line.peer);
-        query.bind(2, line.e2eId);
-        while (query.step()) {
-            line.reactions.push_back({query.text(0), query.text(1)});
-        }
-    }
-}
-
 std::vector<Line> Transcript::conversation(
     const std::string& peer, const std::int64_t before, const int limit) const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    const std::string sql = std::string("SELECT ") + kLineColumns
-        + " FROM messages WHERE peer = ?" + (before > 0 ? " AND id < ?" : "")
-        + " ORDER BY id DESC LIMIT ?";
-    Statement query(database_, sql);
-    int index = 1;
-    query.bind(index++, peer);
-    if (before > 0) {
-        query.bind(index++, before);
-    }
-    query.bind(index, static_cast<std::int64_t>(limit > kMaxPage || limit <= 0 ? kMaxPage : limit));
+    const int page = limit > kMaxPage || limit <= 0 ? kMaxPage : limit;
+    const std::vector<client::StoredMessage> rows = before > 0
+        ? store_.olderMessages(peer, before, page)
+        : store_.latestMessages(peer, page);
     std::vector<Line> lines;
-    while (query.step()) {
-        lines.push_back(readLine(query));
-    }
-    loadReactionsLocked(lines);
-    for (Line& line : lines) {
-        loadFileLocked(line);
+    for (auto row = rows.rbegin(); row != rows.rend(); ++row) {
+        lines.push_back(lineOf(*row));
     }
     return lines;
 }
@@ -331,36 +282,31 @@ std::vector<Line> Transcript::conversation(
 std::optional<Line> Transcript::find(const std::string& peer, const std::string& messageId) const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement query(database_, std::string("SELECT ") + kLineColumns
-            + " FROM messages WHERE peer = ? AND e2eId = ? ORDER BY id DESC LIMIT 1");
-    query.bind(1, peer);
-    query.bind(2, messageId);
-    if (!query.step()) {
+    const client::StoredMessage row = store_.messageByE2e(messageId, peer);
+    if (row.id == 0) {
         return std::nullopt;
     }
-    Line line = readLine(query);
-    loadFileLocked(line);
-    return line;
+    return lineOf(row);
 }
 
 std::vector<Line> Transcript::latestPerPeer() const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    const std::string sql = std::string("SELECT ") + kLineColumns
-        + " FROM messages WHERE id IN (SELECT MAX(id) FROM messages GROUP BY peer)"
-        + " ORDER BY id DESC";
-    Statement query(database_, sql);
     std::vector<Line> lines;
-    while (query.step()) {
-        lines.push_back(readLine(query));
+    for (const std::string& peer : store_.conversationPeers()) {
+        for (const client::StoredMessage& row : store_.latestMessages(peer, 1)) {
+            Line line = lineOf(row);
+            lines.push_back(std::move(line));
+        }
     }
+    std::sort(lines.begin(), lines.end(), [](const Line& a, const Line& b) { return a.id > b.id; });
     return lines;
 }
 
 std::vector<Event> Transcript::since(const std::int64_t id) const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement query(database_,
+    Statement query(ledger_,
         "SELECT id, kind, peer, messageId, text, actor, at FROM events"
         " WHERE id > ? ORDER BY id LIMIT ?");
     query.bind(1, id);
@@ -383,8 +329,23 @@ std::vector<Event> Transcript::since(const std::int64_t id) const
 std::int64_t Transcript::lastEventId() const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    Statement query(database_, "SELECT IFNULL(MAX(id), 0) FROM events");
+    Statement query(ledger_, "SELECT IFNULL(MAX(id), 0) FROM events");
     return query.step() ? query.number(0) : 0;
+}
+
+client::DatabaseFootprint Transcript::footprint() const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return store_.footprint();
+}
+
+void Transcript::rebuild()
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    std::string reason;
+    if (!store_.rebuild(reason)) {
+        throw std::runtime_error("the database was not rewritten: " + reason);
+    }
 }
 
 }  // namespace bazarish::bot
