@@ -31,7 +31,10 @@ el("signIn").onclick = async () => {
         }
         location.href = "/";
     } catch (error) {
-        el("signinError").textContent = error.message;
+        const reason = document.createElement("span");
+        reason.className = "error-text";
+        reason.textContent = error.message;
+        el("signinError").replaceChildren(reason);
         await start();
     }
 };

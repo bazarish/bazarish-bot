@@ -107,6 +107,10 @@ function node(tag, className, text) {
     return made;
 }
 
+function showError(element, error) {
+    element.replaceChildren(node("span", "error-text", error.message));
+}
+
 function decorateCopies(root) {
     const marks = window.bazarishCopy;
     for (const block of root.querySelectorAll("pre.copy:not([data-copyable]):not([hidden])")) {
@@ -345,7 +349,7 @@ function unlockCard(account) {
                 await drawSidebar();
                 await render();
             } catch (error) {
-                footer.append(node("span", "hint", error.message));
+                footer.append(node("span", "hint error-text", error.message));
             }
         };
         footer.append(on);
@@ -375,7 +379,7 @@ function unlockCard(account) {
             await call("POST", base(), {action: "open"});
             await render();
         } catch (error) {
-            footer.append(node("span", "hint", error.message));
+            footer.append(node("span", "hint error-text", error.message));
         }
     };
     footer.append(open);
@@ -414,7 +418,7 @@ async function viewAdd() {
                 name: name.value, kind: kind.value});
             await opened(answer.id);
         } catch (error) {
-            created.textContent = error.message;
+            showError(created, error);
         }
     };
     createFooter.append(make);
@@ -444,7 +448,7 @@ async function viewAdd() {
                 kind: kind.value});
             await opened(answer.id);
         } catch (error) {
-            restored.textContent = error.message;
+            showError(restored, error);
         }
     };
     restoreFooter.append(doRestore);
@@ -560,7 +564,7 @@ function receiveCard(kind, opened) {
             show(await call("POST", "/ui/pairing", {link: link.value, kind: kind.value}));
             follow();
         } catch (error) {
-            status.textContent = error.message;
+            showError(status, error);
         }
     };
     sendCode.onclick = async () => {
@@ -569,7 +573,7 @@ function receiveCard(kind, opened) {
             code.value = "";
             follow();
         } catch (error) {
-            status.textContent = error.message;
+            showError(status, error);
         }
     };
     cancel.onclick = async () => {
@@ -747,8 +751,8 @@ function deliveryMark(status) {
 }
 
 function markupActions(chatPeer, bubble) {
-    const say = (text) => {
-        const said = node("p", "markup-said", text);
+    const say = (text, failed = false) => {
+        const said = node("p", "markup-said" + (failed ? " error-text" : ""), text);
         bubble.append(said);
         window.setTimeout(() => said.remove(), kSaidShownMs);
     };
@@ -759,7 +763,7 @@ function markupActions(chatPeer, bubble) {
                 await drawThread();
                 await drawChats();
             } catch (error) {
-                say(error.message);
+                say(error.message, true);
             }
         },
         sendTitle: t("Send"),
@@ -883,7 +887,7 @@ async function viewContacts() {
             await call("POST", base(), {action: "accept-contacts", accepts: accepts.checked});
         } catch (error) {
             accepts.checked = !accepts.checked;
-            failure.textContent = error.message;
+            showError(failure, error);
         }
     };
     view.append(automatic);
@@ -923,7 +927,7 @@ async function viewContacts() {
                 await render();
             } catch (error) {
                 row.disabled = false;
-                failure.textContent = error.message;
+                showError(failure, error);
             }
         };
         rows.append(row);
@@ -954,7 +958,7 @@ async function viewContacts() {
                 : {invite: typed, text: intro.value});
             await render();
         } catch (error) {
-            sendFailure.textContent = error.message;
+            showError(sendFailure, error);
         }
     };
     footer.append(send);
@@ -1010,7 +1014,7 @@ async function viewAliases() {
                     draw(await call("POST", base() + "/aliases",
                         {alias: alias.alias, resolving: !alias.resolving}));
                 } catch (error) {
-                    outcome.textContent = error.message;
+                    showError(outcome, error);
                     toggle.disabled = false;
                 }
             };
@@ -1040,7 +1044,7 @@ async function viewAliases() {
             draw(await call("POST", base() + "/aliases", {check: true}));
             follow();
         } catch (error) {
-            outcome.textContent = error.message;
+            showError(outcome, error);
         }
     };
 
@@ -1111,7 +1115,7 @@ async function viewSign() {
         sign.disabled = false;
     };
     challenge.oninput = () => describe().catch((error) => {
-        failure.textContent = error.message;
+        showError(failure, error);
     });
 
     sign.onclick = async () => {
@@ -1123,7 +1127,7 @@ async function viewSign() {
             signed.hidden = false;
             decorateCopies(box);
         } catch (error) {
-            failure.textContent = error.message;
+            showError(failure, error);
         }
     };
     footer.append(sign);
@@ -1202,7 +1206,7 @@ async function viewApi() {
             rows.append(tokenRow({name: name.value, createdAt: Math.floor(Date.now() / 1000)}));
             name.value = "";
         } catch (error) {
-            failure.textContent = error.message;
+            showError(failure, error);
         }
     };
     footer.append(make);
@@ -1251,7 +1255,7 @@ async function viewAccount() {
             renamed.textContent = t("Saved.");
             await drawSidebar();
         } catch (error) {
-            renamed.textContent = error.message;
+            showError(renamed, error);
         }
     };
     nameFooter.append(saveName);
@@ -1275,7 +1279,7 @@ async function viewAccount() {
             await call("POST", base(), {action: "new-address"});
             keyResult.textContent = t("Created. It is published once its tunnels are built.");
         } catch (error) {
-            keyResult.textContent = error.message;
+            showError(keyResult, error);
         }
     };
     keyFooter.append(fresh);
@@ -1300,7 +1304,7 @@ async function viewAccount() {
                     await call("POST", base(), {action: "retry-routing", peer: owedPeer});
                     said.textContent = t("Sent. The list clears on delivery.");
                 } catch (error) {
-                    said.textContent = error.message;
+                    showError(said, error);
                 }
             };
             row.append(again);
@@ -1380,7 +1384,7 @@ function avatarBlock(account) {
             await call("POST", base() + "/avatar", {data: await squareJpeg(file)});
             reload();
         } catch (error) {
-            said.textContent = error.message;
+            showError(said, error);
         }
     };
     drop.onclick = async () => {
@@ -1389,7 +1393,7 @@ function avatarBlock(account) {
             await call("DELETE", base() + "/avatar");
             reload();
         } catch (error) {
-            said.textContent = error.message;
+            showError(said, error);
         }
     };
     reload();
@@ -1432,7 +1436,7 @@ function exportCard(account) {
             URL.revokeObjectURL(link.href);
             wrote.textContent = t("Downloaded.");
         } catch (error) {
-            wrote.textContent = error.message;
+            showError(wrote, error);
         }
     };
     exportFooter.append(run);
@@ -1496,7 +1500,7 @@ function pairCard() {
             show(await call("POST", base() + "/pairing"));
             follow();
         } catch (error) {
-            status.textContent = error.message;
+            showError(status, error);
         }
     };
     stop.onclick = async () => {
@@ -1530,12 +1534,12 @@ function storageCard() {
             show(await call("POST", base() + "/storage/compact"));
             said.textContent = t("Compacted.");
         } catch (error) {
-            said.textContent = error.message;
+            showError(said, error);
         }
         compact.disabled = false;
     };
     call("GET", base() + "/storage").then(show, (error) => {
-        size.textContent = error.message;
+        showError(size, error);
     });
     footer.append(compact);
     card.append(size, footer, said);
@@ -1556,7 +1560,7 @@ function switchOffCard() {
             await drawSidebar();
             go(accountId, "overview");
         } catch (error) {
-            said.textContent = error.message;
+            showError(said, error);
             off.disabled = false;
         }
     };
@@ -1578,7 +1582,7 @@ async function drawLink() {
     try {
         held.replaceChildren(linkLine(await call("GET", "/ui/link")));
     } catch (error) {
-        held.textContent = error.message;
+        showError(held, error);
     }
 }
 
@@ -1600,7 +1604,7 @@ function removeCard() {
             await drawSidebar();
             go(null, "add");
         } catch (error) {
-            said.textContent = error.message;
+            showError(said, error);
         }
     };
     footer.append(drop);
@@ -1658,7 +1662,7 @@ function transportCard(settings) {
             });
             saved.textContent = t("Saved. It takes effect at the next start.");
         } catch (error) {
-            saved.textContent = error.message;
+            showError(saved, error);
         }
     };
     footer.append(save);
@@ -1689,7 +1693,7 @@ function transitLine(settings) {
             said.textContent = t("Saved. It takes effect at the next start.");
         } catch (error) {
             transit.checked = !transit.checked;
-            said.textContent = error.message;
+            showError(said, error);
         }
     };
     return line;
@@ -1802,7 +1806,7 @@ async function viewGroup() {
             });
             said.textContent = t("Saved.");
         } catch (error) {
-            said.textContent = error.message;
+            showError(said, error);
         }
         save.disabled = false;
     };
@@ -2031,7 +2035,7 @@ async function viewPosts() {
             redraw();
             await refresh();
         } catch (error) {
-            said.textContent = error.message;
+            showError(said, error);
             publish.disabled = false;
         }
     };
@@ -2200,7 +2204,7 @@ function systemBackupCard() {
             }
         } catch (error) {
             restore.disabled = false;
-            state.textContent = error.message;
+            showError(state, error);
             return;
         }
         let committed = null;
@@ -2296,7 +2300,7 @@ async function render() {
     } catch (error) {
         const failed = node("section", "view");
         failed.append(node("h1", "view-title", t("Something went wrong")));
-        failed.append(node("p", "hint", error.message));
+        failed.append(node("p", "hint error-text", error.message));
         content().replaceChildren(failed);
     }
 }

@@ -20,11 +20,12 @@
         return copied ? Promise.resolve() : Promise.reject(new Error("the browser refused"));
     }
 
-    function copyButton(label, source) {
+    function copyButton(key, source) {
         var button = document.createElement("button");
         button.type = "button";
         button.className = "btn btn-quiet btn-copy";
-        button.textContent = label;
+        button.dataset.t = key;
+        button.textContent = t(key);
         button.addEventListener("click", function () {
             copy(source()).then(function () {
                 button.textContent = t("Copied");
@@ -32,7 +33,7 @@
                 button.textContent = t("Select it and copy");
             }).then(function () {
                 window.setTimeout(function () {
-                    button.textContent = label;
+                    button.textContent = t(button.dataset.t);
                 }, kFeedbackMs);
             });
         });
@@ -70,7 +71,7 @@
         var blocks = document.querySelectorAll("pre.copy");
         for (var i = 0; i < blocks.length; ++i) {
             (function (block) {
-                block.parentNode.insertBefore(copyButton(t("Copy"), function () {
+                block.parentNode.insertBefore(copyButton(N_("Copy"), function () {
                     return block.textContent;
                 }), block.nextSibling);
             })(blocks[i]);

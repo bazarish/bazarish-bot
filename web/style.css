@@ -52,6 +52,15 @@
     --bz-font: "Roboto Mono", ui-monospace, "DejaVu Sans Mono", SFMono-Regular, Menlo, monospace;
 }
 
+html[lang="zh"] {
+    --bz-font: "Noto Sans Mono CJK SC", "Sarasa Mono SC", "Microsoft YaHei", "PingFang SC",
+        ui-monospace, monospace;
+}
+
+html[lang="ar"] {
+    --bz-font: "Noto Sans Arabic", "Segoe UI", Tahoma, ui-monospace, monospace;
+}
+
 *,
 *::before,
 *::after {
@@ -1462,7 +1471,7 @@ code.markup-code[title] {
     width: 0;
     height: 0;
     border-inline-start: 0.3rem solid transparent;
-    border-right: 0.3rem solid transparent;
+    border-inline-end: 0.3rem solid transparent;
     border-top: 0.34rem solid currentColor;
 }
 
@@ -1631,4 +1640,8 @@ code.markup-code[title] {
         outline: 2px solid;
         outline-offset: 2px;
     }
+}
+
+.error-text {
+    color: var(--bz-err);
 }
