@@ -2,6 +2,8 @@
 #include "ServerSide.hpp"
 
 #include <BuildVersion.hpp>
+#include <StateIdentity.hpp>
+
 #include <bazarish/Auth.hpp>
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Certificates.hpp>
@@ -34,28 +36,6 @@ constexpr int kOwnDestTunnelQuantity = 3;
 constexpr std::uint64_t kOwnQuotaBytes = 4ULL * 1024 * 1024 * 1024;
 constexpr int kNodeTimeoutSeconds = 5;
 
-Identity loadOrCreateIdentity(const fs::path& path)
-{
-    if (fs::exists(path)) {
-        return Identity::fromPrivatePem(readFileText(path));
-    }
-    Identity identity = Identity::generate();
-    fs::create_directories(path.parent_path());
-    writePrivateFile(path, identity.privatePem());
-    return identity;
-}
-
-Key loadOrCreateSealingKey(const fs::path& path)
-{
-    if (fs::exists(path)) {
-        return Key::fromPrivatePem(readFileText(path));
-    }
-    Key key = Key::generateSealing();
-    fs::create_directories(path.parent_path());
-    writePrivateFile(path, key.privatePem());
-    return key;
-}
-
 bool renewalDue(const std::int64_t expires, const std::int64_t now)
 {
     const std::int64_t term = kOwnDelegationDays * bazarish::kSecondsPerDay;
@@ -71,8 +51,8 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     , router_(router)
     , host_(kMailboxHost)
     , identity_(std::make_shared<const Identity>(
-          loadOrCreateIdentity(stateDir_ / "server" / "identity.pem")))
-    , sealing_(std::make_shared<Key>(loadOrCreateSealingKey(stateDir_ / "server" / "sealing.pem")))
+          server::loadOrCreateIdentity(stateDir_ / "server")))
+    , sealing_(std::make_shared<Key>(server::loadOrCreateSealingKey(stateDir_ / "server")))
     , fingerprint_(identity_->fingerprint())
 {
     const fs::path serverDir = stateDir_ / "server";
@@ -100,7 +80,7 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
         serverDir / "node" / "node.json", nodeValues);
 
     const auto nodeSealing
-        = std::make_shared<Key>(loadOrCreateSealingKey(serverDir / "node" / "sealing.pem"));
+        = std::make_shared<Key>(server::loadOrCreateSealingKey(serverDir / "node"));
     const tls::Credential credential = tls::selfSigned(serverDir);
     service::AccountApiOptions accountOptions;
     accountOptions.serverFingerprint = fingerprint_;
