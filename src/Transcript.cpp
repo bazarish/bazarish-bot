@@ -126,16 +126,16 @@ public:
 
     std::string chatCleared(const bool ours, const std::string&) const override
     {
-        return ours ? "This account cleared the chat for everyone." : "The peer cleared the chat.";
+        return ours ? "This account cleared the chat for everyone" : "The peer cleared the chat";
     }
     std::string chatTimer(const std::int64_t seconds, bool, const std::string&) const override
     {
-        return seconds > 0 ? "Messages are deleted " + std::to_string(seconds) + " s after sending."
-                           : "Messages are no longer deleted.";
+        return seconds > 0 ? "Messages are deleted " + std::to_string(seconds) + " s after sending"
+                           : "Messages are no longer deleted";
     }
     std::string contactAccepted(const std::string&) const override
     {
-        return "The contact request was accepted.";
+        return "The contact request was accepted";
     }
     std::string unsupported(const std::string& rawType, const Bytes&) const override
     {
