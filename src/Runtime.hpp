@@ -73,6 +73,9 @@ public:
 
     std::int64_t uptimeSeconds() const;
     struct RouterReport {
+        Settings::Transport transport = Settings::Transport::eEmbedded;
+        bool running = false;
+        bool online = false;
         bool counted = false;
         int inboundTunnels = 0;
         int outboundTunnels = 0;
@@ -84,6 +87,7 @@ public:
         int readyDestinations = 0;
     };
     RouterReport routerReport();
+    void setEnabled(const std::string& id, bool enabled);
     Bytes exportEverything();
 
 private:

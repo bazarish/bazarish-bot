@@ -19,6 +19,7 @@ let polling = 0;
 
 const kReactions = ["\u{1F44D}", "❤️", "\u{1F602}", "\u{1F389}", "\u{1F440}", "✅"];
 const kPollMs = 1000;
+const kLinkPollMs = 10000;
 const kEventWaitSeconds = 45;
 const kRetryMs = 3000;
 const kSaidShownMs = 1600;
@@ -203,6 +204,9 @@ async function drawSidebar() {
         link.append(node("span", "account-name", labelOf(account)));
         link.append(node("span", "tag" + (account.kind === "group" ? " is-key" : ""),
             t(account.kind === "group" ? "Group" : "Bot")));
+        if (!account.enabled) {
+            link.append(node("span", "tag", t("off")));
+        }
         item.append(link);
         if (current) {
             link.setAttribute("aria-expanded", String(menuOpen));
@@ -331,6 +335,23 @@ function showQr(source) {
 
 function unlockCard(account) {
     const card = node("article", "panel-box");
+    if (!account.enabled) {
+        card.append(node("p", "view-title", t("The account is switched off")));
+        const footer = node("p", "form-footer");
+        const on = node("button", "btn", t("Switch on"));
+        on.onclick = async () => {
+            try {
+                await call("POST", base(), {action: "enable"});
+                await drawSidebar();
+                await render();
+            } catch (error) {
+                footer.append(node("span", "hint", error.message));
+            }
+        };
+        footer.append(on);
+        card.append(footer);
+        return card;
+    }
     if (account.status === "starting") {
         card.append(node("p", "view-title", t("Starting")));
         card.append(node("p", "step-note",
@@ -1275,7 +1296,7 @@ async function viewAccount() {
     if (account.kind !== "group") {
         view.append(pairCard());
     }
-    view.append(removeCard());
+    view.append(switchOffCard(), removeCard());
     return view;
 }
 
@@ -1471,6 +1492,46 @@ function pairCard() {
         }
     }, () => {});
     return card;
+}
+
+function switchOffCard() {
+    const card = node("article", "panel-box");
+    card.append(node("p", "block-title", t("Switch off")));
+    card.append(node("p", "hint", t("The account stops answering. Its mail waits on its server.")));
+    const said = node("p", "hint");
+    const footer = node("p", "form-footer");
+    const off = node("button", "btn btn-quiet", t("Switch off"));
+    off.onclick = async () => {
+        off.disabled = true;
+        try {
+            await call("POST", base(), {action: "disable"});
+            await drawSidebar();
+            go(accountId, "overview");
+        } catch (error) {
+            said.textContent = error.message;
+            off.disabled = false;
+        }
+    };
+    footer.append(off);
+    card.append(footer, said);
+    return card;
+}
+
+function linkLine(link) {
+    const line = node("p", "link-state");
+    line.append(node("span", "dot " + (link.online ? "is-up" : "is-down")));
+    line.append(node("span", null, !link.running ? t("Router stopped")
+        : (link.online ? t("Online in I2P") : t("No link to I2P"))));
+    return line;
+}
+
+async function drawLink() {
+    const held = el("linkState");
+    try {
+        held.replaceChildren(linkLine(await call("GET", "/ui/link")));
+    } catch (error) {
+        held.textContent = error.message;
+    }
 }
 
 function removeCard() {
@@ -2013,6 +2074,7 @@ async function viewSystem() {
     const router = node("article", "panel-box");
     router.append(node("p", "block-title", system.transport === "sam"
         ? t("External router over SAM") : t("Built-in router")));
+    router.append(linkLine(system.router));
     const routed = [[t("Destinations ready / all"),
         system.router.readyDestinations + " / " + system.router.destinations]];
     if (system.router.counted) {
@@ -2220,6 +2282,8 @@ el("signOut").onclick = async () => {
 
 window.addEventListener("hashchange", render);
 render();
+drawLink();
+window.setInterval(drawLink, kLinkPollMs);
 call("GET", "/ui/state").then((state) => {
     el("version").textContent = state.version || "";
 });

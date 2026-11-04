@@ -371,6 +371,10 @@ void Runtime::openAll()
         }
     }
     for (const std::shared_ptr<Account>& account : held) {
+        if (!settings_.enabled(account->id())) {
+            log::info("account {} is switched off", account->id());
+            continue;
+        }
         try {
             account->open();
         } catch (const std::exception& error) {
@@ -427,6 +431,9 @@ Runtime::RouterReport Runtime::routerReport()
 {
     i2p::Router& engine = router();
     RouterReport report;
+    report.transport = settings_.transport();
+    report.running = engine.running();
+    report.online = report.running && engine.ready();
     report.counted = engine.capabilities().routerCounters;
     if (report.counted) {
         report.inboundTunnels = engine.inboundTunnels();
@@ -443,6 +450,18 @@ Runtime::RouterReport Runtime::routerReport()
         report.readyDestinations += destination.ready ? 1 : 0;
     }
     return report;
+}
+
+void Runtime::setEnabled(const std::string& id, const bool enabled)
+{
+    const std::shared_ptr<Account> account = this->account(id);
+    settings_.setEnabled(id, enabled);
+    log::info("account {} switched {}", id, enabled ? "on" : "off");
+    if (enabled) {
+        account->open();
+    } else {
+        account->close();
+    }
 }
 
 void Runtime::quiesced(const std::function<void()>& work)

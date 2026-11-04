@@ -441,6 +441,15 @@ body.centred {
     display: none;
 }
 
+.link-state {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0 0 0.75rem;
+    color: var(--bz-ink-dim);
+    font-size: 0.72rem;
+}
+
 .qr-sheet {
     padding: 1.1rem;
     background: var(--bz-surface);

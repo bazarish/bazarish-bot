@@ -21,14 +21,15 @@ apart, because those are different mistakes:
 {"error": "this token does not open the API"}
 ```
 
-While the account is closed or still coming up, every route answers `503` with
-the status in it: `{"error": "the account is not open: starting"}`.
+While the account is closed or still coming up, every route but `/v1/status`
+answers `503` with the status in it: `{"error": "the account is not open: starting"}`.
 
 ## Routes
 
 | Route | What it does |
 |---|---|
-| `GET /v1/status` | the account's `fingerprint`, `name`, `kind` (`bot` or `group`), `destination`, `status` and the id of the last event |
+| `GET /v1/status` | the account's `fingerprint`, `name`, `kind` (`bot` or `group`), `enabled`, `destination`, `status`, the id of the last event and the `link` to I2P |
+| `POST /v1/status` | `{"enabled": false}` switches the account off, `{"enabled": true}` on; answers like `GET /v1/status` |
 | `GET /v1/invite` | the invite URI to hand out to be added as a contact |
 | `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted, `accepting` while the acceptance is on its way, and `writable` for whether this account holds the pass that admits it to their mailbox |
 | `POST /v1/contacts` | `{"invite": "...", "text": "..."}` or `{"alias": "!name", "text": "..."}` adds one; `{"accept": "<fingerprint>"}` accepts a request |
@@ -52,8 +53,30 @@ the status in it: `{"error": "the account is not open: starting"}`.
 | `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds, at most 60 |
 | `POST /v1/posts` | `{"text": "..."}` posts in a group as the group itself; group accounts only |
 
-A group account answers `GET /v1/status` and `POST /v1/posts` and refuses every
+A group account answers `/v1/status` and `POST /v1/posts` and refuses every
 other route with `409`: its members' posts it relays itself.
+
+### Switching the account off
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"enabled": false}' http://127.0.0.1:8440/v1/status
+```
+
+```json
+{"fingerprint": "o2n663nl...", "name": "probe", "kind": "bot", "enabled": false,
+ "status": "closed", "destination": "", "lastEventId": 0,
+ "link": {"transport": "embedded", "running": true, "online": true}}
+```
+
+A switched-off account stays off after a restart, until it is switched on here or
+in the web interface. Its address stays published. Mail sent to it waits on its
+server and is taken in once the account is on again.
+
+`link` is the daemon's router, shared by every account on this host. `transport`
+is `embedded` or `sam`. `online` with the embedded router means it knows other
+routers and holds outbound tunnels. `online` with `sam` means the external
+router's SAM bridge answers.
 
 ### Posting in a group
 

@@ -52,6 +52,8 @@ public:
     AccountKind kind(const std::string& account) const;
     bool acceptsContacts(const std::string& account) const;
     void setAcceptsContacts(const std::string& account, bool accepts);
+    bool enabled(const std::string& account) const;
+    void setEnabled(const std::string& account, bool enabled);
     void forgetAccount(const std::string& account);
 
 private:
@@ -71,6 +73,7 @@ private:
         std::string fingerprint;
         AccountKind kind = AccountKind::eBot;
         bool acceptsContacts = false;
+        bool enabled = true;
     };
     std::map<std::string, AccountEntry> accounts_;
 };

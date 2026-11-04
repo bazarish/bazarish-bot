@@ -39,6 +39,7 @@ constexpr int kDefaultWaitSeconds = 30;
 constexpr int kDefaultPage = 50;
 constexpr const char* kAccountPath = "/ui/accounts/([0-9a-f]+)";
 constexpr const char* kAvatarName = "avatar";
+constexpr const char* kStatusPath = "/v1/status";
 constexpr std::uint64_t kMebibyte = 1024 * 1024;
 constexpr std::uint64_t kMaxBackupBytes = 512 * kMebibyte;
 
@@ -342,6 +343,15 @@ nlohmann::json groupConfigJson(const GroupConfig& config)
     };
 }
 
+nlohmann::json linkJson(const Runtime::RouterReport& router)
+{
+    return {
+        {"transport", router.transport == Settings::Transport::eSam ? "sam" : "embedded"},
+        {"running", router.running},
+        {"online", router.online},
+    };
+}
+
 nlohmann::json membersJson(const std::vector<Member>& members)
 {
     nlohmann::json rows = nlohmann::json::array();
@@ -384,6 +394,7 @@ nlohmann::json accountJson(Account& account, Settings& settings)
         {"destination", account.destination()},
         {"invite", running ? account.inviteUri() : std::string()},
         {"running", running},
+        {"enabled", settings.enabled(account.id())},
         {"status", account.status()},
         {"pendingRouting", owed.contacts},
         {"pendingRegistry", owed.registry},
@@ -463,10 +474,10 @@ void HttpFace::apiRoutes()
         if (account == nullptr) {
             return tokenRefused(request);
         }
-        if (!account->running()) {
+        if (!account->running() && request.path != kStatusPath) {
             return failure(503, "the account is not open: " + account->status());
         }
-        if (account->kind() == Settings::AccountKind::eGroup && request.path != "/v1/status"
+        if (account->kind() == Settings::AccountKind::eGroup && request.path != kStatusPath
             && request.path != "/v1/posts") {
             return failure(409, "a group takes its own posts at /v1/posts and nothing else");
         }
@@ -477,16 +488,35 @@ void HttpFace::apiRoutes()
         }
     };
 
-    server_->get("/v1/status", [guarded](const http::Request& request) {
-        return guarded(request, [](Account& account, const http::Request&) {
-            return json({
-                {"fingerprint", account.fingerprint()},
-                {"name", account.displayName()},
-                {"kind", accountKindName(account.kind())},
-                {"destination", account.destination()},
-                {"status", account.status()},
-                {"lastEventId", account.lastEventId()},
-            });
+    const auto statusOf = [this](Account& account) {
+        const std::string fingerprint = account.fingerprint();
+        return json({
+            {"fingerprint",
+                fingerprint.empty() ? runtime_.settings().fingerprintOf(account.id()) : fingerprint},
+            {"name", account.displayName()},
+            {"kind", accountKindName(account.kind())},
+            {"enabled", runtime_.settings().enabled(account.id())},
+            {"status", account.status()},
+            {"destination", account.destination()},
+            {"lastEventId", account.lastEventId()},
+            {"link", linkJson(runtime_.routerReport())},
+        });
+    };
+
+    server_->get(kStatusPath, [guarded, statusOf](const http::Request& request) {
+        return guarded(request, [statusOf](Account& account, const http::Request&) {
+            return statusOf(account);
+        });
+    });
+
+    server_->post(kStatusPath, [this, guarded, statusOf](const http::Request& request) {
+        return guarded(request, [this, statusOf](Account& account, const http::Request& call) {
+            const nlohmann::json body = nlohmann::json::parse(call.body);
+            if (!body.contains("enabled") || !body.at("enabled").is_boolean()) {
+                return failure(400, "\"enabled\" is true or false");
+            }
+            runtime_.setEnabled(account.id(), body.at("enabled").get<bool>());
+            return statusOf(account);
         });
     });
 
@@ -845,12 +875,19 @@ void HttpFace::operatorRoutes()
         });
     });
 
+    server_->get("/ui/link", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request&) {
+            return json(linkJson(runtime_.routerReport()));
+        });
+    });
+
     server_->get("/ui/system", [this, operatorOnly](const http::Request& request) {
         return operatorOnly(request, [this](const http::Request&) {
             const Runtime::RouterReport router = runtime_.routerReport();
             const MemoryUse memory = memoryUse();
             const DiskUse disk = diskUse(runtime_.config().stateDir);
-            nlohmann::json routerJson = {{"counted", router.counted},
+            nlohmann::json routerJson = {{"running", router.running}, {"online", router.online},
+                {"counted", router.counted},
                 {"destinations", router.destinations},
                 {"readyDestinations", router.readyDestinations}};
             if (router.counted) {
@@ -935,6 +972,7 @@ void HttpFace::operatorRoutes()
                     {"fingerprint", summary.fingerprint},
                     {"kind", accountKindName(summary.kind)},
                     {"running", summary.running},
+                    {"enabled", runtime_.settings().enabled(summary.id)},
                     {"status", summary.status},
                 });
             }
@@ -1077,7 +1115,14 @@ void HttpFace::accountRoutes()
             const nlohmann::json body = nlohmann::json::parse(call.body);
             const std::string action = body.value("action", std::string());
             if (action == "open") {
+                if (!runtime_.settings().enabled(account.id())) {
+                    return failure(409, "the account is switched off");
+                }
                 account.open();
+                return json({{"status", account.status()}});
+            }
+            if (action == "enable" || action == "disable") {
+                runtime_.setEnabled(account.id(), action == "enable");
                 return json({{"status", account.status()}});
             }
             if (action == "rename") {

@@ -94,7 +94,7 @@ void Settings::load()
             throw std::runtime_error("settings: account " + account + " has no kind");
         }
         accounts_[account] = {entry.value("fingerprint", std::string()), *kind,
-            entry.at("acceptsContacts").get<bool>()};
+            entry.at("acceptsContacts").get<bool>(), entry.at("enabled").get<bool>()};
     }
 }
 
@@ -109,7 +109,7 @@ void Settings::save() const
     for (const auto& [account, entry] : accounts_) {
         accounts[account]
             = {{"fingerprint", entry.fingerprint}, {"kind", accountKindName(entry.kind)},
-                {"acceptsContacts", entry.acceptsContacts}};
+                {"acceptsContacts", entry.acceptsContacts}, {"enabled", entry.enabled}};
     }
     const nlohmann::json document = {
         {"transport", transportName(transport_)},
@@ -310,6 +310,24 @@ void Settings::setAcceptsContacts(const std::string& account, const bool accepts
         throw std::runtime_error("settings: no account " + account);
     }
     found->second.acceptsContacts = accepts;
+    save();
+}
+
+bool Settings::enabled(const std::string& account) const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = accounts_.find(account);
+    return found != accounts_.end() && found->second.enabled;
+}
+
+void Settings::setEnabled(const std::string& account, const bool enabled)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = accounts_.find(account);
+    if (found == accounts_.end()) {
+        throw std::runtime_error("settings: no account " + account);
+    }
+    found->second.enabled = enabled;
     save();
 }
 
