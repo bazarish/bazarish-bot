@@ -13,7 +13,10 @@ set(BAZARISH_COMMON_DIR "${CMAKE_CURRENT_SOURCE_DIR}/common" CACHE PATH
 set(BAZARISH_SERVER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/bazarish-server" CACHE PATH
     "Path to the bazarish server repository")
 
-add_subdirectory(${BAZARISH_COMMON_DIR} bazarish-common)
+# A host that embeds the bot's accounts brings its own common, built with the client core.
+if(NOT TARGET bazarish_common)
+    add_subdirectory(${BAZARISH_COMMON_DIR} bazarish-common)
+endif()
 add_subdirectory(${BAZARISH_SERVER_DIR}/server-core bazarish-server-core)
 add_subdirectory(${BAZARISH_SERVER_DIR}/service-node bazarish-service-node)
 add_subdirectory(${BAZARISH_SERVER_DIR}/facade-http bazarish-facade-http)
@@ -40,6 +43,7 @@ add_library(bazarish_bot_lib STATIC
     src/Transcript.cpp
     src/Transfers.cpp
     src/ServerSide.cpp
+    src/StateCheckpoint.cpp
     src/Settings.cpp
     src/SystemInfo.cpp
     src/Zip.cpp
@@ -54,6 +58,10 @@ target_link_libraries(bazarish_bot_lib PUBLIC
     Bazarish::Client bazarish_server_lib bazarish_service_lib bazarish_facade_lib
     ICU::uc ICU::i18n Threads::Threads ${QRENCODE_LIBRARY})
 target_compile_options(bazarish_bot_lib PRIVATE -Wall -Wextra -Werror)
+
+if(NOT PROJECT_IS_TOP_LEVEL)
+    return()
+endif()
 
 add_executable(bazarish-bot src/Main.cpp)
 target_link_libraries(bazarish-bot PRIVATE bazarish_bot_lib)
@@ -83,6 +91,7 @@ bazarish_bot_add_test(TestMenuRules)
 bazarish_bot_add_test(TestGroupCopy)
 bazarish_bot_add_test(TestBackup)
 bazarish_bot_add_test(TestServerSide)
+bazarish_bot_add_test(TestStateCheckpoint)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME WebTranslations
