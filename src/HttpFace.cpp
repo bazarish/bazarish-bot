@@ -306,11 +306,11 @@ http::Response addContact(Account& account, const nlohmann::json& body)
     const std::string text = body.value("text", std::string());
     if (body.contains("invite")) {
         return json({{"fingerprint",
-            account.addByInvite(body.at("invite").get<std::string>(), text)}});
+            account.addContact(false, body.at("invite").get<std::string>(), text)}});
     }
     if (body.contains("alias")) {
         return json({{"fingerprint",
-            account.addByAlias(body.at("alias").get<std::string>(), text)}});
+            account.addContact(true, body.at("alias").get<std::string>(), text)}});
     }
     if (body.contains("accept")) {
         account.acceptContact(body.at("accept").get<std::string>());

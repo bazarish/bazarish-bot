@@ -1002,16 +1002,33 @@ void Account::removeContact(const std::string& peer)
     openSession().removeContactEverywhere(peer);
 }
 
-std::string Account::addByInvite(const std::string& invite, const std::string& text)
+std::string Account::addContact(
+    const bool byAlias, const std::string& inviteOrAlias, const std::string& text)
 {
+    client::Session::ContactFetchContext context;
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        context = openSession().contactFetchContext();
+    }
+    const client::Session::ContactCardResolved resolved = client::Session::resolveContactCard(
+        context, {byAlias, inviteOrAlias, text, {}}, [](client::Session::CardStep) {});
+    if (!resolved.ok) {
+        throw std::runtime_error(resolved.error);
+    }
+    client::DeliveryWatch watch;
+    watch.onOutcome = [this, peer = resolved.fingerprint](
+                          const client::OutboundCourier::Outcome& outcome) {
+        if (!outcome.stored) {
+            log::info("account {}: contact request to {} not taken: {}", id_, log::redact(peer),
+                outcome.errorMessage.empty() ? outcome.errorCode : outcome.errorMessage);
+        }
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        if (session_ != nullptr) {
+            session_->settleContactRequest(peer, outcome);
+        }
+    };
     const std::lock_guard<std::mutex> lock(sessionMutex_);
-    return openSession().addByInvite(invite, text);
-}
-
-std::string Account::addByAlias(const std::string& alias, const std::string& text)
-{
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    return openSession().addByAlias(alias, text);
+    return openSession().commitContactAdd(resolved, watch);
 }
 
 std::string Account::signLogin(const std::string& challenge) const

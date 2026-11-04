@@ -315,6 +315,8 @@ keep failing, because only they can admit this account again.
 `contact.request`. `POST /v1/contacts` with `accept` answers it, and
 `DELETE /v1/contacts/{fingerprint}` declines it. A bot accepts
 requests automatically as they arrive unless that is switched off in the panel.
+Adding a contact answers once their card is found; the request then travels on its
+own, and a definite refusal takes the contact back.
 
 **Delivery.** `POST /v1/messages` answers as soon as the message is queued; this
 account delivers it in the background with retries, as the desktop client does.

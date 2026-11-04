@@ -123,8 +123,8 @@ public:
 
     void acceptContact(const std::string& peer);
     void removeContact(const std::string& peer);
-    std::string addByInvite(const std::string& inviteUri, const std::string& text);
-    std::string addByAlias(const std::string& alias, const std::string& text);
+    // Returns once the card is found; the request travels on its own.
+    std::string addContact(bool byAlias, const std::string& inviteOrAlias, const std::string& text);
 
     std::string signLogin(const std::string& challenge) const;
 
