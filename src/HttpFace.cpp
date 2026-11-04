@@ -169,6 +169,9 @@ nlohmann::json eventJson(const Event& event)
     if (!event.messageId.empty()) {
         item["messageId"] = event.messageId;
     }
+    if (!event.type.empty()) {
+        item["type"] = event.type;
+    }
     if (!event.text.empty()) {
         item["text"] = event.text;
     }

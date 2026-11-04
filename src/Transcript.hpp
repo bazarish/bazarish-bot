@@ -52,6 +52,7 @@ struct Event {
     std::string kind;
     std::string peer;
     std::string messageId;
+    std::string type;
     std::string text;
     std::string actor;
     std::int64_t at = 0;
@@ -61,7 +62,10 @@ struct Event {
 // the API and the menus this account gave out are its own tables in the same file.
 class Transcript {
 public:
-    Transcript(const std::filesystem::path& accountFile, std::string ownFingerprint);
+    // Without history a line lives only until its event is noted; the feed alone stays, for a day,
+    // and it is what tells a message delivered twice.
+    Transcript(const std::filesystem::path& accountFile, std::string ownFingerprint,
+        bool keepsHistory);
     ~Transcript();
 
     Transcript(const Transcript&) = delete;
@@ -105,13 +109,15 @@ public:
 private:
     std::int64_t noteLocked(const std::string& kind, const std::string& peer,
         const std::string& messageId, const std::string& text, const std::string& actor,
-        std::int64_t at);
+        std::int64_t at, const std::string& type = {});
+    bool noted(const std::string& peer, const std::string& messageId) const;
     Line lineOf(const client::StoredMessage& row) const;
     void require(bool done) const;
 
     class Relay;
 
     std::string own_;
+    const bool keepsHistory_;
     client::TranscriptStore store_;
     Database ledger_;
     std::unique_ptr<Relay> relay_;

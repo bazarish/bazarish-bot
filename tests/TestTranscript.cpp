@@ -46,7 +46,7 @@ int main()
     const std::string self = "selffingerprint";
 
     {
-        Transcript transcript(file, self);
+        Transcript transcript(file, self, true);
         CHECK(transcript.lastEventId() == 0);
         CHECK(transcript.latestPerPeer().empty());
 
@@ -141,7 +141,7 @@ int main()
     }
 
     {
-        Transcript transcript(file, self);
+        Transcript transcript(file, self, true);
         CHECK(transcript.latestPerPeer().size() == 4);
         CHECK(transcript.conversation("bob", 0, 10).size() == 1);
         CHECK(!transcript.menu("bob"));
@@ -150,7 +150,7 @@ int main()
     }
 
     {
-        Transcript transcript(file, self);
+        Transcript transcript(file, self, true);
         const std::optional<bazarish::client::BotMenu> menu = transcript.menu("bob");
         CHECK(menu && menu->id == 9 && menu->items.size() == 2);
         CHECK(menu->items.back().command == "prices");
@@ -158,7 +158,7 @@ int main()
     }
 
     {
-        Transcript transcript(file, self);
+        Transcript transcript(file, self, true);
         const std::int64_t before = transcript.lastEventId();
         Line offered = lineFor("erin", "report.pdf", "f1", false, 600);
         offered.type = "file";
@@ -191,7 +191,7 @@ int main()
     }
 
     {
-        Transcript transcript(file, self);
+        Transcript transcript(file, self, true);
         bazarish::client::IncomingMessage text;
         text.contentType = bazarish::client::kTypeText;
         text.fromFingerprint = "frank";
@@ -223,6 +223,27 @@ int main()
         const std::vector<Line> left = transcript.conversation("frank", 0, 10);
         CHECK(left.size() == 1 && left.front().type == bazarish::client::kTypeSystem);
         CHECK(transcript.since(transcript.lastEventId() - 1).back().kind == "chat-cleared");
+    }
+
+    {
+        Transcript transcript(dir / "forgetful.db", self, false);
+        bazarish::client::IncomingMessage text;
+        text.contentType = bazarish::client::kTypeText;
+        text.fromFingerprint = "gina";
+        text.e2eId = "g1";
+        text.text = "/start";
+        CHECK(transcript.takeIn(text).added);
+        CHECK(transcript.conversation("gina", 0, 10).empty());
+        const bazarish::bot::Event noted = transcript.since(transcript.lastEventId() - 1).back();
+        CHECK(noted.kind == "message" && noted.type == "text" && noted.text == "/start");
+        const std::int64_t seen = transcript.lastEventId();
+        CHECK(!transcript.takeIn(text).added);
+        CHECK(transcript.lastEventId() == seen);
+
+        CHECK(transcript.append(lineFor("gina", "Choose a language.", "r1", true, 800)) != 0);
+        CHECK(transcript.conversation("gina", 0, 10).empty());
+        CHECK(transcript.since(seen).back().text == "Choose a language.");
+        CHECK(transcript.latestPerPeer().empty());
     }
 
     fs::remove_all(dir);

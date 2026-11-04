@@ -62,6 +62,9 @@ int main()
         settings.rememberAccount(second, "fp-second", Settings::AccountKind::eGroup);
         CHECK(!settings.enabled(second));
         CHECK_THROWS(settings.setEnabled("unknown", false));
+        CHECK(settings.keepsHistory(first));
+        settings.setKeepsHistory(first, false);
+        CHECK_THROWS(settings.setKeepsHistory("unknown", false));
         settings.setAcceptsContacts(first, false);
         settings.rememberAccount(first, "fp-first", Settings::AccountKind::eBot);
         CHECK_THROWS(settings.setAcceptsContacts("unknown", true));
@@ -82,6 +85,7 @@ int main()
         CHECK(!settings.acceptsContacts(second));
         CHECK(settings.enabled(first));
         CHECK(!settings.enabled(second));
+        CHECK(!settings.keepsHistory(first) && settings.keepsHistory(second));
         CHECK(!settings.enabled("unknown"));
         CHECK(settings.accountWithFingerprint("fp-second") == second);
         CHECK(settings.accountWithFingerprint("fp-third").empty());

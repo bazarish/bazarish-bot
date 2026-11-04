@@ -54,6 +54,8 @@ public:
     void setAcceptsContacts(const std::string& account, bool accepts);
     bool enabled(const std::string& account) const;
     void setEnabled(const std::string& account, bool enabled);
+    bool keepsHistory(const std::string& account) const;
+    void setKeepsHistory(const std::string& account, bool keeps);
     void forgetAccount(const std::string& account);
 
 private:
@@ -74,6 +76,7 @@ private:
         AccountKind kind = AccountKind::eBot;
         bool acceptsContacts = false;
         bool enabled = true;
+        bool keepsHistory = true;
     };
     std::map<std::string, AccountEntry> accounts_;
 };

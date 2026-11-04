@@ -195,7 +195,12 @@ An account is one encrypted file under `accounts/`, the same file a client
 keeps an account in. The conversations sit in it in the client's tables and
 through the client core's store, so deleting a message or clearing a chat takes
 its pictures and voice notes with it. The bot adds two tables of its own: the
-event feed of the API and the menus it gave out. A deleted row leaves free pages
+event feed of the API and the menus it gave out.
+
+An account can keep no history (`"history": false` in its entry in
+`settings.json`). A line then lives only until its event is in the feed, together
+with its picture or voice note. The feed is kept for a day, and a message that
+arrives twice is recognised by it. A deleted row leaves free pages
 behind; compacting the database rewrites the file without them.
 
 ## Backing up the whole host

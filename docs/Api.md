@@ -248,12 +248,12 @@ An event says what happened, and to which message:
 
 ```json
 {"id": 42, "kind": "message", "peer": "<fingerprint>",
- "messageId": "4054cd273aa34b4b", "text": "hello", "actor": "<fingerprint>",
- "sentAt": 1787932486147}
+ "messageId": "4054cd273aa34b4b", "type": "text", "text": "hello",
+ "actor": "<fingerprint>", "sentAt": 1787932486147}
 ```
 
-For a `message`, `actor` is the peer when the line came from them; a line this account
-sent has no `actor`.
+For a `message`, `type` is the line's type, and `actor` is the peer when the line came
+from them; a line this account sent has no `actor`.
 
 `kind` is one of `message`, `edit`, `delete`, `reaction`, `receipt`, `status`,
 `transfer` or `chat-cleared`. Only a `message` is a new line; the others are about a line that is already there,

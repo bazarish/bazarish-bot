@@ -1,6 +1,8 @@
 // Bazarish project (c) 2026
 #include "Transcript.hpp"
 
+#include <bazarish/Clock.hpp>
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -14,6 +16,8 @@ namespace {
 using client::DeliveryState;
 
 constexpr int kMaxPage = 500;
+constexpr std::int64_t kMillisPerSecond = 1000;
+constexpr std::int64_t kFeedKeptMs = kSecondsPerDay * kMillisPerSecond;
 constexpr const char* kOwnReactor = "me";
 constexpr const char* kFailedStatus = "failed";
 
@@ -77,8 +81,10 @@ client::StoredMessage rowOf(const Line& line)
 
 }  // namespace
 
-Transcript::Transcript(const std::filesystem::path& accountFile, std::string ownFingerprint)
+Transcript::Transcript(
+    const std::filesystem::path& accountFile, std::string ownFingerprint, const bool keepsHistory)
     : own_(std::move(ownFingerprint))
+    , keepsHistory_(keepsHistory)
     , ledger_(accountFile, "transcript")
 {
     if (!store_.open(accountFile)) {
@@ -88,8 +94,10 @@ Transcript::Transcript(const std::filesystem::path& accountFile, std::string own
     ledger_.run(
         "CREATE TABLE IF NOT EXISTS events ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
-        "kind TEXT NOT NULL, peer TEXT NOT NULL, messageId TEXT, text TEXT,"
-        " actor TEXT, at INTEGER)");
+        "kind TEXT NOT NULL, peer TEXT NOT NULL, messageId TEXT, type TEXT, text TEXT,"
+        " actor TEXT, at INTEGER, noted INTEGER NOT NULL)");
+    ledger_.run("CREATE INDEX IF NOT EXISTS events_noted ON events (noted)");
+    ledger_.run("CREATE INDEX IF NOT EXISTS events_message ON events (peer, messageId)");
     ledger_.run("CREATE TABLE IF NOT EXISTS issued_menus ("
                 "peer TEXT PRIMARY KEY, menuId INTEGER NOT NULL, items TEXT NOT NULL)");
     relay_ = std::make_unique<Relay>(*this);
@@ -137,7 +145,11 @@ public:
     void rowAdded(const std::string& peer, const std::int64_t id, bool) override
     {
         const Line line = owner_.lineOf(owner_.store_.messageById(id));
-        (void)owner_.noteLocked("message", peer, line.e2eId, line.text, actor(), line.sentAt);
+        (void)owner_.noteLocked(
+            "message", peer, line.e2eId, line.text, actor(), line.sentAt, line.type);
+        if (!owner_.keepsHistory_) {
+            owner_.require(owner_.store_.removeById(id));
+        }
         taken_.wrote = true;
         taken_.added = true;
     }
@@ -185,6 +197,9 @@ private:
 Transcript::Taken Transcript::takeIn(const client::IncomingMessage& message)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
+    if (!keepsHistory_ && !message.e2eId.empty() && noted(message.fromFingerprint, message.e2eId)) {
+        return {};
+    }
     return relay_->take(*ingest_, message);
 }
 
@@ -248,19 +263,38 @@ std::optional<client::BotMenu> Transcript::menu(const std::string& peer) const
 
 std::int64_t Transcript::noteLocked(const std::string& kind, const std::string& peer,
     const std::string& messageId, const std::string& text, const std::string& actor,
-    const std::int64_t at)
+    const std::int64_t at, const std::string& type)
 {
+    const std::int64_t now = nowMillis();
     Statement insert(ledger_,
-        "INSERT INTO events (kind, peer, messageId, text, actor, at)"
-        " VALUES (?, ?, ?, ?, ?, ?)");
+        "INSERT INTO events (kind, peer, messageId, type, text, actor, at, noted)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
     insert.bind(1, kind);
     insert.bind(2, peer);
     insert.bind(3, messageId);
-    insert.bind(4, text);
-    insert.bind(5, actor);
-    insert.bind(6, at);
+    insert.bind(4, type);
+    insert.bind(5, text);
+    insert.bind(6, actor);
+    insert.bind(7, at);
+    insert.bind(8, now);
     (void)insert.step();
-    return ledger_.lastInsertId();
+    const std::int64_t id = ledger_.lastInsertId();
+    if (!keepsHistory_) {
+        Statement forget(ledger_, "DELETE FROM events WHERE noted < ? AND id < ?");
+        forget.bind(1, now - kFeedKeptMs);
+        forget.bind(2, id);
+        (void)forget.step();
+    }
+    return id;
+}
+
+bool Transcript::noted(const std::string& peer, const std::string& messageId) const
+{
+    Statement query(
+        ledger_, "SELECT 1 FROM events WHERE kind = 'message' AND peer = ? AND messageId = ?");
+    query.bind(1, peer);
+    query.bind(2, messageId);
+    return query.step();
 }
 
 std::int64_t Transcript::append(const Line& line)
@@ -272,7 +306,10 @@ std::int64_t Transcript::append(const Line& line)
     const std::int64_t id = store_.append(rowOf(line));
     require(id != 0);
     (void)noteLocked("message", line.peer, line.e2eId, line.text, line.outgoing ? "" : line.peer,
-        line.sentAt);
+        line.sentAt, line.type);
+    if (!keepsHistory_) {
+        require(store_.removeById(id));
+    }
     return id;
 }
 
@@ -401,7 +438,7 @@ std::vector<Event> Transcript::since(const std::int64_t id) const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     Statement query(ledger_,
-        "SELECT id, kind, peer, messageId, text, actor, at FROM events"
+        "SELECT id, kind, peer, messageId, type, text, actor, at FROM events"
         " WHERE id > ? ORDER BY id LIMIT ?");
     query.bind(1, id);
     query.bind(2, static_cast<std::int64_t>(kMaxPage));
@@ -412,9 +449,10 @@ std::vector<Event> Transcript::since(const std::int64_t id) const
         event.kind = query.text(1);
         event.peer = query.text(2);
         event.messageId = query.text(3);
-        event.text = query.text(4);
-        event.actor = query.text(5);
-        event.at = query.number(6);
+        event.type = query.text(4);
+        event.text = query.text(5);
+        event.actor = query.text(6);
+        event.at = query.number(7);
         events.push_back(std::move(event));
     }
     return events;

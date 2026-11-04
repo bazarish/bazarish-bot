@@ -163,7 +163,8 @@ void Account::bringUp()
     const std::shared_ptr<client::LoginSigner> signer = session->loginSigner();
     noteAliases(*session);
 
-    auto transcript = std::make_shared<Transcript>(accountFile_, fingerprint);
+    auto transcript
+        = std::make_shared<Transcript>(accountFile_, fingerprint, settings_.keepsHistory(id_));
     transcript->failUnfinished();
     auto transfers = std::make_shared<Transfers>();
     session->setFileSource(files_);
