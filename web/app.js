@@ -305,8 +305,8 @@ async function viewOverview() {
     inviteHead.append(node("span", "card-name", t("Invite")));
     invite.append(inviteHead);
     invite.append(node("p", "hint", account.kind === "group"
-        ? t("Members join with this invite.")
-        : t("Anyone with the invite can write to this account.")));
+        ? t("Members join with this invite")
+        : t("Anyone with the invite can write to this account")));
     invite.append(node("pre", "copy", account.invite || ""));
     const qr = node("button", "btn btn-quiet btn-copy", t("QR code"));
     qr.type = "button";
@@ -359,7 +359,7 @@ function unlockCard(account) {
     if (account.status === "starting") {
         card.append(node("p", "view-title", t("Starting")));
         card.append(node("p", "step-note",
-            t("The account is starting.")));
+            t("The account is starting")));
         poll(async () => {
             const now = await call("GET", base());
             if (now.status === "starting") {
@@ -391,7 +391,7 @@ async function viewAdd() {
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("Add account")));
     view.append(node("p", "step-note",
-        t("Each account is a separate server with its own address and mailbox.")));
+        t("Each account is a separate server with its own address and mailbox")));
 
     const common = node("article", "panel-box");
     const kind = kindPicker("bot");
@@ -439,7 +439,7 @@ async function viewAdd() {
     doRestore.onclick = async () => {
         const file = bundle.files && bundle.files[0];
         if (!file) {
-            restored.textContent = t("Pick the backup file first.");
+            restored.textContent = t("Pick the backup file first");
             return;
         }
         try {
@@ -540,7 +540,7 @@ function receiveCard(kind, opened) {
         } else if (state.stage === "code") {
             status.textContent = state.triesLeft > 0
                 ? t("Wrong code. %1 tries left.", state.triesLeft)
-                : t("Enter the code shown on the other device.");
+                : t("Enter the code shown on the other device");
         } else if (state.stage === "receiving") {
             status.textContent = t("Receiving the account %1", progressText(state.done, state.total));
         } else if (state.stage === "failed") {
@@ -615,7 +615,7 @@ async function drawChats() {
     }
     list.textContent = "";
     if (chats.length === 0) {
-        list.append(node("p", "empty", t("No conversations yet.")));
+        list.append(node("p", "empty", t("No conversations yet")));
     }
     for (const chat of chats) {
         const item = node("button", "chat-item" + (chat.peer === peer ? " is-current" : ""));
@@ -646,7 +646,7 @@ async function drawThread() {
     }
     const draw = ++threadDraws;
     if (!peer) {
-        thread.replaceChildren(node("p", "empty", t("Pick a conversation.")));
+        thread.replaceChildren(node("p", "empty", t("Pick a conversation")));
         return;
     }
     const shown = peer;
@@ -895,7 +895,7 @@ async function viewContacts() {
     const rows = node("div", "rows");
     const contacts = await call("GET", base() + "/contacts");
     if (contacts.length === 0) {
-        rows.append(node("p", "empty", t("Nobody yet.")));
+        rows.append(node("p", "empty", t("Nobody yet")));
     }
     for (const contact of contacts) {
         const row = node("button", "row");
@@ -993,7 +993,7 @@ async function viewAliases() {
     const draw = (state) => {
         rows.textContent = "";
         if (state.aliases.length === 0) {
-            rows.append(node("p", "empty", t("No alias is registered to this account.")));
+            rows.append(node("p", "empty", t("No alias is registered to this account")));
         }
         for (const alias of state.aliases) {
             const row = node("div", "row");
@@ -1023,7 +1023,7 @@ async function viewAliases() {
         }
         decorateCopies(rows);
         note.textContent = state.aliases.length > 0 && !state.depositCovers
-            ? t("The deposit will not cover the next renewal.") : "";
+            ? t("The deposit will not cover the next renewal") : "";
         check.disabled = state.checking;
         check.textContent = state.checking ? t("Asking…") : t("Check aliases");
         if (state.checked) {
@@ -1110,8 +1110,8 @@ async function viewSign() {
             consumer.append(node("p", "hint", t("as %1", seen.role)));
         }
         consumer.append(node("p", "hint", seen.place.length > 1
-            ? t("Do not sign if the site you came from is not in the list.")
-            : t("Do not sign if this is not the site you came from.")));
+            ? t("Do not sign if the site you came from is not in the list")
+            : t("Do not sign if this is not the site you came from")));
         sign.disabled = false;
     };
     challenge.oninput = () => describe().catch((error) => {
@@ -1177,7 +1177,7 @@ async function viewApi() {
         t("The API takes a token in the Authorization header. A token opens this account only. It is shown once, when issued.")));
 
     const rows = node("div", "rows");
-    const none = node("p", "empty", t("No tokens issued."));
+    const none = node("p", "empty", t("No tokens issued"));
     none.hidden = account.tokens.length > 0;
     rows.append(none);
     for (const token of account.tokens) {
@@ -1234,7 +1234,7 @@ async function viewAccount() {
 
     if (!account.running) {
         view.append(node("p", "empty",
-            t("The account is not open: %1.", account.status)));
+            t("The account is not open: %1", account.status)));
         return view;
     }
 
@@ -1245,14 +1245,14 @@ async function viewAccount() {
     name.value = account.name || "";
     identity.append(name);
     identity.append(node("p", "hint",
-        t("The name in the invite and in this panel.")));
+        t("The name in the invite and in this panel")));
     const renamed = node("p", "hint");
     const nameFooter = node("p", "form-footer");
     const saveName = node("button", "btn", t("Save"));
     saveName.onclick = async () => {
         try {
             await call("POST", base(), {action: "rename", name: name.value});
-            renamed.textContent = t("Saved.");
+            renamed.textContent = t("Saved");
             await drawSidebar();
         } catch (error) {
             showError(renamed, error);
@@ -1399,7 +1399,7 @@ function avatarBlock(account) {
     reload();
     row.append(shown, empty, choose, drop, pick);
     block.append(row, node("p", "hint", account.kind === "group"
-        ? t("Members receive it.") : t("Contacts receive it.")), said);
+        ? t("Members receive it") : t("Contacts receive it")), said);
     return block;
 }
 
@@ -1410,7 +1410,7 @@ function exportCard(account) {
     bundlePassword.type = "password";
     if (account.kind === "group") {
         move.append(node("p", "notice is-warning",
-            t("Members, posts and group settings are not in the backup.")));
+            t("Members, posts and group settings are not in the backup")));
     }
     move.append(node("label", "field-label", t("Password for the backup")), bundlePassword);
     const wrote = node("p", "hint");
@@ -1434,7 +1434,7 @@ function exportCard(account) {
             link.download = named ? named[1] : "bazarish.bazarish";
             link.click();
             URL.revokeObjectURL(link.href);
-            wrote.textContent = t("Downloaded.");
+            wrote.textContent = t("Downloaded");
         } catch (error) {
             showError(wrote, error);
         }
@@ -1474,13 +1474,13 @@ function pairCard() {
         if (state.stage === "publishing") {
             status.textContent = t("Publishing the transfer address…");
         } else if (state.stage === "waiting") {
-            status.textContent = t("Waiting for the other device.");
+            status.textContent = t("Waiting for the other device");
         } else if (state.stage === "wrong-code") {
-            status.textContent = t("Wrong codes entered: %1.", state.wrongCodes);
+            status.textContent = t("Wrong codes entered: %1", state.wrongCodes);
         } else if (state.stage === "sending") {
             status.textContent = t("Sending the account %1", progressText(state.done, state.total));
         } else if (state.stage === "done") {
-            status.textContent = t("The account is on the other device.");
+            status.textContent = t("The account is on the other device");
         } else if (state.stage === "refused") {
             status.textContent = t("Too many wrong codes. The transfer stopped.");
         } else if (state.stage === "failed") {
@@ -1522,7 +1522,7 @@ function storageCard() {
     const size = node("p", "hint");
     const said = node("p", "hint");
     const show = (storage) => {
-        size.textContent = t("%1, of which %2 is free.",
+        size.textContent = t("%1, of which %2 is free",
             bytesText(storage.fileBytes), bytesText(storage.freeBytes));
     };
     const footer = node("p", "form-footer");
@@ -1532,7 +1532,7 @@ function storageCard() {
         said.textContent = t("Compacting…");
         try {
             show(await call("POST", base() + "/storage/compact"));
-            said.textContent = t("Compacted.");
+            said.textContent = t("Compacted");
         } catch (error) {
             showError(said, error);
         }
@@ -1549,7 +1549,7 @@ function storageCard() {
 function switchOffCard() {
     const card = node("article", "panel-box");
     card.append(node("p", "block-title", t("Switch off")));
-    card.append(node("p", "hint", t("The account stops answering, and its I2P address goes down.")));
+    card.append(node("p", "hint", t("The account stops answering, and its I2P address goes down")));
     const said = node("p", "hint");
     const footer = node("p", "form-footer");
     const off = node("button", "btn btn-quiet", t("Switch off"));
@@ -1674,7 +1674,7 @@ function operatorCard(settings) {
     const operator = node("article", "panel-box");
     operator.append(node("p", "block-title", t("Administrator")));
     operator.append(node("p", "hint",
-        t("The administrator fingerprint can be changed only in the configuration file, in the operator field.")));
+        t("The administrator fingerprint can be changed only in the configuration file, in the operator field")));
     operator.append(facts([[t("Fingerprint"), settings.operator]]));
     return operator;
 }
@@ -1754,15 +1754,15 @@ async function viewGroup() {
     const box = node("article", "panel-box");
     box.append(node("p", "block-title", t("Who writes")));
     const kind = segmented([
-        ["group", N_("Group"), N_("Every member posts.")],
-        ["channel", N_("Channel"), N_("Administrators post, members read.")],
+        ["group", N_("Group"), N_("Every member posts")],
+        ["channel", N_("Channel"), N_("Administrators post, members read")],
     ], config.kind);
     box.append(kind.element);
 
     box.append(node("p", "block-title", t("Joining")));
     const joining = segmented([
-        ["open", N_("Open"), N_("Anyone with the invite.")],
-        ["approval", N_("With approval"), N_("An administrator approves each member.")],
+        ["open", N_("Open"), N_("Anyone with the invite")],
+        ["approval", N_("With approval"), N_("An administrator approves each member")],
     ], config.joinMode);
     box.append(joining.element);
 
@@ -1771,7 +1771,7 @@ async function viewGroup() {
     history.min = "0";
     history.value = String(config.historySize);
     box.append(node("label", "field-label", t("History for new members")), history);
-    box.append(node("p", "hint", t("Posts a member receives on joining.")));
+    box.append(node("p", "hint", t("Posts a member receives on joining")));
 
     const contactLine = node("label", "check");
     const contacts = node("input");
@@ -1804,7 +1804,7 @@ async function viewGroup() {
                 contactRequests: contacts.checked,
                 language: botLanguage.value,
             });
-            said.textContent = t("Saved.");
+            said.textContent = t("Saved");
         } catch (error) {
             showError(said, error);
         }
@@ -1920,9 +1920,9 @@ async function viewMembers() {
         rows.textContent = "";
         const shown = members.filter(memberMatches);
         if (members.length === 0) {
-            rows.append(node("p", "empty", t("Nobody has joined yet.")));
+            rows.append(node("p", "empty", t("Nobody has joined yet")));
         } else if (shown.length === 0) {
-            rows.append(node("p", "empty", t("Nobody matches.")));
+            rows.append(node("p", "empty", t("Nobody matches")));
         }
         for (const member of shown) {
             rows.append(memberRow(member, refresh));
@@ -1953,8 +1953,8 @@ async function viewRequests() {
         rows.textContent = "";
         if (asked.length === 0) {
             rows.append(node("p", "empty", state.config.joinMode === "open"
-                ? t("Joining is open.")
-                : t("Nobody is waiting.")));
+                ? t("Joining is open")
+                : t("Nobody is waiting")));
         }
         for (const request of asked) {
             const row = node("div", "row is-static");
@@ -2043,7 +2043,7 @@ async function viewPosts() {
         const posts = await call("GET", base() + "/group/posts?limit=" + kPostsPage);
         list.textContent = "";
         if (posts.length === 0) {
-            list.append(node("p", "empty", t("No posts yet.")));
+            list.append(node("p", "empty", t("No posts yet")));
         }
         for (const post of posts) {
             const item = node("article", "post" + (post.deleted ? " is-deleted" : ""));
@@ -2165,7 +2165,7 @@ function systemBackupCard() {
     const box = node("article", "panel-box");
     box.append(node("p", "block-title", t("Backup")));
     box.append(node("p", "hint",
-        t("An archive of all service data.")));
+        t("An archive of all service data")));
     const exportFooter = node("p", "form-footer");
     const download = node("a", "btn", t("Export"));
     download.href = "/ui/system/backup";
@@ -2178,14 +2178,14 @@ function systemBackupCard() {
     archive.accept = ".zip";
     box.append(node("label", "field-label", t("Archive to import")), archive);
     box.append(node("p", "notice is-warning",
-        t("Importing replaces all service data except the administrator fingerprint.")));
+        t("Importing replaces all service data except the administrator fingerprint")));
     const state = node("p", "hint");
     const importFooter = node("p", "form-footer");
     const restore = node("button", "btn btn-danger", t("Import"));
     restore.onclick = async () => {
         const file = archive.files && archive.files[0];
         if (!file) {
-            state.textContent = t("Pick the archive first.");
+            state.textContent = t("Pick the archive first");
             return;
         }
         if (!confirm(t("Replace all service data?"))) {
@@ -2275,7 +2275,7 @@ async function render() {
             const waiting = node("section", "view");
             waiting.append(node("h1", "view-title", viewLabel(route.view)));
             waiting.append(node("p", "empty",
-                t("The account is not open: %1.", summary.status)));
+                t("The account is not open: %1", summary.status)));
             content().replaceChildren(waiting);
             return;
         }
