@@ -240,9 +240,19 @@ int main()
         CHECK(!transcript.takeIn(text).added);
         CHECK(transcript.lastEventId() == seen);
 
+        bazarish::client::IncomingMessage press;
+        press.contentType = bazarish::client::kTypeBotCallback;
+        press.fromFingerprint = "gina";
+        press.e2eId = "g2";
+        press.refId = "r0";
+        press.callbackData = "lang:en";
+        CHECK(transcript.takeIn(press).added);
+        const bazarish::bot::Event pressed = transcript.since(transcript.lastEventId() - 1).back();
+        CHECK(pressed.type == "bot.callback" && pressed.text == "lang:en" && pressed.actor == "gina");
+
         CHECK(transcript.append(lineFor("gina", "Choose a language.", "r1", true, 800)) != 0);
         CHECK(transcript.conversation("gina", 0, 10).empty());
-        CHECK(transcript.since(seen).back().text == "Choose a language.");
+        CHECK(transcript.since(transcript.lastEventId() - 1).back().text == "Choose a language.");
         CHECK(transcript.latestPerPeer().empty());
     }
 
