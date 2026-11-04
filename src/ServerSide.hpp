@@ -49,6 +49,8 @@ public:
     std::string replaceDestinationFor(const std::string& account, const client::AddressKeys& keys);
     std::string destination(const std::string& account) const;
     void forget(const std::string& account);
+    // The address goes down; its key and the mail already stored stay for when it comes back.
+    void takeDown(const std::string& account);
     void endMailWait(const std::string& account);
 
 private:

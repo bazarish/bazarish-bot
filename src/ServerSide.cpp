@@ -322,6 +322,15 @@ std::string ServerSide::destination(const std::string& account) const
     return destinations_->assignmentFor(account, nowSeconds()).dest;
 }
 
+void ServerSide::takeDown(const std::string& account)
+{
+    {
+        const std::lock_guard<std::mutex> lock(expiresMutex_);
+        destinationExpires_.erase(account);
+    }
+    destinations_->forget(account);
+}
+
 void ServerSide::forget(const std::string& account)
 {
     {

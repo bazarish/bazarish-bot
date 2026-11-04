@@ -70,8 +70,8 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 ```
 
 A switched-off account stays off after a restart, until it is switched on here or
-in the web interface. Its address stays published. Mail sent to it waits on its
-server and is taken in once the account is on again.
+in the web interface. Its I2P address goes down, and nothing reaches the account
+while it is off. Switched on, it comes back at the same address.
 
 `link` is the daemon's router, shared by every account on this host. `transport`
 is `embedded` or `sam`. `online` with the embedded router means it knows other

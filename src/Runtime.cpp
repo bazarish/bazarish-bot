@@ -373,6 +373,10 @@ void Runtime::openAll()
     for (const std::shared_ptr<Account>& account : held) {
         if (!settings_.enabled(account->id())) {
             log::info("account {} is switched off", account->id());
+            const std::string fingerprint = settings_.fingerprintOf(account->id());
+            if (!fingerprint.empty()) {
+                serverSide().takeDown(fingerprint);
+            }
             continue;
         }
         try {
@@ -459,8 +463,12 @@ void Runtime::setEnabled(const std::string& id, const bool enabled)
     log::info("account {} switched {}", id, enabled ? "on" : "off");
     if (enabled) {
         account->open();
-    } else {
-        account->close();
+        return;
+    }
+    account->close();
+    const std::string fingerprint = settings_.fingerprintOf(id);
+    if (!fingerprint.empty()) {
+        serverSide().takeDown(fingerprint);
     }
 }
 

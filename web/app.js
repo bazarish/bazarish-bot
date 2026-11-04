@@ -1497,7 +1497,7 @@ function pairCard() {
 function switchOffCard() {
     const card = node("article", "panel-box");
     card.append(node("p", "block-title", t("Switch off")));
-    card.append(node("p", "hint", t("The account stops answering. Its mail waits on its server.")));
+    card.append(node("p", "hint", t("The account stops answering, and its I2P address goes down.")));
     const said = node("p", "hint");
     const footer = node("p", "form-footer");
     const off = node("button", "btn btn-quiet", t("Switch off"));
