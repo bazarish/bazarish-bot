@@ -7,7 +7,6 @@
 
 #include <nlohmann/json.hpp>
 #include <openssl/crypto.h>
-#include <openssl/rand.h>
 
 #include <algorithm>
 #include <filesystem>
@@ -193,10 +192,7 @@ std::vector<ApiToken> Settings::tokens(const std::string& account) const
 
 ApiToken Settings::issueToken(const std::string& account, const std::string& name)
 {
-    Bytes secret(kTokenBytes);
-    if (RAND_bytes(secret.data(), static_cast<int>(secret.size())) != 1) {
-        throw std::runtime_error("token: no randomness available");
-    }
+    const Bytes secret = randomBytes(kTokenBytes);
     ApiToken token;
     token.account = account;
     token.name = name;

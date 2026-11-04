@@ -7,6 +7,7 @@
 #include <DevicePairing.hpp>
 #include <I2pRouter.hpp>
 
+#include <bazarish/Clock.hpp>
 #include <bazarish/Log.hpp>
 #include <bazarish/PairLink.hpp>
 #include <bazarish/ServerDescriptor.hpp>
@@ -487,10 +488,7 @@ Bytes Runtime::exportEverything()
 {
     Bytes archive;
     quiesced([this, &archive]() {
-        archive = exportBackup(config_.stateDir, config_.path, kBuildVersion,
-            std::chrono::duration_cast<std::chrono::seconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count());
+        archive = exportBackup(config_.stateDir, config_.path, kBuildVersion, nowSeconds());
     });
     return archive;
 }

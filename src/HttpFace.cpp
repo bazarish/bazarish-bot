@@ -13,7 +13,6 @@
 #include <bazarish/Portal.hpp>
 
 #include <nlohmann/json.hpp>
-#include <openssl/rand.h>
 
 #include <filesystem>
 #include <fstream>
@@ -46,11 +45,7 @@ constexpr std::uint64_t kMaxBackupBytes = 512 * kMebibyte;
 
 std::string sessionSecret()
 {
-    Bytes secret(kSessionSecretBytes);
-    if (RAND_bytes(secret.data(), static_cast<int>(secret.size())) != 1) {
-        throw std::runtime_error("no randomness for the sign-in secret");
-    }
-    return toHex(secret);
+    return toHex(randomBytes(kSessionSecretBytes));
 }
 
 http::Response json(const nlohmann::json& body, const int status = 200)

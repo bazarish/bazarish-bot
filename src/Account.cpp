@@ -10,7 +10,6 @@
 #include <bazarish/PathText.hpp>
 
 #include <nlohmann/json.hpp>
-#include <openssl/rand.h>
 
 #include <chrono>
 #include <filesystem>
@@ -28,26 +27,9 @@ constexpr std::int64_t kAliasServiceSeconds = 60;
 constexpr std::int64_t kRegistryRetrySeconds = 10;
 constexpr int kEventWaitSeconds = 30;
 constexpr int kMaxWaitSeconds = 60;
-constexpr std::size_t kMessageIdBytes = 8;
 constexpr const char* kClosed = "closed";
 constexpr const char* kStarting = "starting";
 constexpr const char* kRunning = "running";
-
-std::int64_t wallMillis()
-{
-    return std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::system_clock::now().time_since_epoch())
-        .count();
-}
-
-std::string freshMessageId()
-{
-    Bytes id(kMessageIdBytes);
-    if (RAND_bytes(id.data(), static_cast<int>(id.size())) != 1) {
-        throw std::runtime_error("no randomness for a message id");
-    }
-    return toHex(id);
-}
 
 std::string stageName(const client::Session::PairingStage stage)
 {
@@ -188,7 +170,7 @@ void Account::bringUp()
     session->setTransferHandler(transferHandler(transfers, transcript, waiters_));
     std::unique_ptr<GroupEngine> group;
     if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
-        group = std::make_unique<GroupEngine>(accountFile_, groupLink(), []() { return wallMillis(); });
+        group = std::make_unique<GroupEngine>(accountFile_, groupLink(), []() { return nowMillis(); });
         GroupEngine* const engine = group.get();
         session->setGroupBlockSource(
             [engine](const std::string& peer) { return engine->blockFor(peer); });
@@ -294,7 +276,7 @@ GroupLink Account::groupLink()
     };
     link.tell = [this, watching](const std::string& peer, const std::string& text,
                     const client::InlineKeyboard& keyboard, GroupLink::Outcome done) {
-        const std::string id = freshMessageId();
+        const std::string id = client::newMessageId();
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         if (keyboard.empty()) {
             (void)openSession().sendMessage(peer, text, id, watching(std::move(done)));
@@ -361,7 +343,7 @@ GroupLink Account::groupLink()
 
 std::string Account::postToGroup(const std::string& text)
 {
-    const std::string id = freshMessageId();
+    const std::string id = client::newMessageId();
     group().hostPost(id, text);
     return id;
 }
@@ -510,7 +492,7 @@ void Account::maintain()
         {
             const std::lock_guard<std::mutex> lock(sessionMutex_);
             if (session_ != nullptr) {
-                session_->expireFileRequests(wallMillis());
+                session_->expireFileRequests(nowMillis());
             }
         }
 
@@ -782,7 +764,7 @@ std::string Account::sendText(const std::string& peer, const std::string& text,
     const std::string& replyTo, const bool forwarded)
 {
     Line line;
-    line.e2eId = freshMessageId();
+    line.e2eId = client::newMessageId();
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
@@ -794,7 +776,7 @@ std::string Account::sendText(const std::string& peer, const std::string& text,
         line.type = "text";
         line.text = text;
         line.replyTo = replyTo;
-        line.sentAt = wallMillis();
+        line.sentAt = nowMillis();
         transcript_->append(line);
     }
     waiters_->notify_all();
@@ -832,7 +814,7 @@ std::string Account::sendKeyboard(
         keyboard.push_back(std::move(buttons));
     }
     Line line;
-    line.e2eId = freshMessageId();
+    line.e2eId = client::newMessageId();
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
@@ -843,7 +825,7 @@ std::string Account::sendKeyboard(
         line.type = "text";
         line.text = text;
         line.keyboard = client::inlineKeyboardJson(keyboard);
-        line.sentAt = wallMillis();
+        line.sentAt = nowMillis();
         transcript_->append(line);
     }
     waiters_->notify_all();
@@ -854,7 +836,7 @@ std::string Account::sendPicture(const std::string& peer, const Bytes& bytes,
     const std::string& name, const std::string& mime, const std::string& replyTo)
 {
     Line line;
-    line.e2eId = freshMessageId();
+    line.e2eId = client::newMessageId();
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
@@ -866,7 +848,7 @@ std::string Account::sendPicture(const std::string& peer, const Bytes& bytes,
         line.type = "image";
         line.text = name;
         line.replyTo = replyTo;
-        line.sentAt = wallMillis();
+        line.sentAt = nowMillis();
         transcript_->append(line);
     }
     waiters_->notify_all();
@@ -877,7 +859,7 @@ std::string Account::sendFile(
     const std::string& peer, const std::string& path, const std::string& replyTo)
 {
     Line line;
-    line.e2eId = freshMessageId();
+    line.e2eId = client::newMessageId();
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
@@ -890,7 +872,7 @@ std::string Account::sendFile(
         line.file = FileInfo{
             line.text, std::filesystem::file_size(pathFromUtf8(path)), {}, {}, path};
         line.replyTo = replyTo;
-        line.sentAt = wallMillis();
+        line.sentAt = nowMillis();
         transcript_->append(line);
     }
     waiters_->notify_all();
