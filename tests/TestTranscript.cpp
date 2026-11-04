@@ -122,7 +122,14 @@ int main()
         transcript.setStatus("dave", "d1", "delivered");
         transcript.setStatus("dave", "d2", "delivered");
         transcript.setStatus("dave", "d3", "sending");
-        transcript.applyReceipt("dave", "d2");
+        bazarish::client::IncomingMessage receipt;
+        receipt.contentType = bazarish::client::kTypeReceipt;
+        receipt.fromFingerprint = "dave";
+        receipt.e2eId = "rc1";
+        receipt.refId = "d2";
+        const Transcript::Taken read = transcript.takeIn(receipt);
+        CHECK(read.wrote && !read.added);
+        CHECK(transcript.since(transcript.lastEventId() - 1).back().kind == "receipt");
         transcript.setStatus("dave", "d1", "delivered");
         std::map<std::string, std::string> states;
         for (const Line& line : transcript.conversation("dave", 0, 10)) {
@@ -181,6 +188,41 @@ int main()
         CHECK(transcript.conversation("erin", 0, 10).empty());
         CHECK(transcript.append(lineFor("erin", "after", "f3", false, 603)) != 0);
         CHECK(!transcript.find("erin", "f3")->file.has_value());
+    }
+
+    {
+        Transcript transcript(file, self);
+        bazarish::client::IncomingMessage text;
+        text.contentType = bazarish::client::kTypeText;
+        text.fromFingerprint = "frank";
+        text.e2eId = "i1";
+        text.text = "hello";
+        text.sentAt = 700;
+        const Transcript::Taken taken = transcript.takeIn(text);
+        CHECK(taken.added && taken.wrote);
+        CHECK(!transcript.takeIn(text).added);
+        CHECK(transcript.since(transcript.lastEventId() - 1).back().kind == "message");
+        CHECK(transcript.since(transcript.lastEventId() - 1).back().actor == "frank");
+
+        bazarish::client::IncomingMessage gone;
+        gone.contentType = bazarish::client::kTypeDelete;
+        gone.fromFingerprint = "frank";
+        gone.e2eId = "i2";
+        gone.refId = "i1";
+        CHECK(transcript.takeIn(gone).wrote);
+        CHECK(transcript.conversation("frank", 0, 10).empty());
+        CHECK(transcript.since(transcript.lastEventId() - 1).back().kind == "delete");
+        CHECK(transcript.since(transcript.lastEventId() - 1).back().messageId == "i1");
+
+        CHECK(transcript.takeIn(text).added);
+        bazarish::client::IncomingMessage cleared;
+        cleared.contentType = bazarish::client::kTypeChatClear;
+        cleared.fromFingerprint = "frank";
+        cleared.e2eId = "i3";
+        CHECK(transcript.takeIn(cleared).wrote);
+        const std::vector<Line> left = transcript.conversation("frank", 0, 10);
+        CHECK(left.size() == 1 && left.front().type == bazarish::client::kTypeSystem);
+        CHECK(transcript.since(transcript.lastEventId() - 1).back().kind == "chat-cleared");
     }
 
     fs::remove_all(dir);

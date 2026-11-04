@@ -4,10 +4,13 @@
 #include "Database.hpp"
 
 #include <BotMenu.hpp>
+#include <Session.hpp>
 #include <TranscriptDb.hpp>
+#include <TranscriptIngest.hpp>
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -59,9 +62,17 @@ struct Event {
 class Transcript {
 public:
     Transcript(const std::filesystem::path& accountFile, std::string ownFingerprint);
+    ~Transcript();
 
     Transcript(const Transcript&) = delete;
     Transcript& operator=(const Transcript&) = delete;
+
+    struct Taken {
+        bool wrote = false;
+        bool added = false;
+    };
+    // Throws when the store refused it, so the message stays in the mailbox.
+    Taken takeIn(const client::IncomingMessage& message);
 
     std::int64_t append(const Line& line);
     bool applyEdit(const std::string& peer, const std::string& messageId,
@@ -69,7 +80,6 @@ public:
     bool applyDelete(const std::string& peer, const std::string& messageId, bool outgoing);
     void applyReaction(const std::string& peer, const std::string& messageId,
         const std::string& reactor, const std::string& emoji);
-    void applyReceipt(const std::string& peer, const std::string& messageId);
     void clearPeer(const std::string& peer);
     // What was still on its way when the account last closed did not leave.
     void failUnfinished();
@@ -99,9 +109,13 @@ private:
     Line lineOf(const client::StoredMessage& row) const;
     void require(bool done) const;
 
+    class Relay;
+
     std::string own_;
     client::TranscriptStore store_;
     Database ledger_;
+    std::unique_ptr<Relay> relay_;
+    std::unique_ptr<client::TranscriptIngest> ingest_;
     mutable std::mutex mutex_;
 };
 

@@ -15,7 +15,6 @@ using client::DeliveryState;
 
 constexpr int kMaxPage = 500;
 constexpr const char* kOwnReactor = "me";
-constexpr const char* kFileType = "file";
 constexpr const char* kFailedStatus = "failed";
 
 int stateOf(const std::string& status)
@@ -64,6 +63,7 @@ client::StoredMessage rowOf(const Line& line)
     row.keyboard = line.keyboard;
     row.replyTo = line.replyTo;
     row.ts = line.sentAt;
+    row.orderKey = line.sentAt;
     row.status = line.outgoing ? stateOf(line.status) : static_cast<int>(DeliveryState::eReceived);
     if (line.file.has_value()) {
         row.attName = line.file->name;
@@ -92,6 +92,100 @@ Transcript::Transcript(const std::filesystem::path& accountFile, std::string own
         " actor TEXT, at INTEGER)");
     ledger_.run("CREATE TABLE IF NOT EXISTS issued_menus ("
                 "peer TEXT PRIMARY KEY, menuId INTEGER NOT NULL, items TEXT NOT NULL)");
+    relay_ = std::make_unique<Relay>(*this);
+    ingest_ = std::make_unique<client::TranscriptIngest>(
+        store_, [this]() { return own_; }, *relay_, *relay_);
+}
+
+Transcript::~Transcript() = default;
+
+class Transcript::Relay : public client::IngestNotes, public client::IngestListener {
+public:
+    explicit Relay(Transcript& owner)
+        : owner_(owner)
+    {
+    }
+
+    Taken take(client::TranscriptIngest& ingest, const client::IncomingMessage& message)
+    {
+        current_ = &message;
+        taken_ = {};
+        const bool stored = ingest.takeIn(message);
+        current_ = nullptr;
+        owner_.require(stored);
+        return taken_;
+    }
+
+    std::string chatCleared(const bool ours, const std::string&) const override
+    {
+        return ours ? "This account cleared the chat for everyone." : "The peer cleared the chat.";
+    }
+    std::string chatTimer(const std::int64_t seconds, bool, const std::string&) const override
+    {
+        return seconds > 0 ? "Messages are deleted " + std::to_string(seconds) + " s after sending."
+                           : "Messages are no longer deleted.";
+    }
+    std::string contactAccepted(const std::string&) const override
+    {
+        return "The contact request was accepted.";
+    }
+    std::string unsupported(const std::string& rawType, const Bytes&) const override
+    {
+        return "A message of the type " + rawType + " this host does not know.";
+    }
+
+    void rowAdded(const std::string& peer, const std::int64_t id, bool) override
+    {
+        const Line line = owner_.lineOf(owner_.store_.messageById(id));
+        (void)owner_.noteLocked("message", peer, line.e2eId, line.text, actor(), line.sentAt);
+        taken_.wrote = true;
+        taken_.added = true;
+    }
+    void editArrived(const std::string& peer, const std::int64_t id, const std::string& ref) override
+    {
+        (void)owner_.noteLocked("edit", peer, ref, owner_.store_.messageById(id).text, actor(), 0);
+        taken_.wrote = true;
+    }
+    void rowRemoved(const std::string& peer, std::int64_t, const std::string& e2eId) override
+    {
+        (void)owner_.noteLocked("delete", peer, e2eId, {}, actor(), 0);
+        taken_.wrote = true;
+    }
+    void reactionSet(const std::string& peer, const std::string& target,
+        const std::string& reactor, const std::string& emoji) override
+    {
+        (void)owner_.noteLocked(
+            "reaction", peer, target, emoji, reactor == owner_.own_ ? kOwnReactor : reactor, 0);
+        taken_.wrote = true;
+    }
+    void deliveredThrough(const std::string& peer, std::int64_t) override
+    {
+        if (current_->contentType == client::kTypeReceipt) {
+            (void)owner_.noteLocked("receipt", peer, current_->refId, {}, peer, 0);
+        }
+        taken_.wrote = true;
+    }
+    void peerReset(const std::string& peer) override
+    {
+        (void)owner_.noteLocked("chat-cleared", peer, {}, {}, {}, 0);
+        taken_.wrote = true;
+    }
+
+private:
+    std::string actor() const
+    {
+        return current_->sentByUs ? std::string() : current_->fromFingerprint;
+    }
+
+    Transcript& owner_;
+    const client::IncomingMessage* current_ = nullptr;
+    Taken taken_;
+};
+
+Transcript::Taken Transcript::takeIn(const client::IncomingMessage& message)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return relay_->take(*ingest_, message);
 }
 
 void Transcript::require(const bool done) const
@@ -115,7 +209,10 @@ Line Transcript::lineOf(const client::StoredMessage& row) const
     line.sentAt = row.ts;
     line.edited = row.edited;
     line.status = statusOf(row.status);
-    if (row.type == kFileType) {
+    if (row.type == client::kTypeFile) {
+        if (line.text.empty()) {
+            line.text = row.attName;
+        }
         line.file = FileInfo{row.attName, static_cast<std::uint64_t>(row.attSize), row.attMime,
             row.attRef, row.outgoing ? row.attSrcPath : row.savedPath};
     }
@@ -240,20 +337,6 @@ void Transcript::setStatus(
     }
     require(store_.updateStatus(row.id, stateOf(status)));
     (void)noteLocked("status", peer, messageId, status, {}, 0);
-}
-
-void Transcript::applyReceipt(const std::string& peer, const std::string& messageId)
-{
-    const std::lock_guard<std::mutex> lock(mutex_);
-    const std::int64_t upTo = store_.idForKey(peer, messageId, true);
-    // A read receipt is a high-water mark: it covers every earlier line their server took.
-    if (upTo != 0) {
-        require(store_.markOutgoingReadUpTo(peer, upTo,
-            static_cast<int>(DeliveryState::eDelivered),
-            static_cast<int>(DeliveryState::eAtRecipientServer),
-            static_cast<int>(DeliveryState::eAtRecipientServer)));
-    }
-    (void)noteLocked("receipt", peer, messageId, {}, peer, 0);
 }
 
 void Transcript::keepFileAt(

@@ -32,7 +32,6 @@ constexpr std::size_t kMessageIdBytes = 8;
 constexpr const char* kClosed = "closed";
 constexpr const char* kStarting = "starting";
 constexpr const char* kRunning = "running";
-constexpr const char* kFileType = "file";
 
 std::int64_t wallMillis()
 {
@@ -688,60 +687,20 @@ void Account::registerAgain()
 
 bool Account::storeIncoming(const client::IncomingMessage& item)
 {
-    if (item.contentType == "edit") {
-        return transcript_->applyEdit(
-            item.fromFingerprint, item.refId, item.text, item.keyboardJson, item.sentByUs);
-    }
-    if (item.contentType == "delete") {
-        return transcript_->applyDelete(item.fromFingerprint, item.refId, item.sentByUs);
-    }
-    if (item.contentType == "reaction") {
-        transcript_->applyReaction(item.fromFingerprint, item.refId,
-            item.sentByUs ? std::string("me") : item.fromFingerprint, item.text);
-        return true;
-    }
-    if (item.contentType == "receipt") {
-        transcript_->applyReceipt(item.fromFingerprint, item.refId);
-        return true;
-    }
-    if (item.contentType == "chat.clear") {
-        transcript_->clearPeer(item.fromFingerprint);
-        return true;
-    }
-    if (item.contentType != "text" && item.contentType != "file" && item.contentType != "image"
-        && item.contentType != "audio" && item.contentType != "bot.command"
-        && item.contentType != "bot.callback" && item.contentType != "contact.request") {
-        return false;
-    }
-    Line line;
-    line.peer = item.fromFingerprint;
-    line.outgoing = item.sentByUs;
-    line.type = item.contentType;
-    line.e2eId = item.e2eId;
-    line.text = item.contentType == "bot.callback" ? item.callbackData : item.text;
-    line.keyboard = item.keyboardJson;
-    line.replyTo = item.contentType == "bot.callback" ? item.refId : item.replyTo;
-    line.sentAt = item.sentAt;
-    if (item.contentType == kFileType) {
-        line.text = item.attachmentName;
-        line.file = FileInfo{item.attachmentName, item.attachmentSize, item.attachmentMime,
-            item.attachmentRef, {}};
-    }
-    bool wrote = false;
-    if (transcript_->append(line) != 0) {
-        wrote = true;
-        const std::optional<client::BotMenu> menu = transcript_->menu(line.peer);
+    const Transcript::Taken taken = transcript_->takeIn(item);
+    if (taken.added && !item.sentByUs) {
+        const std::optional<client::BotMenu> menu = transcript_->menu(item.fromFingerprint);
         if (owesMenu(menu, item)) {
-            openSession().sendMenu(line.peer, *menu);
+            openSession().sendMenu(item.fromFingerprint, *menu);
             log::info("account {}: menu {} sent again to {}", id_, menu->id,
-                log::redact(line.peer));
+                log::redact(item.fromFingerprint));
         }
     }
-    if (item.contentType == "contact.request" && !item.sentByUs
+    if (item.contentType == client::kTypeContactRequest && !item.sentByUs
         && settings_.acceptsContacts(id_)) {
         openSession().acceptContactRequest(item.fromFingerprint);
     }
-    return wrote;
+    return taken.wrote;
 }
 
 std::string Account::destination() const
@@ -928,7 +887,7 @@ std::string Account::sendFile(
         line.status = "sending";
         line.peer = peer;
         line.outgoing = true;
-        line.type = kFileType;
+        line.type = client::kTypeFile;
         line.text = files_->name(path);
         line.file = FileInfo{
             line.text, std::filesystem::file_size(pathFromUtf8(path)), {}, {}, path};
