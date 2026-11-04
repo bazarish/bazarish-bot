@@ -163,6 +163,9 @@ private:
     void maintain();
     void waitForEvents(const client::Session::ContactFetchContext& context);
     void drainMailbox();
+    void registerAgain();
+    bool storeIncoming(const client::IncomingMessage& item);
+    void acknowledge(const client::IncomingMessage& item);
     void bringUp();
     client::Session& openSession() const;
     void applyKind(client::Session& session) const;

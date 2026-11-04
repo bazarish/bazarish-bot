@@ -2,6 +2,8 @@
 #include "Account.hpp"
 #include "MenuRules.hpp"
 
+#include <ApiClient.hpp>
+
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Clock.hpp>
 #include <bazarish/Log.hpp>
@@ -181,6 +183,7 @@ void Account::bringUp()
     noteAliases(*session);
 
     auto transcript = std::make_shared<Transcript>(accountFile_, fingerprint);
+    transcript->failUnfinished();
     auto transfers = std::make_shared<Transfers>();
     session->setFileSource(files_);
     session->setTransferHandler(transferHandler(transfers, transcript, waiters_));
@@ -600,6 +603,10 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
             waiting = client::Session::waitForMail(*waiter, kEventWaitSeconds);
         } catch (const std::exception& error) {
             log::info("mail wait failed, asking again: {}", error.what());
+            if (const auto* refusal = dynamic_cast<const client::ApiError*>(&error);
+                refusal != nullptr && refusal->code == ErrorCode::eClientUnregistered) {
+                registerAgain();
+            }
             std::unique_lock<std::mutex> lock(waitMutex_);
             waiters_->wait_until(lock, askedAt + std::chrono::seconds(kEventWaitSeconds),
                 [this]() { return stopping_.load(); });
@@ -622,7 +629,7 @@ void Account::drainMailbox()
         if (session_ == nullptr) {
             return;
         }
-        arrived = session_->sync();
+        arrived = session_->sync(false);
     } catch (const std::exception& error) {
         log::warn("account {}: mailbox: {}", id_, error.what());
     }
@@ -631,6 +638,7 @@ void Account::drainMailbox()
         for (const client::IncomingMessage& item : arrived) {
             try {
                 group_->onIncoming(item);
+                acknowledge(item);
             } catch (const std::exception& error) {
                 log::warn("account {}: group: {}", id_, error.what());
             }
@@ -645,66 +653,9 @@ void Account::drainMailbox()
             if (transcript_ == nullptr) {
                 continue;
             }
-            if (item.contentType == "edit") {
-                wrote = transcript_->applyEdit(item.fromFingerprint, item.refId, item.text,
-                            item.keyboardJson, item.sentByUs)
-                    || wrote;
-                continue;
-            }
-            if (item.contentType == "delete") {
-                wrote = transcript_->applyDelete(
-                            item.fromFingerprint, item.refId, item.sentByUs)
-                    || wrote;
-                continue;
-            }
-            if (item.contentType == "reaction") {
-                transcript_->applyReaction(item.fromFingerprint, item.refId,
-                    item.sentByUs ? std::string("me") : item.fromFingerprint, item.text);
-                wrote = true;
-                continue;
-            }
-            if (item.contentType == "receipt") {
-                transcript_->applyReceipt(item.fromFingerprint, item.refId);
-                wrote = true;
-                continue;
-            }
-            if (item.contentType == "chat.clear") {
-                transcript_->clearPeer(item.fromFingerprint);
-                wrote = true;
-                continue;
-            }
-            if (item.contentType != "text" && item.contentType != "file"
-                && item.contentType != "image" && item.contentType != "audio"
-                && item.contentType != "bot.command" && item.contentType != "bot.callback"
-                && item.contentType != "contact.request") {
-                continue;
-            }
-            Line line;
-            line.peer = item.fromFingerprint;
-            line.outgoing = item.sentByUs;
-            line.type = item.contentType;
-            line.e2eId = item.e2eId;
-            line.text = item.contentType == "bot.callback" ? item.callbackData : item.text;
-            line.keyboard = item.keyboardJson;
-            line.replyTo = item.contentType == "bot.callback" ? item.refId : item.replyTo;
-            line.sentAt = item.sentAt;
-            if (item.contentType == kFileType) {
-                line.text = item.attachmentName;
-                line.file = FileInfo{item.attachmentName, item.attachmentSize,
-                    item.attachmentMime, item.attachmentRef, {}};
-            }
-            if (transcript_->append(line) != 0) {
-                wrote = true;
-                const std::optional<client::BotMenu> menu = transcript_->menu(line.peer);
-                if (owesMenu(menu, item)) {
-                    openSession().sendMenu(line.peer, *menu);
-                    log::info("account {}: menu {} sent again to {}", id_, menu->id,
-                        log::redact(line.peer));
-                }
-            }
-            if (item.contentType == "contact.request" && !item.sentByUs
-                && settings_.acceptsContacts(id_)) {
-                openSession().acceptContactRequest(item.fromFingerprint);
+            wrote = storeIncoming(item) || wrote;
+            if (!item.pendingId.empty()) {
+                session_->ackPending(item.pendingId);
             }
         } catch (const std::exception& error) {
             log::warn("account {}: transcript: {}", id_, error.what());
@@ -714,6 +665,83 @@ void Account::drainMailbox()
     if (wrote) {
         waiters_->notify_all();
     }
+}
+
+void Account::acknowledge(const client::IncomingMessage& item)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    if (session_ != nullptr && !item.pendingId.empty()) {
+        session_->ackPending(item.pendingId);
+    }
+}
+
+void Account::registerAgain()
+{
+    try {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        openSession().registerSelfHosted();
+        log::info("account {}: registered again", id_);
+    } catch (const std::exception& error) {
+        log::warn("account {}: registering again: {}", id_, error.what());
+    }
+}
+
+bool Account::storeIncoming(const client::IncomingMessage& item)
+{
+    if (item.contentType == "edit") {
+        return transcript_->applyEdit(
+            item.fromFingerprint, item.refId, item.text, item.keyboardJson, item.sentByUs);
+    }
+    if (item.contentType == "delete") {
+        return transcript_->applyDelete(item.fromFingerprint, item.refId, item.sentByUs);
+    }
+    if (item.contentType == "reaction") {
+        transcript_->applyReaction(item.fromFingerprint, item.refId,
+            item.sentByUs ? std::string("me") : item.fromFingerprint, item.text);
+        return true;
+    }
+    if (item.contentType == "receipt") {
+        transcript_->applyReceipt(item.fromFingerprint, item.refId);
+        return true;
+    }
+    if (item.contentType == "chat.clear") {
+        transcript_->clearPeer(item.fromFingerprint);
+        return true;
+    }
+    if (item.contentType != "text" && item.contentType != "file" && item.contentType != "image"
+        && item.contentType != "audio" && item.contentType != "bot.command"
+        && item.contentType != "bot.callback" && item.contentType != "contact.request") {
+        return false;
+    }
+    Line line;
+    line.peer = item.fromFingerprint;
+    line.outgoing = item.sentByUs;
+    line.type = item.contentType;
+    line.e2eId = item.e2eId;
+    line.text = item.contentType == "bot.callback" ? item.callbackData : item.text;
+    line.keyboard = item.keyboardJson;
+    line.replyTo = item.contentType == "bot.callback" ? item.refId : item.replyTo;
+    line.sentAt = item.sentAt;
+    if (item.contentType == kFileType) {
+        line.text = item.attachmentName;
+        line.file = FileInfo{item.attachmentName, item.attachmentSize, item.attachmentMime,
+            item.attachmentRef, {}};
+    }
+    bool wrote = false;
+    if (transcript_->append(line) != 0) {
+        wrote = true;
+        const std::optional<client::BotMenu> menu = transcript_->menu(line.peer);
+        if (owesMenu(menu, item)) {
+            openSession().sendMenu(line.peer, *menu);
+            log::info("account {}: menu {} sent again to {}", id_, menu->id,
+                log::redact(line.peer));
+        }
+    }
+    if (item.contentType == "contact.request" && !item.sentByUs
+        && settings_.acceptsContacts(id_)) {
+        openSession().acceptContactRequest(item.fromFingerprint);
+    }
+    return wrote;
 }
 
 std::string Account::destination() const

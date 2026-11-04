@@ -49,6 +49,7 @@ Runtime::~Runtime()
 i2p::Router& Runtime::router()
 {
     client::setRouterTransit(settings_.transit());
+    client::setTunnelPrivacy(settings_.privacy());
     if (settings_.transport() == Settings::Transport::eSam) {
         client::setSamTransport(settings_.samHost(), settings_.samPort());
     }

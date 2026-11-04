@@ -71,6 +71,8 @@ public:
         const std::string& reactor, const std::string& emoji);
     void applyReceipt(const std::string& peer, const std::string& messageId);
     void clearPeer(const std::string& peer);
+    // What was still on its way when the account last closed did not leave.
+    void failUnfinished();
     void setStatus(
         const std::string& peer, const std::string& messageId, const std::string& status);
     void keepFileAt(

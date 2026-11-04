@@ -213,6 +213,15 @@ void Transcript::applyReaction(const std::string& peer, const std::string& messa
     (void)noteLocked("reaction", peer, messageId, emoji, reactor, 0);
 }
 
+void Transcript::failUnfinished()
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    require(store_.failUnsentOnLoad(static_cast<int>(DeliveryState::ePreparing),
+                      static_cast<int>(DeliveryState::eDelivering),
+                      static_cast<int>(DeliveryState::eFailed))
+                .has_value());
+}
+
 void Transcript::clearPeer(const std::string& peer)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
