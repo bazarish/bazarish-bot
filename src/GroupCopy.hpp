@@ -22,6 +22,7 @@ enum class Copy {
     eDeclinedCard,
     eAsksYou,
     eContactSent,
+    eContactRefused,
     eAdminGranted,
     eAdminRevoked,
     ePostingClosed,

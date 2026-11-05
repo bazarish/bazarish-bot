@@ -98,24 +98,22 @@ GroupLink linkFor(Fake& fake)
                      const GroupLink::Outcome& done) {
         ++fake.relayCalls[peer];
         for (const client::RelayedPost& post : posts) {
-            fake.sent.push_back(
-                {"relay", peer, post.id, post.text, post.author, {}, {}, post.fromHost});
+            switch (post.kind) {
+            case client::RelayKind::ePost:
+                fake.sent.push_back(
+                    {"relay", peer, post.id, post.text, post.author, {}, {}, post.fromHost});
+                break;
+            case client::RelayKind::eEdit:
+                fake.sent.push_back({"edit", peer, post.ref, post.text, {}, {}, {}, false});
+                break;
+            case client::RelayKind::eDelete:
+                fake.sent.push_back({"delete", peer, post.ref, {}, {}, {}, {}, false});
+                break;
+            case client::RelayKind::eReactions:
+                fake.sent.push_back({"reactions", peer, {}, {}, {}, {}, post.reactions, false});
+                break;
+            }
         }
-        done(fake.outcomeFor(peer));
-    };
-    link.edit = [&fake](const std::string& peer, const std::string& ref, const std::string& text,
-                    const GroupLink::Outcome& done) {
-        fake.sent.push_back({"edit", peer, ref, text, {}, {}, {}, false});
-        done(fake.outcomeFor(peer));
-    };
-    link.remove = [&fake](const std::string& peer, const std::string& ref,
-                      const GroupLink::Outcome& done) {
-        fake.sent.push_back({"delete", peer, ref, {}, {}, {}, {}, false});
-        done(fake.outcomeFor(peer));
-    };
-    link.reactions = [&fake](const std::string& peer, const nlohmann::json& reactions,
-                         const GroupLink::Outcome& done) {
-        fake.sent.push_back({"reactions", peer, {}, {}, {}, {}, reactions, false});
         done(fake.outcomeFor(peer));
     };
     link.state = [&fake](const std::string& peer, const GroupLink::Outcome& done) {
@@ -406,6 +404,13 @@ int main()
         engine.onIncoming(textFrom(cid, "by cid", "p5"));
         pump(engine);
         fake.forget();
+        engine.onIncoming(commandFrom(cid, "contactable", "off"));
+        fake.forget();
+        engine.onIncoming(commandFrom(ann, "contact", "p5"));
+        CHECK(fake.take("tell", cid).empty());
+        const std::vector<Sent> notAccepting = fake.take("tell", ann);
+        CHECK(notAccepting.size() == 1
+            && notAccepting[0].text == "Ace does not accept contact requests.");
         const auto stateOf = [&](const std::string& peer) {
             for (const Member& held : engine.members()) {
                 if (held.fingerprint == peer) {
@@ -536,6 +541,10 @@ int main()
         edit.refId = "b2";
         edit.text = "b2, edited";
         engine.onIncoming(edit);
+        client::IncomingMessage liked = incoming(host, "reaction");
+        liked.refId = "b3";
+        liked.text = "+";
+        engine.onIncoming(liked);
         engine.onIncoming(textFrom(host, "b5", "b5"));
         pump(engine);
         GroupConfig config = engine.config();
@@ -550,15 +559,19 @@ int main()
         for (std::size_t at = 0; at < history.size(); ++at) {
             CHECK(history[at].id == "b" + std::to_string(at + 1));
         }
-        CHECK(batched.relayCalls[uma] == 2);
-        CHECK(batched.take("edit", uma).size() == 1);
+        CHECK(history[1].text == "b2, edited");
+        CHECK(batched.relayCalls[uma] == 1);
+        CHECK(batched.take("edit", uma).empty());
+        const std::vector<Sent> umaCounts = batched.take("reactions", uma);
+        CHECK(umaCounts.size() == 1);
+        CHECK(umaCounts[0].reactions.at(0).at("ref") == "b3");
 
         batched.batchCap = 2;
         const std::string vic = member();
         join(engine, batched, vic, "Vic");
         pump(engine);
         CHECK(batched.take("relay", vic).size() == 5);
-        CHECK(batched.relayCalls[vic] == 3);
+        CHECK(batched.relayCalls[vic] == 4);
     }
 
     fs::remove_all(dir);

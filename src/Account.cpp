@@ -296,21 +296,6 @@ GroupLink Account::groupLink()
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         (void)openSession().relayPosts(peer, posts, watching(std::move(done)));
     };
-    link.edit = [this, watching](const std::string& peer, const std::string& ref,
-                    const std::string& text, GroupLink::Outcome done) {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        (void)openSession().sendEdit(peer, ref, text, {}, watching(std::move(done)));
-    };
-    link.remove = [this, watching](const std::string& peer, const std::string& ref,
-                      GroupLink::Outcome done) {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        openSession().sendDelete(peer, ref, watching(std::move(done)));
-    };
-    link.reactions = [this, watching](const std::string& peer, const nlohmann::json& reactions,
-                         GroupLink::Outcome done) {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        openSession().sendGroupReactions(peer, reactions, watching(std::move(done)));
-    };
     link.receipt = [this](const std::string& peer, const std::string& messageId) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         openSession().sendReceipt(peer, messageId);

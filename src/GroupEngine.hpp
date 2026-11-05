@@ -40,12 +40,6 @@ struct GroupLink {
     std::function<void(
         const std::string& peer, const std::vector<client::RelayedPost>& posts, Outcome done)>
         relay;
-    std::function<void(
-        const std::string& peer, const std::string& ref, const std::string& text, Outcome done)>
-        edit;
-    std::function<void(const std::string& peer, const std::string& ref, Outcome done)> remove;
-    std::function<void(const std::string& peer, const nlohmann::json& reactions, Outcome done)>
-        reactions;
     std::function<void(const std::string& peer, Outcome done)> state;
     std::function<void(const std::string& peer, const std::string& messageId)> receipt;
     std::function<std::string(const std::string& peer)> descriptor;

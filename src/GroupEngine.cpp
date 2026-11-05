@@ -572,8 +572,11 @@ void GroupEngine::commandLocked(Member& member, const std::string& line, Actions
             return;
         }
         const auto author = members_.find(post->author);
-        if (author == members_.end() || !author->second.contactable
-            || author->second.state != MemberState::eMember) {
+        if (author == members_.end() || author->second.state != MemberState::eMember) {
+            return;
+        }
+        if (!author->second.contactable) {
+            tellLocked(member.fingerprint, Copy::eContactRefused, {author->second.name}, actions);
             return;
         }
         if (!store_.noteContactAsk(member.fingerprint, post->author)) {
@@ -778,79 +781,84 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
         };
     };
 
-    const std::vector<LogEntry> entries = store_.logAfter(member.cursor, kLogBatch);
-    nlohmann::json reactions = nlohmann::json::array();
+    const std::int64_t sentThrough = member.cursor;
+    std::int64_t scanned = member.cursor;
+    std::vector<client::RelayedPost> items;
+    std::vector<std::int64_t> seqs;
+    std::set<std::string> carried;
     std::set<std::string> counted;
-    std::int64_t reactionsSeq = 0;
-    for (std::size_t index = 0; index < entries.size(); ++index) {
-        const LogEntry& entry = entries[index];
+    const auto add = [&items, &seqs](client::RelayedPost item, const std::int64_t seq) {
+        items.push_back(std::move(item));
+        seqs.push_back(seq);
+    };
+    const auto about = [](const client::RelayKind kind, const std::string& ref) {
+        client::RelayedPost item;
+        item.kind = kind;
+        item.id = client::newMessageId();
+        item.ref = ref;
+        return item;
+    };
+    const auto relayEntry = [&](const LogEntry& entry) {
         const std::optional<Post> post = store_.post(entry.postId);
-        const bool behind = !post || post->seq <= member.historyFrom;
-        if (entry.kind == LogKind::eReactions) {
-            if (!behind && !post->deleted && counted.insert(post->id).second) {
-                const std::map<std::string, std::int64_t> counts
-                    = store_.reactionCounts(post->id, peer);
-                reactions.push_back({{"ref", post->id}, {"counts", counts}});
-            }
-            reactionsSeq = entry.seq;
-            continue;
+        if (!post || post->seq <= member.historyFrom) {
+            return;
         }
-        if (!reactions.empty()) {
+        const bool own = post->author == peer;
+        switch (entry.kind) {
+        case LogKind::ePost:
+            if (!own && !post->deleted) {
+                add(relayedLocked(*post), entry.seq);
+                carried.insert(post->id);
+            }
+            break;
+        case LogKind::eEdit:
+            if (!own && !post->deleted && carried.count(post->id) == 0) {
+                client::RelayedPost edit = about(client::RelayKind::eEdit, post->id);
+                edit.text = post->text;
+                add(std::move(edit), entry.seq);
+            }
+            break;
+        case LogKind::eDelete:
+            if (!own && post->seq <= sentThrough) {
+                add(about(client::RelayKind::eDelete, post->id), entry.seq);
+            }
+            break;
+        case LogKind::eReactions:
+            if (!post->deleted && counted.insert(post->id).second) {
+                client::RelayedPost counts = about(client::RelayKind::eReactions, post->id);
+                counts.reactions = nlohmann::json::array({{{"ref", post->id},
+                    {"counts", store_.reactionCounts(post->id, peer)}}});
+                add(std::move(counts), entry.seq);
+            }
             break;
         }
-        if (behind || post->author == peer) {
-            member.cursor = entry.seq;
-            continue;
-        }
-        if (entry.kind == LogKind::ePost) {
-            if (post->deleted) {
-                member.cursor = entry.seq;
-                continue;
+    };
+    for (std::vector<LogEntry> entries = store_.logAfter(scanned, kLogBatch); !entries.empty();
+         entries = store_.logAfter(scanned, kLogBatch)) {
+        for (const LogEntry& entry : entries) {
+            scanned = entry.seq;
+            const std::size_t before = items.size();
+            relayEntry(entry);
+            if (items.size() == before && !seqs.empty()) {
+                seqs.back() = entry.seq;
             }
-            std::vector<client::RelayedPost> batch;
-            std::vector<std::int64_t> seqs;
-            for (std::size_t at = index; at < entries.size(); ++at) {
-                const LogEntry& next = entries[at];
-                if (next.kind != LogKind::ePost) {
-                    break;
-                }
-                const std::optional<Post> candidate = store_.post(next.postId);
-                if (!candidate || candidate->seq <= member.historyFrom
-                    || candidate->author == peer || candidate->deleted) {
-                    continue;
-                }
-                batch.push_back(relayedLocked(*candidate));
-                seqs.push_back(next.seq);
-            }
-            batch.resize(link_.fitting(batch));
-            const std::int64_t lastSeq = seqs[batch.size() - 1];
-            return guarded([this, peer, batch, outcome = done(lastSeq)]() {
-                link_.relay(peer, batch, outcome);
-            });
         }
-        if (entry.kind == LogKind::eEdit) {
-            if (post->deleted) {
-                member.cursor = entry.seq;
-                continue;
-            }
-            return guarded([this, peer, id = post->id, words = post->text,
-                               outcome = done(entry.seq)]() {
-                link_.edit(peer, id, words, outcome);
-            });
+        if (!items.empty() && link_.fitting(items) < items.size()) {
+            break;
         }
-        return guarded([this, peer, id = post->id, outcome = done(entry.seq)]() {
-            link_.remove(peer, id, outcome);
-        });
     }
-    if (!reactions.empty()) {
-        return guarded([this, peer, reactions, outcome = done(reactionsSeq)]() {
-            link_.reactions(peer, reactions, outcome);
-        });
+    if (items.empty()) {
+        member.cursor = scanned;
+        return std::nullopt;
     }
-    if (reactionsSeq > member.cursor) {
-        member.cursor = reactionsSeq;
+    const std::size_t fit = link_.fitting(items);
+    if (fit == 0) {
+        throw std::runtime_error("a group log entry does not fit an envelope by itself");
     }
-    return std::nullopt;
+    items.resize(fit);
+    return guarded([this, peer, items, outcome = done(seqs[fit - 1])]() {
+        link_.relay(peer, items, outcome);
+    });
 }
 
 void GroupEngine::deliveredLocked(const std::string& fingerprint, const std::int64_t seq,
