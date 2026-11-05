@@ -57,6 +57,8 @@ struct Member {
     std::int64_t cursor = 0;
     std::int64_t historyFrom = 0;
     std::int64_t joinedAt = 0;
+    // Not stored with the member: when their deliveries started failing, 0 when they arrive.
+    std::int64_t offlineSince = 0;
 };
 
 struct Post {

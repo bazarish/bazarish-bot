@@ -33,7 +33,7 @@ const kAccountViews = [
     ["chats", N_("Chats")],
     ["contacts", N_("Contacts")],
     ["aliases", N_("Aliases")],
-    ["sign", N_("Sign in")],
+    ["sign", N_("Sign")],
     ["api", N_("API")],
     ["account", N_("Account")],
 ];
@@ -44,7 +44,7 @@ const kGroupViews = [
     ["requests", N_("Requests")],
     ["posts", N_("Posts")],
     ["aliases", N_("Aliases")],
-    ["sign", N_("Sign in")],
+    ["sign", N_("Sign")],
     ["account", N_("Account")],
 ];
 const kMemberFilters = [
@@ -52,17 +52,17 @@ const kMemberFilters = [
     ["member", N_("In the group")],
     ["admin", N_("Administrators")],
     ["pending", N_("Waiting")],
-    ["left", N_("Left")],
+    ["offline", N_("Offline")],
     ["banned", N_("Blocked")],
 ];
 const kStateLabels = {
     naming: N_("choosing a name"),
     pending: N_("waiting"),
     member: N_("member"),
-    left: N_("left"),
     banned: N_("blocked"),
 };
 const kPostsPage = 100;
+const kMsPerDay = 24 * 60 * 60 * 1000;
 // The desktop client's own avatar: a 256 px square JPEG.
 const kAvatarSide = 256;
 const kAvatarQuality = 0.9;
@@ -988,7 +988,7 @@ async function viewAliases() {
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("Aliases")));
     view.append(node("p", "hint",
-        t("Aliases are bought in the alias registry. Sign in there with a signature from the Sign in page.")));
+        t("Aliases are bought in the alias registry. Sign in there with a signature from the Sign page.")));
 
     const rows = node("div", "rows");
     const note = node("p", "hint");
@@ -1068,7 +1068,7 @@ async function viewAliases() {
 async function viewSign() {
     const account = await call("GET", base());
     const view = node("section", "view");
-    view.append(node("h1", "view-title", t("Sign in")));
+    view.append(node("h1", "view-title", t("Sign")));
     view.append(node("p", "hint",
         t("Paste the challenge from a site that signs in with a Bazarish key. The signature lets you in there as %1.",
             labelOf(account))));
@@ -1933,6 +1933,9 @@ function inFilter(member, filter) {
     if (filter === "admin") {
         return member.admin;
     }
+    if (filter === "offline") {
+        return member.offlineSince > 0;
+    }
     return member.state === filter;
 }
 
@@ -1959,6 +1962,10 @@ function memberRow(member, refresh) {
     const stateClass = {pending: " is-pending", banned: " is-banned"}[member.state];
     if (member.state !== "member") {
         tags.append(node("span", "tag" + (stateClass || ""), t(kStateLabels[member.state])));
+    }
+    if (member.offlineSince > 0) {
+        const days = Math.floor((Date.now() - member.offlineSince) / kMsPerDay);
+        tags.append(node("span", "tag is-pending", t("offline %1 d", days)));
     }
     if (member.joinedAt) {
         tags.append(node("span", "row-dest", new Date(member.joinedAt).toLocaleDateString()));
@@ -2040,7 +2047,8 @@ async function viewMembers() {
         decorateCopies(rows);
     };
     const refresh = async () => {
-        members = await call("GET", base() + "/group/members");
+        members = (await call("GET", base() + "/group/members"))
+            .filter((member) => member.state !== "left");
         members.sort((a, b) => (b.admin - a.admin) || a.name.localeCompare(b.name));
         draw();
     };

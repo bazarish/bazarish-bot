@@ -378,6 +378,7 @@ nlohmann::json membersJson(const std::vector<Member>& members)
             {"state", memberStateName(member.state)},
             {"admin", member.admin},
             {"joinedAt", member.joinedAt},
+            {"offlineSince", member.offlineSince},
         });
     }
     return rows;

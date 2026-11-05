@@ -999,6 +999,7 @@ std::vector<Member> GroupEngine::members() const
     std::vector<Member> members;
     for (const auto& [fingerprint, member] : members_) {
         members.push_back(member);
+        members.back().offlineSince = store_.offlineSince(fingerprint).value_or(0);
     }
     return members;
 }
