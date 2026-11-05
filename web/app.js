@@ -62,7 +62,9 @@ const kStateLabels = {
     banned: N_("blocked"),
 };
 const kPostsPage = 100;
-const kMsPerDay = 24 * 60 * 60 * 1000;
+const kMsPerMinute = 60 * 1000;
+const kMsPerHour = 60 * kMsPerMinute;
+const kMsPerDay = 24 * kMsPerHour;
 // The desktop client's own avatar: a 256 px square JPEG.
 const kAvatarSide = 256;
 const kAvatarQuality = 0.9;
@@ -75,6 +77,16 @@ const kQuarterTurn = Math.PI / 2;
 const kTurns = 4;
 let memberFilter = "all";
 let memberQuery = "";
+
+function offlineFor(ms) {
+    if (ms >= kMsPerDay) {
+        return t("offline %1 d", Math.floor(ms / kMsPerDay));
+    }
+    if (ms >= kMsPerHour) {
+        return t("offline %1 h", Math.floor(ms / kMsPerHour));
+    }
+    return t("offline %1 min", Math.max(1, Math.floor(ms / kMsPerMinute)));
+}
 
 async function call(method, path, body) {
     const options = {method, headers: {}};
@@ -1802,8 +1814,7 @@ function memberRow(member, refresh) {
         tags.append(node("span", "tag" + (stateClass || ""), t(kStateLabels[member.state])));
     }
     if (member.offlineSince > 0) {
-        const days = Math.floor((Date.now() - member.offlineSince) / kMsPerDay);
-        tags.append(node("span", "tag is-pending", t("offline %1 d", days)));
+        tags.append(node("span", "tag is-pending", offlineFor(Date.now() - member.offlineSince)));
     }
     if (member.joinedAt) {
         tags.append(node("span", "row-dest", new Date(member.joinedAt).toLocaleDateString()));
