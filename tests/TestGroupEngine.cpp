@@ -574,6 +574,49 @@ int main()
         CHECK(batched.relayCalls[vic] == 4);
     }
 
+    {
+        Fake dead;
+        GroupEngine engine(dir / "dead.db", linkFor(dead), [&now]() { return now; });
+        const auto stateIn = [&engine](const std::string& peer) {
+            for (const Member& held : engine.members()) {
+                if (held.fingerprint == peer) {
+                    return held.state;
+                }
+            }
+            return MemberState::eNaming;
+        };
+        const std::string host = member();
+        join(engine, dead, host, "Hal");
+        const std::string gus = member();
+        join(engine, dead, gus, "Gus");
+        const std::string ida = member();
+        join(engine, dead, ida, "Ida");
+        dead.refuse[gus] = "RECIPIENT_SERVER_UNREACHABLE";
+        dead.refuse[ida] = "RECIPIENT_SERVER_UNREACHABLE";
+        engine.onIncoming(textFrom(host, "first", "d1"));
+        pump(engine);
+
+        now += kDeadAfterMs / 2;
+        dead.refuse.erase(ida);
+        pump(engine);
+        dead.refuse[ida] = "RECIPIENT_SERVER_UNREACHABLE";
+        engine.onIncoming(textFrom(host, "second", "d2"));
+        pump(engine);
+        CHECK(stateIn(gus) == MemberState::eMember);
+
+        now += kDeadAfterMs / 2 + kRelayRetryMs;
+        pump(engine);
+        CHECK(stateIn(gus) == MemberState::eLeft);
+        CHECK(stateIn(ida) == MemberState::eMember);
+
+        dead.refuse.erase(gus);
+        dead.forget();
+        engine.onIncoming(textFrom(gus, "back", "d3"));
+        pump(engine);
+        CHECK(stateIn(gus) == MemberState::eMember);
+        CHECK(!dead.take("relay", gus).empty());
+    }
+
     fs::remove_all(dir);
     std::printf("TestGroupEngine passed\n");
     return 0;

@@ -133,6 +133,11 @@ public:
 
     bool noteContactAsk(const std::string& requester, const std::string& author);
 
+    // Members whose deliveries keep failing, since when they have.
+    std::optional<std::int64_t> offlineSince(const std::string& fingerprint) const;
+    void markOffline(const std::string& fingerprint, std::int64_t at);
+    void clearOffline(const std::string& fingerprint);
+
 private:
     Database database_;
 };

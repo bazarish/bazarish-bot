@@ -160,6 +160,8 @@ GroupStore::GroupStore(const std::filesystem::path& file)
                   " messageId TEXT NOT NULL, PRIMARY KEY (number, admin))");
     database_.run("CREATE TABLE IF NOT EXISTS hosted_asks (requester TEXT NOT NULL, author TEXT NOT NULL,"
                   " PRIMARY KEY (requester, author))");
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_offline (fingerprint TEXT PRIMARY KEY,"
+                  " since INTEGER NOT NULL)");
 
     Statement seed(database_, "INSERT OR IGNORE INTO hosted_config (row, kind, joinMode, historySize,"
                               " contactRequests, language) VALUES (?, ?, ?, ?, ?, ?)");
@@ -448,6 +450,32 @@ bool GroupStore::noteContactAsk(const std::string& requester, const std::string&
     insert.bind(2, author);
     (void)insert.step();
     return database_.changes() > 0;
+}
+
+std::optional<std::int64_t> GroupStore::offlineSince(const std::string& fingerprint) const
+{
+    Statement query(database_, "SELECT since FROM hosted_offline WHERE fingerprint = ?");
+    query.bind(1, fingerprint);
+    if (!query.step()) {
+        return std::nullopt;
+    }
+    return query.number(0);
+}
+
+void GroupStore::markOffline(const std::string& fingerprint, const std::int64_t at)
+{
+    Statement insert(
+        database_, "INSERT OR IGNORE INTO hosted_offline (fingerprint, since) VALUES (?, ?)");
+    insert.bind(1, fingerprint);
+    insert.bind(2, at);
+    (void)insert.step();
+}
+
+void GroupStore::clearOffline(const std::string& fingerprint)
+{
+    Statement remove(database_, "DELETE FROM hosted_offline WHERE fingerprint = ?");
+    remove.bind(1, fingerprint);
+    (void)remove.step();
 }
 
 }  // namespace bazarish::bot

@@ -872,12 +872,24 @@ void GroupEngine::deliveredLocked(const std::string& fingerprint, const std::int
     Member member = found->second;
     if (outcome.stored) {
         retryAt_.erase(fingerprint);
+        store_.clearOffline(fingerprint);
         member.cursor = std::max(member.cursor, seq);
         saveLocked(member);
         return;
     }
     if (outcome.errorCode == kDeliveryRejected) {
+        store_.clearOffline(fingerprint);
         refusedLocked(fingerprint);
+        return;
+    }
+    const std::int64_t now = clock_();
+    const std::optional<std::int64_t> since = store_.offlineSince(fingerprint);
+    if (!since) {
+        store_.markOffline(fingerprint, now);
+    } else if (now - *since >= kDeadAfterMs) {
+        store_.clearOffline(fingerprint);
+        retryAt_.erase(fingerprint);
+        goneLocked(fingerprint);
         return;
     }
     log::warn("group: a relay to {} did not arrive, it is tried again: {}",
@@ -900,6 +912,20 @@ GroupLink::Outcome GroupEngine::watchRefusal(const std::string& peer)
         const std::lock_guard<std::mutex> lock(mutex_);
         refusedLocked(peer);
     };
+}
+
+void GroupEngine::goneLocked(const std::string& fingerprint)
+{
+    Member member = members_.at(fingerprint);
+    member.state = MemberState::eLeft;
+    member.admin = false;
+    renaming_.erase(fingerprint);
+    saveLocked(member);
+    if (const std::optional<JoinRequest> request = store_.requestOf(fingerprint)) {
+        store_.removeRequest(request->number);
+    }
+    log::info("group: {} took no delivery for {} days, so they left",
+        log::redact(fingerprint), kDeadAfterDays);
 }
 
 void GroupEngine::refusedLocked(const std::string& fingerprint)

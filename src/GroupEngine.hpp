@@ -25,6 +25,10 @@ namespace bazarish::bot {
 inline constexpr std::int64_t kMemberCountPeriodMs = 60 * 60 * 1000;
 inline constexpr std::int64_t kMediaSweepMs = 30 * 1000;
 inline constexpr std::int64_t kRelayRetryMs = 60 * 1000;
+// A member whose every delivery failed this long is a dead account and leaves.
+inline constexpr std::int64_t kDeadAfterDays = 30;
+inline constexpr std::int64_t kMsPerDay = 24 * 60 * 60 * 1000;
+inline constexpr std::int64_t kDeadAfterMs = kDeadAfterDays * kMsPerDay;
 inline constexpr std::size_t kMaxRelaysInFlight = 16;
 
 struct GroupLink {
@@ -125,6 +129,7 @@ private:
         const client::OutboundCourier::Outcome& outcome);
     GroupLink::Outcome watchRefusal(const std::string& peer);
     void refusedLocked(const std::string& fingerprint);
+    void goneLocked(const std::string& fingerprint);
     std::optional<std::function<void()>> nextRelayLocked(Member& member);
     client::RelayedPost relayedLocked(const Post& post) const;
     void run(Actions& actions);
