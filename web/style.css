@@ -1724,3 +1724,14 @@ code.markup-code[title] {
 .error-text {
     color: var(--bz-err);
 }
+
+.sheet .btn-copy {
+    margin: 0.6rem 0 0;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.68rem;
+}
+
+.sheet .panel-note,
+.sheet .step-note {
+    font-size: 0.78rem;
+}
