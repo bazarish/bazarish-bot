@@ -505,6 +505,16 @@ body.centred {
     gap: 0.5rem;
 }
 
+.crop-tools .btn {
+    margin-top: 0;
+}
+
+.btn.crop-turn {
+    padding: 0.2rem 0.75rem;
+    font-size: 1.5rem;
+    line-height: 1;
+}
+
 .crop-zoom {
     flex: 1;
     accent-color: var(--bz-accent);

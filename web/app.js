@@ -1415,7 +1415,7 @@ function cropAvatar(picture) {
         };
         zoom.oninput = redraw;
         const turn = (way, label) => {
-            const button = node("button", "btn btn-quiet", way < 0 ? "\u21ba" : "\u21bb");
+            const button = node("button", "btn btn-quiet crop-turn", way < 0 ? "\u21ba" : "\u21bb");
             button.type = "button";
             button.setAttribute("aria-label", label);
             button.onclick = () => {
