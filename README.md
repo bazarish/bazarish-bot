@@ -77,10 +77,10 @@ its operator, so a second lock on the same disk would guard nothing.
   holds and runs each one on its own, so it sends nothing to an account's own
   mailbox for other devices: no copies of what it sent, no address book, no
   read marks - none of the `device.*` traffic the desktop client keeps its
-  devices in step with. An account comes in and goes out the way the desktop
-  client moves one: a `.bazarish` backup, or pairing over I2P with a link and a
-  code. Either moves the account; two places cannot serve one account, and the
-  interface says so where it offers the export.
+  devices in step with. An account comes in and goes out as a `.bazarish`
+  backup, the same file the desktop client uses. The backup moves the account;
+  two places cannot serve one account, and the interface says so where it offers
+  the export.
 - **It is not a desktop client.** No calls, no file picker. What a bot and its
   operator need, and no more.
 

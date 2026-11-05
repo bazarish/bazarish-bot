@@ -11,15 +11,12 @@
 #include <bazarish/Bytes.hpp>
 #include <bazarish/I2p.hpp>
 
-#include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace bazarish::bot {
@@ -53,21 +50,6 @@ public:
         const Bytes& bundle, const std::string& bundlePassphrase, Settings::AccountKind kind);
     void removeAccount(const std::string& id);
 
-    struct PairingImport {
-        bool active = false;
-        bool needsCode = false;
-        std::string stage;
-        std::uint64_t done = 0;
-        std::uint64_t total = 0;
-        int triesLeft = 0;
-        std::string error;
-        std::string account;
-    };
-    void startPairingImport(const std::string& link, Settings::AccountKind kind);
-    void submitPairCode(const std::string& code);
-    void cancelPairingImport();
-    PairingImport pairingImport() const;
-
     void openAll();
     void stop();
 
@@ -94,7 +76,6 @@ private:
     ServerSide& serverSide();
     i2p::Router& router();
     std::string adopt(const client::AccountInfo& info, Settings::AccountKind kind);
-    void runPairWorker(std::function<void()> work);
     void quiesced(const std::function<void()>& work);
     void closeAll(const std::vector<std::shared_ptr<Account>>& accounts);
 
@@ -111,17 +92,6 @@ private:
     mutable std::mutex accountsMutex_;
     std::map<std::string, std::shared_ptr<Account>> accounts_;
 
-    struct PairingSlot {
-        std::mutex mutex;
-        PairingImport state;
-        std::shared_ptr<std::atomic<bool>> cancel;
-        std::shared_ptr<i2p::Endpoint> endpoint;
-        std::string dest;
-        Settings::AccountKind kind = Settings::AccountKind::eBot;
-    };
-    const std::shared_ptr<PairingSlot> pairing_ = std::make_shared<PairingSlot>();
-    std::mutex pairWorkerMutex_;
-    std::thread pairWorker_;
 };
 
 }  // namespace bazarish::bot

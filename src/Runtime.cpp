@@ -4,12 +4,10 @@
 #include "Backup.hpp"
 
 #include <BuildVersion.hpp>
-#include <DevicePairing.hpp>
 #include <I2pRouter.hpp>
 
 #include <bazarish/Clock.hpp>
 #include <bazarish/Log.hpp>
-#include <bazarish/PairLink.hpp>
 #include <bazarish/ServerDescriptor.hpp>
 
 #include <chrono>
@@ -25,7 +23,6 @@ namespace {
 
 constexpr const char* kAccountsDirectory = "accounts";
 constexpr const char* kI2pDirectory = "i2p";
-constexpr int kPairPollSeconds = 2;
 
 }  // namespace
 
@@ -166,181 +163,6 @@ void Runtime::removeAccount(const std::string& id)
     log::info("account {} removed", id);
 }
 
-void Runtime::startPairingImport(const std::string& link, const Settings::AccountKind kind)
-{
-    const PairLink parsed = parsePairLink(link);
-    const std::shared_ptr<PairingSlot> slot = pairing_;
-    const auto cancel = std::make_shared<std::atomic<bool>>(false);
-    {
-        const std::lock_guard<std::mutex> lock(slot->mutex);
-        if (slot->state.active) {
-            throw std::runtime_error("an account is already being received");
-        }
-        slot->state = {};
-        slot->state.active = true;
-        slot->state.stage = "reaching";
-        slot->cancel = cancel;
-        slot->endpoint.reset();
-        slot->dest = parsed.dest;
-        slot->kind = kind;
-    }
-    const fs::path i2pDir = config_.stateDir / kI2pDirectory;
-    runPairWorker([this, slot, cancel, parsed, i2pDir]() {
-        const auto settle = [&slot, &cancel](const std::string& error,
-                                std::shared_ptr<i2p::Endpoint> endpoint) {
-            const std::lock_guard<std::mutex> lock(slot->mutex);
-            if (slot->cancel != cancel) {
-                return;
-            }
-            if (!error.empty()) {
-                slot->state.active = false;
-                slot->state.stage = "failed";
-                slot->state.error = error;
-                slot->cancel.reset();
-                return;
-            }
-            slot->endpoint = std::move(endpoint);
-            slot->state.stage = "code";
-            slot->state.needsCode = true;
-        };
-        try {
-            client::applyLinkReseed(i2pDir, parsed.reseeds);
-            i2p::Router& shared = router();
-            if (client::bootstrapI2pRouter(i2pDir) == client::I2pBootstrap::eEmpty) {
-                settle("no reseed answered: this host has no network database", nullptr);
-                return;
-            }
-            const std::shared_ptr<i2p::Endpoint> endpoint
-                = client::openPairLink(shared, client::tunnelPrivacy(), client::kPairingOwner);
-            const auto deadline = std::chrono::steady_clock::now()
-                + std::chrono::seconds(client::kPairOwnTunnelsSeconds);
-            bool ready = false;
-            while (!cancel->load() && !ready) {
-                ready = endpoint->waitReady(std::chrono::seconds(kPairPollSeconds));
-                if (!ready && std::chrono::steady_clock::now() >= deadline) {
-                    break;
-                }
-            }
-            if (cancel->load()) {
-                endpoint->stop();
-                return;
-            }
-            if (!ready) {
-                endpoint->stop();
-                settle("this host could not build I2P tunnels", nullptr);
-                return;
-            }
-            const std::unique_ptr<i2p::Stream> reached
-                = endpoint->connect(parsed.dest, std::chrono::seconds(client::kPairDialSeconds));
-            if (!reached) {
-                endpoint->stop();
-                settle("cannot reach the other device", nullptr);
-                return;
-            }
-            reached->close();
-            settle({}, endpoint);
-        } catch (const std::exception& error) {
-            settle(error.what(), nullptr);
-        }
-    });
-}
-
-void Runtime::submitPairCode(const std::string& code)
-{
-    if (!client::isPairCode(code)) {
-        throw std::runtime_error("the code is the digits shown on the other device");
-    }
-    const std::shared_ptr<PairingSlot> slot = pairing_;
-    std::shared_ptr<std::atomic<bool>> cancel;
-    std::shared_ptr<i2p::Endpoint> endpoint;
-    std::string dest;
-    Settings::AccountKind kind = Settings::AccountKind::eBot;
-    {
-        const std::lock_guard<std::mutex> lock(slot->mutex);
-        if (!slot->state.needsCode || slot->endpoint == nullptr) {
-            throw std::runtime_error("no device is waiting for a code");
-        }
-        slot->state.needsCode = false;
-        slot->state.stage = "receiving";
-        cancel = slot->cancel;
-        endpoint = slot->endpoint;
-        dest = slot->dest;
-        kind = slot->kind;
-    }
-    runPairWorker([this, slot, cancel, endpoint, dest, code, kind]() {
-        std::string error;
-        std::string id;
-        client::PairFetchResult got;
-        try {
-            const client::PairProgressFn onProgress
-                = [&slot, &cancel](const std::uint64_t done, const std::uint64_t total) {
-                      const std::lock_guard<std::mutex> lock(slot->mutex);
-                      if (slot->cancel == cancel) {
-                          slot->state.done = done;
-                          slot->state.total = total;
-                      }
-                  };
-            got = client::fetchPairBundle(*endpoint, dest, code, onProgress, *cancel);
-            if (!got.wrongCode && !cancel->load()) {
-                id = importAccount(got.bundle, code, kind);
-            }
-        } catch (const std::exception& failure) {
-            error = failure.what();
-        }
-        const std::lock_guard<std::mutex> lock(slot->mutex);
-        if (slot->cancel != cancel) {
-            return;
-        }
-        if (got.wrongCode) {
-            slot->state.stage = "code";
-            slot->state.needsCode = true;
-            slot->state.triesLeft = got.triesLeft;
-            return;
-        }
-        endpoint->stop();
-        slot->endpoint.reset();
-        slot->cancel.reset();
-        slot->state.active = false;
-        slot->state.needsCode = false;
-        if (!error.empty()) {
-            slot->state.stage = "failed";
-            slot->state.error = error;
-            return;
-        }
-        slot->state.stage = "done";
-        slot->state.account = id;
-    });
-}
-
-void Runtime::runPairWorker(std::function<void()> work)
-{
-    const std::lock_guard<std::mutex> lock(pairWorkerMutex_);
-    if (pairWorker_.joinable()) {
-        pairWorker_.join();
-    }
-    pairWorker_ = std::thread(std::move(work));
-}
-
-void Runtime::cancelPairingImport()
-{
-    const std::lock_guard<std::mutex> lock(pairing_->mutex);
-    if (pairing_->cancel) {
-        pairing_->cancel->store(true);
-    }
-    if (pairing_->endpoint) {
-        pairing_->endpoint->stop();
-    }
-    pairing_->cancel.reset();
-    pairing_->endpoint.reset();
-    pairing_->state = {};
-}
-
-Runtime::PairingImport Runtime::pairingImport() const
-{
-    const std::lock_guard<std::mutex> lock(pairing_->mutex);
-    return pairing_->state;
-}
-
 void Runtime::openAll()
 {
     std::vector<std::shared_ptr<Account>> held;
@@ -369,13 +191,6 @@ void Runtime::openAll()
 
 void Runtime::stop()
 {
-    cancelPairingImport();
-    {
-        const std::lock_guard<std::mutex> lock(pairWorkerMutex_);
-        if (pairWorker_.joinable()) {
-            pairWorker_.join();
-        }
-    }
     std::map<std::string, std::shared_ptr<Account>> closing;
     {
         const std::lock_guard<std::mutex> lock(accountsMutex_);

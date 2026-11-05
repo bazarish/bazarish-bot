@@ -21,8 +21,8 @@ issued for; the web interface is the operator's and sees every account.
 Every account is one of two kinds, chosen when it is added and fixed from then
 on: a group with members cannot meaningfully become a bot again. The account
 database stores it, and its contact card says it as `bot` or `chat`
-(`docs-main`, `Identity.md`). A file or pairing import whose account was made as
-another kind is refused, a client's `user` account among them.
+(`docs-main`, `Identity.md`). A backup whose account was made as another kind is
+refused, a client's `user` account among them.
 
 - A **bot** sends the way every client does: from an outbound address held for
   that one correspondent, never reused for another.
@@ -72,8 +72,8 @@ one-id-one-row rule would not hold.
 - **Locks.** The block is filled in under the account's session lock, so the
   order is the session first, then the engine, never the reverse: the engine
   decides under its own lock and sends after releasing it.
-- **One device.** A group cannot be paired to a second device, and the backup
-  carries the account alone: members, posts and settings stay on this host.
+- **One device.** The backup carries the account alone: members, posts and
+  settings stay on this host.
 
 The chat texts the host sends come in the group's own language, one of five,
 chosen by the owner. A member who is let in gets no welcome message.
@@ -132,11 +132,8 @@ transport is chosen at runtime, and there is one shape of the library.
   (`Session::setDeviceSync(false)`), so nothing it does lands in its own
   mailbox and nothing asks for devices that do not exist. A service does not
   need another device, and paying for one here would buy nothing. An account is
-  moved the two ways the desktop client moves one:
-  the password-protected `.bazarish` backup - the same file restores it in
-  either - or pairing, which carries that same bundle over I2P, sealed under a
-  short code, to whoever opens the link. Moving is not sharing: two places
-  cannot serve one account.
+  moved by the password-protected `.bazarish` backup. Moving is not sharing:
+  two places cannot serve one account.
 - **Not a second protocol.** Where the REST API names a thing, it names the
   thing the protocol already has.
 

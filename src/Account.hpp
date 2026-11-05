@@ -54,19 +54,6 @@ public:
 
     Bytes exportBundle(const std::string& bundlePassphrase);
 
-    struct Pairing {
-        bool active = false;
-        std::string uri;
-        std::string code;
-        std::string stage;
-        std::uint64_t done = 0;
-        std::uint64_t total = 0;
-        int wrongCodes = 0;
-        std::string error;
-    };
-    Pairing startPairing();
-    void stopPairing();
-    Pairing pairing() const;
 
     void rename(const std::string& name);
     void newAddress();
@@ -197,11 +184,6 @@ private:
     std::shared_ptr<client::LoginSigner> signer_;
     Aliases aliases_;
 
-    struct PairingSlot {
-        std::mutex mutex;
-        Pairing state;
-    };
-    const std::shared_ptr<PairingSlot> pairing_ = std::make_shared<PairingSlot>();
 
     std::thread starter_;
     std::thread maintainer_;

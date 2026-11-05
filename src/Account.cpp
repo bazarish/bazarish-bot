@@ -31,27 +31,6 @@ constexpr const char* kClosed = "closed";
 constexpr const char* kStarting = "starting";
 constexpr const char* kRunning = "running";
 
-std::string stageName(const client::Session::PairingStage stage)
-{
-    switch (stage) {
-    case client::Session::PairingStage::ePublishing:
-        return "publishing";
-    case client::Session::PairingStage::eWaiting:
-        return "waiting";
-    case client::Session::PairingStage::eWrongCode:
-        return "wrong-code";
-    case client::Session::PairingStage::eSending:
-        return "sending";
-    case client::Session::PairingStage::eDone:
-        return "done";
-    case client::Session::PairingStage::eRefused:
-        return "refused";
-    case client::Session::PairingStage::eFailed:
-        return "failed";
-    }
-    return "failed";
-}
-
 client::TransferEventFn transferHandler(const std::shared_ptr<Transfers>& transfers,
     const std::shared_ptr<Transcript>& transcript,
     const std::shared_ptr<std::condition_variable>& waiters)
@@ -67,13 +46,6 @@ client::TransferEventFn transferHandler(const std::shared_ptr<Transfers>& transf
         transcript->noteTransfer(moved->peer, moved->messageId, moved->state);
         waiters->notify_all();
     };
-}
-
-bool pairingSettled(const client::Session::PairingStage stage)
-{
-    return stage == client::Session::PairingStage::eDone
-        || stage == client::Session::PairingStage::eRefused
-        || stage == client::Session::PairingStage::eFailed;
 }
 
 }  // namespace
@@ -257,10 +229,6 @@ void Account::close()
     }
     session.reset();
     group_.reset();
-    {
-        const std::lock_guard<std::mutex> lock(pairing_->mutex);
-        pairing_->state = {};
-    }
 }
 
 GroupLink Account::groupLink()
@@ -367,53 +335,6 @@ Bytes Account::exportBundle(const std::string& bundlePassphrase)
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
     return openSession().exportAccountBytes(bundlePassphrase);
-}
-
-Account::Pairing Account::startPairing()
-{
-    if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
-        throw std::runtime_error("a group lives on one device and cannot be paired to another");
-    }
-    const std::shared_ptr<PairingSlot> slot = pairing_;
-    const std::lock_guard<std::mutex> lock(sessionMutex_);
-    const client::Session::PairingOffer offer
-        = openSession().startPairing([slot](const client::Session::PairingEvent& event) {
-              const std::lock_guard<std::mutex> held(slot->mutex);
-              slot->state.stage = stageName(event.stage);
-              slot->state.done = event.done;
-              slot->state.total = event.total;
-              slot->state.wrongCodes = event.wrongCodes;
-              slot->state.error = event.error;
-              if (pairingSettled(event.stage)) {
-                  slot->state.active = false;
-                  slot->state.code.clear();
-              }
-          });
-    const std::lock_guard<std::mutex> held(slot->mutex);
-    slot->state = {};
-    slot->state.active = true;
-    slot->state.uri = offer.uri;
-    slot->state.code = offer.code;
-    slot->state.stage = stageName(client::Session::PairingStage::ePublishing);
-    return slot->state;
-}
-
-void Account::stopPairing()
-{
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        if (session_ != nullptr) {
-            session_->stopPairing();
-        }
-    }
-    const std::lock_guard<std::mutex> lock(pairing_->mutex);
-    pairing_->state = {};
-}
-
-Account::Pairing Account::pairing() const
-{
-    const std::lock_guard<std::mutex> lock(pairing_->mutex);
-    return pairing_->state;
 }
 
 void Account::rename(const std::string& name)

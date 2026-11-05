@@ -459,7 +459,7 @@ async function viewAdd() {
     restoreFooter.append(doRestore);
     restore.append(restoreFooter, restored);
 
-    view.append(tabbed([create, restore, receiveCard(kind, opened)]));
+    view.append(tabbed([create, restore]));
     return view;
 }
 
@@ -505,93 +505,6 @@ function tabbed(cards) {
     box.append(bar, ...panels);
     choose(0);
     return box;
-}
-
-function receiveCard(kind, opened) {
-    const card = node("article", "panel-box");
-    card.append(node("p", "block-title", t("Receive from another device")));
-    card.append(node("p", "hint",
-        t("Start sending the account on the other device. It shows a link and a code.")));
-    const link = node("input", "field");
-    link.type = "text";
-    link.placeholder = "https://bazari.sh/#pair?…";
-    card.append(node("label", "field-label", t("Transfer link")), link);
-    const status = node("p", "hint");
-    const codeBlock = node("div", "block");
-    codeBlock.hidden = true;
-    const code = node("input", "field");
-    code.type = "text";
-    code.inputMode = "numeric";
-    code.autocomplete = "off";
-    codeBlock.append(node("label", "field-label", t("Code from the other device")), code);
-    const codeFooter = node("p", "form-footer");
-    const sendCode = node("button", "btn", t("Receive"));
-    codeFooter.append(sendCode);
-    codeBlock.append(codeFooter);
-
-    const footer = node("p", "form-footer");
-    const start = node("button", "btn", t("Connect"));
-    const cancel = node("button", "btn btn-quiet", t("Cancel"));
-    cancel.hidden = true;
-    footer.append(start, cancel);
-    card.append(footer, codeBlock, status);
-
-    const show = (state) => {
-        start.hidden = state.active;
-        cancel.hidden = !state.active;
-        codeBlock.hidden = !state.needsCode;
-        if (state.stage === "reaching") {
-            status.textContent = t("Connecting to the other device…");
-        } else if (state.stage === "code") {
-            status.textContent = state.triesLeft > 0
-                ? t("Wrong code. %1 tries left.", state.triesLeft)
-                : t("Enter the code shown on the other device");
-        } else if (state.stage === "receiving") {
-            status.textContent = t("Receiving the account %1", progressText(state.done, state.total));
-        } else if (state.stage === "failed") {
-            status.textContent = state.error;
-        } else {
-            status.textContent = "";
-        }
-    };
-    const follow = () => poll(async () => {
-        const state = await call("GET", "/ui/pairing");
-        if (state.stage === "done" && state.account) {
-            await opened(state.account);
-            return false;
-        }
-        show(state);
-        return state.active;
-    });
-
-    start.onclick = async () => {
-        try {
-            show(await call("POST", "/ui/pairing", {link: link.value, kind: kind.value}));
-            follow();
-        } catch (error) {
-            showError(status, error);
-        }
-    };
-    sendCode.onclick = async () => {
-        try {
-            show(await call("POST", "/ui/pairing", {code: code.value.trim()}));
-            code.value = "";
-            follow();
-        } catch (error) {
-            showError(status, error);
-        }
-    };
-    cancel.onclick = async () => {
-        await call("DELETE", "/ui/pairing");
-        show({active: false, needsCode: false, stage: ""});
-    };
-    call("GET", "/ui/pairing").then((state) => {
-        if (state.active) {
-            show(state);
-            follow();
-        }
-    }, () => {});
-    return card;
 }
 
 async function viewChats() {
@@ -1318,9 +1231,6 @@ async function viewAccount() {
     view.append(keys);
 
     view.append(storageCard(), exportCard(account));
-    if (account.kind !== "group") {
-        view.append(pairCard());
-    }
     view.append(switchOffCard(), removeCard());
     return view;
 }
@@ -1553,78 +1463,6 @@ function exportCard(account) {
     exportFooter.append(run);
     move.append(exportFooter, wrote);
     return move;
-}
-
-function pairCard() {
-    const card = node("article", "panel-box");
-    card.append(node("p", "block-title", t("Send to another device")));
-    card.append(node("p", "hint",
-        t("Bots do not support running on several devices. This action moves the account.")));
-    const offer = node("div");
-    offer.hidden = true;
-    const link = node("pre", "copy");
-    const code = node("p", "pair-code");
-    offer.append(link, code);
-    const status = node("p", "hint");
-    const footer = node("p", "form-footer");
-    const start = node("button", "btn", t("Start transfer"));
-    const stop = node("button", "btn btn-quiet", t("Stop"));
-    stop.hidden = true;
-    footer.append(start, stop);
-    card.append(footer, offer, status);
-
-    const show = (state) => {
-        start.hidden = state.active;
-        stop.hidden = !state.active;
-        offer.hidden = !state.active;
-        if (state.active) {
-            link.textContent = state.uri;
-            code.textContent = state.code;
-            decorateCopies(card);
-        }
-        if (state.stage === "publishing") {
-            status.textContent = t("Publishing the transfer address…");
-        } else if (state.stage === "waiting") {
-            status.textContent = t("Waiting for the other device");
-        } else if (state.stage === "wrong-code") {
-            status.textContent = t("Wrong codes entered: %1", state.wrongCodes);
-        } else if (state.stage === "sending") {
-            status.textContent = t("Sending the account %1", progressText(state.done, state.total));
-        } else if (state.stage === "done") {
-            status.textContent = t("The account is on the other device");
-        } else if (state.stage === "refused") {
-            status.textContent = t("Too many wrong codes. The transfer stopped.");
-        } else if (state.stage === "failed") {
-            status.textContent = state.error;
-        } else {
-            status.textContent = "";
-        }
-    };
-    const follow = () => poll(async () => {
-        const state = await call("GET", base() + "/pairing");
-        show(state);
-        return state.active;
-    });
-
-    start.onclick = async () => {
-        try {
-            show(await call("POST", base() + "/pairing"));
-            follow();
-        } catch (error) {
-            showError(status, error);
-        }
-    };
-    stop.onclick = async () => {
-        await call("DELETE", base() + "/pairing");
-        show({active: false, stage: ""});
-    };
-    call("GET", base() + "/pairing").then((state) => {
-        if (state.active) {
-            show(state);
-            follow();
-        }
-    }, () => {});
-    return card;
 }
 
 function storageCard() {

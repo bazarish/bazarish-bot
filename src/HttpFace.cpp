@@ -216,33 +216,6 @@ nlohmann::json peersJson(const std::vector<Account::Peer>& peers)
     return array;
 }
 
-nlohmann::json pairingJson(const Account::Pairing& pairing)
-{
-    return {
-        {"active", pairing.active},
-        {"uri", pairing.uri},
-        {"code", pairing.code},
-        {"stage", pairing.stage},
-        {"done", pairing.done},
-        {"total", pairing.total},
-        {"wrongCodes", pairing.wrongCodes},
-        {"error", pairing.error},
-    };
-}
-
-nlohmann::json pairingImportJson(const Runtime::PairingImport& pairing)
-{
-    return {
-        {"active", pairing.active},
-        {"needsCode", pairing.needsCode},
-        {"stage", pairing.stage},
-        {"done", pairing.done},
-        {"total", pairing.total},
-        {"triesLeft", pairing.triesLeft},
-        {"error", pairing.error},
-        {"account", pairing.account},
-    };
-}
 
 Settings::AccountKind kindParam(const nlohmann::json& body)
 {
@@ -1052,31 +1025,6 @@ void HttpFace::operatorRoutes()
         });
     });
 
-    server_->get("/ui/pairing", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request&) {
-            return json(pairingImportJson(runtime_.pairingImport()));
-        });
-    });
-
-    server_->post("/ui/pairing", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            if (body.contains("code")) {
-                runtime_.submitPairCode(body.at("code").get<std::string>());
-            } else {
-                runtime_.startPairingImport(body.value("link", std::string()), kindParam(body));
-            }
-            return json(pairingImportJson(runtime_.pairingImport()));
-        });
-    });
-
-    server_->del("/ui/pairing", [this, operatorOnly](const http::Request& request) {
-        return operatorOnly(request, [this](const http::Request&) {
-            runtime_.cancelPairingImport();
-            return json({{"ok", true}});
-        });
-    });
-
     server_->get("/", [this](const http::Request& request) {
         http::Response response;
         response.contentType = "text/html; charset=utf-8";
@@ -1224,25 +1172,6 @@ void HttpFace::accountRoutes()
                 = "attachment; filename=\"" + backupFileName(account.displayName()) + "\"";
             response.body.assign(bundle.begin(), bundle.end());
             return response;
-        });
-    });
-
-    server_->get(base + "/pairing", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request&) {
-            return json(pairingJson(account.pairing()));
-        });
-    });
-
-    server_->post(base + "/pairing", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request&) {
-            return json(pairingJson(account.startPairing()));
-        });
-    });
-
-    server_->del(base + "/pairing", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request&) {
-            account.stopPairing();
-            return json({{"ok", true}});
         });
     });
 
