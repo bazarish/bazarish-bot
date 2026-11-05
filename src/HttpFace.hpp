@@ -22,6 +22,7 @@ public:
     int start();
     void stop();
     void onRestoreReady(std::function<void()> restore) { restoreReady_ = std::move(restore); }
+    void onRestartAsked(std::function<void()> restart) { restartAsked_ = std::move(restart); }
 
 private:
     void apiRoutes();
@@ -36,6 +37,7 @@ private:
     service::PortalSession sessions_;
     std::unique_ptr<http::Server> server_;
     std::function<void()> restoreReady_;
+    std::function<void()> restartAsked_;
 };
 
 }  // namespace bazarish::bot

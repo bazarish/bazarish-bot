@@ -994,6 +994,14 @@ void HttpFace::operatorRoutes()
         });
     });
 
+    server_->post("/ui/system/restart", [this, operatorOnly](const http::Request& request) {
+        return operatorOnly(request, [this](const http::Request&) {
+            log::warn("the operator asked for a restart");
+            restartAsked_();
+            return json({{"restarting", true}});
+        });
+    });
+
     server_->post("/ui/system/restore/commit", [this, operatorOnly](const http::Request& request) {
         return operatorOnly(request, [this](const http::Request&) {
             const fs::path upload = runtime_.config().stateDir / kRestoreUpload;

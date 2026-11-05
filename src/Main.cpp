@@ -30,6 +30,7 @@ std::mutex g_stopMutex;
 std::condition_variable g_stop;
 bool g_stopping = false;
 bool g_restoring = false;
+bool g_restarting = false;
 
 void stopWhenAsked()
 {
@@ -120,6 +121,13 @@ int main(int argc, char** argv)
             }
             stopWhenAsked();
         });
+        face.onRestartAsked([]() {
+            {
+                const std::lock_guard<std::mutex> lock(g_stopMutex);
+                g_restarting = true;
+            }
+            stopWhenAsked();
+        });
         const int port = face.start();
         bazarish::log::info(
             "bazarish-bot {} on http://{}:{}", bazarish::kBuildVersion, config.listenHost, port);
@@ -135,6 +143,10 @@ int main(int argc, char** argv)
         bazarish::log::info("stopping");
         face.stop();
         runtime.stop();
+    }
+    if (g_restarting) {
+        bazarish::log::info("exiting to be started again");
+        return bazarish::kRestartExitCode;
     }
     if (!g_restoring) {
         return 0;

@@ -472,6 +472,44 @@ body.centred {
     background: rgb(0 0 0 / 0.6);
 }
 
+.crop-sheet {
+    padding: 1.1rem;
+    background: var(--bz-surface);
+    border: 1px solid var(--bz-line-2);
+    border-radius: var(--bz-radius);
+    color: var(--bz-ink);
+}
+
+.crop-sheet::backdrop {
+    background: rgb(0 0 0 / 0.6);
+}
+
+.crop-view {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 0.75rem auto;
+    border-radius: 50%;
+    background: var(--bz-deep);
+    cursor: grab;
+    touch-action: none;
+}
+
+.crop-view:active {
+    cursor: grabbing;
+}
+
+.crop-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.crop-zoom {
+    flex: 1;
+    accent-color: var(--bz-accent);
+}
+
 .qr-picture {
     display: block;
     width: min(22rem, 80vw);

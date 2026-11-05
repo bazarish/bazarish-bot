@@ -66,6 +66,13 @@ const kPostsPage = 100;
 // The desktop client's own avatar: a 256 px square JPEG.
 const kAvatarSide = 256;
 const kAvatarQuality = 0.9;
+const kCropView = 288;
+const kCropMaxZoom = 4;
+const kCropZoomStep = 0.01;
+// How fast the wheel zooms: one notch of 100 delta units is about a tenth.
+const kCropWheelRate = 0.001;
+const kQuarterTurn = Math.PI / 2;
+const kTurns = 4;
 let memberFilter = "all";
 let memberQuery = "";
 
@@ -390,8 +397,6 @@ function unlockCard(account) {
 async function viewAdd() {
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("Add account")));
-    view.append(node("p", "step-note",
-        t("Each account is a separate server with its own address and mailbox")));
 
     const common = node("article", "panel-box");
     const kind = kindPicker("bot");
@@ -1244,8 +1249,6 @@ async function viewAccount() {
     name.type = "text";
     name.value = account.name || "";
     identity.append(name);
-    identity.append(node("p", "hint",
-        t("The name in the invite and in this panel")));
     const renamed = node("p", "hint");
     const nameFooter = node("p", "form-footer");
     const saveName = node("button", "btn", t("Save"));
@@ -1322,7 +1325,7 @@ async function viewAccount() {
     return view;
 }
 
-function squareJpeg(file) {
+function pictureFrom(file) {
     return new Promise((resolve, reject) => {
         const picture = new Image();
         const address = URL.createObjectURL(file);
@@ -1332,16 +1335,122 @@ function squareJpeg(file) {
         };
         picture.onload = () => {
             URL.revokeObjectURL(address);
-            const side = Math.min(picture.naturalWidth, picture.naturalHeight);
-            const canvas = document.createElement("canvas");
-            canvas.width = kAvatarSide;
-            canvas.height = kAvatarSide;
-            canvas.getContext("2d").drawImage(picture,
-                (picture.naturalWidth - side) / 2, (picture.naturalHeight - side) / 2, side, side,
-                0, 0, kAvatarSide, kAvatarSide);
-            resolve(canvas.toDataURL("image/jpeg", kAvatarQuality).split(",")[1]);
+            resolve(picture);
         };
         picture.src = address;
+    });
+}
+
+// Resolves to the JPEG the account sends, or to null when the operator cancels.
+function cropAvatar(picture) {
+    return new Promise((resolve) => {
+        const sheet = node("dialog", "crop-sheet");
+        sheet.append(node("p", "block-title", t("Position your avatar")));
+        const view = node("canvas", "crop-view");
+        const ratio = window.devicePixelRatio || 1;
+        view.width = kCropView * ratio;
+        view.height = kCropView * ratio;
+        view.style.width = kCropView + "px";
+        const zoom = node("input", "crop-zoom");
+        zoom.type = "range";
+        zoom.min = "1";
+        zoom.max = String(kCropMaxZoom);
+        zoom.step = String(kCropZoomStep);
+        zoom.value = "1";
+        zoom.setAttribute("aria-label", t("Zoom"));
+        let turns = 0;
+        let shiftX = 0;
+        let shiftY = 0;
+        const turned = () => turns % 2 === 1;
+        const scale = () => {
+            const width = turned() ? picture.naturalHeight : picture.naturalWidth;
+            const height = turned() ? picture.naturalWidth : picture.naturalHeight;
+            return kCropView / Math.min(width, height) * Number(zoom.value);
+        };
+        const clamp = () => {
+            const width = (turned() ? picture.naturalHeight : picture.naturalWidth) * scale();
+            const height = (turned() ? picture.naturalWidth : picture.naturalHeight) * scale();
+            const spareX = (width - kCropView) / 2;
+            const spareY = (height - kCropView) / 2;
+            shiftX = Math.max(-spareX, Math.min(spareX, shiftX));
+            shiftY = Math.max(-spareY, Math.min(spareY, shiftY));
+        };
+        const paint = (canvas, side) => {
+            const context = canvas.getContext("2d");
+            const fit = side / kCropView;
+            context.setTransform(1, 0, 0, 1, 0, 0);
+            context.clearRect(0, 0, side, side);
+            context.translate(side / 2 + shiftX * fit, side / 2 + shiftY * fit);
+            context.rotate(turns * kQuarterTurn);
+            const drawn = scale() * fit;
+            context.drawImage(picture, -picture.naturalWidth * drawn / 2,
+                -picture.naturalHeight * drawn / 2, picture.naturalWidth * drawn,
+                picture.naturalHeight * drawn);
+        };
+        const redraw = () => {
+            clamp();
+            paint(view, view.width);
+        };
+        let dragFrom = null;
+        view.onpointerdown = (event) => {
+            dragFrom = {x: event.clientX, y: event.clientY, shiftX, shiftY};
+            view.setPointerCapture(event.pointerId);
+        };
+        view.onpointermove = (event) => {
+            if (dragFrom) {
+                const shown = kCropView / view.getBoundingClientRect().width;
+                shiftX = dragFrom.shiftX + (event.clientX - dragFrom.x) * shown;
+                shiftY = dragFrom.shiftY + (event.clientY - dragFrom.y) * shown;
+                redraw();
+            }
+        };
+        view.onpointerup = () => {
+            dragFrom = null;
+        };
+        view.onwheel = (event) => {
+            event.preventDefault();
+            const wanted = Number(zoom.value) * Math.exp(-event.deltaY * kCropWheelRate);
+            zoom.value = String(Math.max(1, Math.min(kCropMaxZoom, wanted)));
+            redraw();
+        };
+        zoom.oninput = redraw;
+        const turn = (way, label) => {
+            const button = node("button", "btn btn-quiet", way < 0 ? "\u21ba" : "\u21bb");
+            button.type = "button";
+            button.setAttribute("aria-label", label);
+            button.onclick = () => {
+                turns = (turns + way + kTurns) % kTurns;
+                [shiftX, shiftY] = way < 0 ? [shiftY, -shiftX] : [-shiftY, shiftX];
+                redraw();
+            };
+            return button;
+        };
+        const tools = node("div", "crop-tools");
+        tools.append(turn(-1, t("Rotate left")), zoom, turn(1, t("Rotate right")));
+        const footer = node("p", "form-footer");
+        const cancel = node("button", "btn btn-quiet", t("Cancel"));
+        cancel.type = "button";
+        const apply = node("button", "btn", t("Apply"));
+        apply.type = "button";
+        let result = null;
+        cancel.onclick = () => sheet.close();
+        apply.onclick = () => {
+            const out = document.createElement("canvas");
+            out.width = kAvatarSide;
+            out.height = kAvatarSide;
+            paint(out, kAvatarSide);
+            result = out.toDataURL("image/jpeg", kAvatarQuality).split(",")[1];
+            sheet.close();
+        };
+        sheet.onclose = () => {
+            sheet.remove();
+            resolve(result);
+        };
+        footer.append(cancel, apply);
+        sheet.append(view, tools, footer);
+        document.body.append(sheet);
+        sheet.showModal();
+        redraw();
     });
 }
 
@@ -1381,8 +1490,11 @@ function avatarBlock(account) {
         }
         said.textContent = "";
         try {
-            await call("POST", base() + "/avatar", {data: await squareJpeg(file)});
-            reload();
+            const data = await cropAvatar(await pictureFrom(file));
+            if (data) {
+                await call("POST", base() + "/avatar", {data});
+                reload();
+            }
         } catch (error) {
             showError(said, error);
         }
@@ -1398,8 +1510,7 @@ function avatarBlock(account) {
     };
     reload();
     row.append(shown, empty, choose, drop, pick);
-    block.append(row, node("p", "hint", account.kind === "group"
-        ? t("Members receive it") : t("Contacts receive it")), said);
+    block.append(row, said);
     return block;
 }
 
@@ -1522,8 +1633,7 @@ function storageCard() {
     const size = node("p", "hint");
     const said = node("p", "hint");
     const show = (storage) => {
-        size.textContent = t("%1, of which %2 is free",
-            bytesText(storage.fileBytes), bytesText(storage.freeBytes));
+        size.textContent = bytesText(storage.fileBytes);
     };
     const footer = node("p", "form-footer");
     const compact = node("button", "btn btn-quiet", t("Compact"));
@@ -2157,8 +2267,55 @@ async function viewSystem() {
     ], false));
     view.append(service);
 
-    view.append(transportCard(settings), operatorCard(settings), systemBackupCard());
+    view.append(transportCard(settings), operatorCard(settings), systemRestartCard(),
+        systemBackupCard());
     return view;
+}
+
+async function reloadWhenBack() {
+    let wentDown = false;
+    for (;;) {
+        await new Promise((resume) => setTimeout(resume, kRetryMs));
+        try {
+            const answered = await fetch("/ui/state");
+            if (wentDown && answered.ok) {
+                location.reload();
+                return;
+            }
+        } catch (error) {
+            wentDown = true;
+        }
+    }
+}
+
+function systemRestartCard() {
+    const box = node("article", "panel-box");
+    box.append(node("p", "block-title", t("Restart")));
+    const state = node("p", "hint");
+    const footer = node("p", "form-footer");
+    const restart = node("button", "btn", t("Restart"));
+    restart.onclick = async () => {
+        if (!confirm(t("Restart the service?"))) {
+            return;
+        }
+        restart.disabled = true;
+        let asked = null;
+        try {
+            asked = await fetch("/ui/system/restart", {method: "POST"});
+        } catch (error) {
+            asked = null;
+        }
+        if (asked && !asked.ok) {
+            restart.disabled = false;
+            state.textContent = (await asked.json()).error || asked.statusText;
+            return;
+        }
+        state.textContent = t("Restarting…");
+        await reloadWhenBack();
+    };
+    footer.append(restart);
+    box.append(footer, state);
+    return box;
 }
 
 function systemBackupCard() {
@@ -2219,19 +2376,7 @@ function systemBackupCard() {
             return;
         }
         state.textContent = t("Restoring and restarting…");
-        let wentDown = false;
-        for (;;) {
-            await new Promise((resume) => setTimeout(resume, kRetryMs));
-            try {
-                const answered = await fetch("/ui/state");
-                if (wentDown && answered.ok) {
-                    location.reload();
-                    return;
-                }
-            } catch (error) {
-                wentDown = true;
-            }
-        }
+        await reloadWhenBack();
     };
     importFooter.append(restore);
     box.append(importFooter, state);
