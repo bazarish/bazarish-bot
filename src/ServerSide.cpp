@@ -92,6 +92,7 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     accountOptions.tlsKey = credential.key.string();
     accountOptions.version = kBuildVersion;
     accountOptions.settings = nodeSettings_;
+    accountOptions.logins = std::make_shared<service::LoginMailbox>();
     accountOptions.forgetMailbox = [this](const std::string& user) {
         destinations_->forget(user);
         storage_->forgetUser(user);
