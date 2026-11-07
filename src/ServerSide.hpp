@@ -10,6 +10,7 @@
 #include <Facade.hpp>
 #include <GrantStore.hpp>
 #include <HttpApi.hpp>
+#include <NodeCards.hpp>
 #include <NodeSettings.hpp>
 #include <PerUserDestinations.hpp>
 #include <SubscriptionStore.hpp>
@@ -23,6 +24,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 
 namespace bazarish::bot {
@@ -51,6 +53,7 @@ public:
     void forget(const std::string& account);
     // The address goes down; its key and the mail already stored stay for when it comes back.
     void takeDown(const std::string& account);
+    void admit(const std::string& fingerprint);
     void endMailWait(const std::string& account);
 
 private:
@@ -70,6 +73,9 @@ private:
     std::unique_ptr<server::DiskStorage> storage_;
     std::unique_ptr<server::EventGate> gate_;
     std::unique_ptr<server::DeliveryEngine> engine_;
+    std::mutex ownMutex_;
+    std::set<std::string> own_;
+    std::shared_ptr<server::NodeCards> nodeCards_;
     std::unique_ptr<server::PerUserDestinations> destinations_;
     std::unique_ptr<server::HttpApi> api_;
 

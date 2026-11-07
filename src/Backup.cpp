@@ -1,6 +1,8 @@
 // Bazarish project (c) 2026
 #include "Backup.hpp"
 
+#include <bazarish/JsonRead.hpp>
+
 #include "Zip.hpp"
 
 #include <nlohmann/json.hpp>
@@ -58,7 +60,7 @@ std::vector<ZipEntry> checkedEntries(const Bytes& archive)
     if (manifest == entries.end()) {
         throw std::runtime_error("backup: this is not a bot backup");
     }
-    const nlohmann::json described = nlohmann::json::parse(
+    const nlohmann::json described = bazarish::parseJson(
         std::string(manifest->data.begin(), manifest->data.end()));
     if (described.at("format").get<int>() != kFormat) {
         throw std::runtime_error("backup: a format this build does not read");

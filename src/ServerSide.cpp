@@ -4,10 +4,8 @@
 #include <BuildVersion.hpp>
 #include <StateIdentity.hpp>
 
-#include <bazarish/Auth.hpp>
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Certificates.hpp>
-#include <bazarish/HttpClient.hpp>
 #include <bazarish/Clock.hpp>
 #include <bazarish/I2p.hpp>
 #include <bazarish/Limits.hpp>
@@ -15,11 +13,7 @@
 #include <bazarish/PrivateFile.hpp>
 #include <bazarish/Tls.hpp>
 
-#include <nlohmann/json.hpp>
 
-#include <chrono>
-#include <map>
-#include <optional>
 
 #include <filesystem>
 #include <stdexcept>
@@ -32,9 +26,7 @@ namespace {
 
 constexpr const char* kMailboxHost = "127.0.0.1";
 constexpr int kOwnDelegationDays = static_cast<int>(bazarish::kMaxDelegationDays);
-constexpr int kOwnDestTunnelQuantity = 3;
 constexpr std::uint64_t kOwnQuotaBytes = 4ULL * 1024 * 1024 * 1024;
-constexpr int kNodeTimeoutSeconds = 5;
 
 bool renewalDue(const std::int64_t expires, const std::int64_t now)
 {
@@ -64,7 +56,7 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     engine_ = std::make_unique<server::DeliveryEngine>(*storage_, engineOptions);
 
     destinations_ = std::make_unique<server::PerUserDestinations>(router_, *engine_, serverDir,
-        privacy_, kOwnDestTunnelQuantity);
+        privacy_);
     destinations_->reloadPersisted(nowSeconds());
 
     card_ = ServerCard::issue(*identity_, ServerCard::Service::eMessaging,
@@ -94,9 +86,14 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     accountOptions.settings = nodeSettings_;
     accountOptions.logins = std::make_shared<service::LoginMailbox>();
     accountOptions.forgetMailbox = [this](const std::string& user) {
+        nodeCards_->forget(user);
         destinations_->forget(user);
         storage_->forgetUser(user);
         return true;
+    };
+    accountOptions.admitsUser = [this](const std::string& user) {
+        const std::lock_guard<std::mutex> lock(ownMutex_);
+        return own_.count(user) != 0;
     };
     accountOptions.publishQuota
         = [this](const std::string& user, const std::uint64_t quotaBytes) {
@@ -134,6 +131,11 @@ void ServerSide::start()
             = destinations_->assignmentFor(user, nowSeconds());
         return {assigned.dest, assigned.state};
     };
+    nodeCards_ = std::make_shared<server::NodeCards>(
+        server::NodeAddress{host_, nodePort_, true, credential.pin}, identity_);
+    options.accountKnown = [cards = nodeCards_](const std::string& user) {
+        return cards->card(user).has_value();
+    };
     api_ = std::make_unique<server::HttpApi>(*storage_, options);
     mailboxPort_ = api_->bind(host_, 0);
     if (mailboxPort_ <= 0) {
@@ -150,37 +152,17 @@ void ServerSide::start()
         throw std::runtime_error("the facade cannot take a port on " + host_);
     }
 
-    const std::string nodeHost = host_;
-    const int nodePort = nodePort_;
-    const std::shared_ptr<const Identity> identity = identity_;
-    destinations_->setGetCard([nodeHost, nodePort, identity, pin = credential.pin](
-                                  const std::string& fingerprint) -> std::optional<Bytes> {
-            http::ClientRequest lookup;
-            lookup.method = "GET";
-            lookup.target = "/v1/account/card?user=" + fingerprint;
-            const auth::Headers signature
-                = auth::signRequest(*identity, nowSeconds(), "GET", "/v1/account/card", {});
-            lookup.headers = std::map<std::string, std::string>(signature.begin(), signature.end());
-            http::ClientOptions options;
-            options.tls = true;
-            options.pin = pin;
-            options.connectTimeout = std::chrono::seconds(kNodeTimeoutSeconds);
-            options.readTimeout = std::chrono::seconds(kNodeTimeoutSeconds);
-            const http::ClientResponse answer
-                = http::request(nodeHost, nodePort, lookup, options);
-            if (answer.status != 200) {
-                return std::nullopt;
-            }
-            try {
-                const nlohmann::json body = nlohmann::json::parse(answer.body);
-                return fromBase64(body.at("card").get<std::string>());
-            } catch (const std::exception&) {
-                return std::nullopt;
-            }
-        });
+    destinations_->setGetCard(
+        [cards = nodeCards_](const std::string& fingerprint) { return cards->card(fingerprint); });
 
     log::info("server up on {}: mailbox {}, accounts {}, facade {}", host_, mailboxPort_,
         nodePort_, facadePort_);
+}
+
+void ServerSide::admit(const std::string& fingerprint)
+{
+    const std::lock_guard<std::mutex> lock(ownMutex_);
+    own_.insert(fingerprint);
 }
 
 void ServerSide::endMailWait(const std::string& account)

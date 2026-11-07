@@ -3,6 +3,7 @@
 
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Clock.hpp>
+#include <bazarish/JsonRead.hpp>
 #include <bazarish/PrivateFile.hpp>
 
 #include <nlohmann/json.hpp>
@@ -67,7 +68,7 @@ void Settings::load()
     if (text.empty()) {
         return;
     }
-    const nlohmann::json document = nlohmann::json::parse(text);
+    const nlohmann::json document = bazarish::parseJson(text);
     if (document.value("transport", std::string("embedded")) == "sam") {
         transport_ = Transport::eSam;
     }

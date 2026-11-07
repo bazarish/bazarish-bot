@@ -2,6 +2,7 @@
 #include "Transcript.hpp"
 
 #include <bazarish/Clock.hpp>
+#include <bazarish/JsonRead.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -313,7 +314,7 @@ std::optional<client::BotMenu> Transcript::menu(const std::string& peer) const
         return std::nullopt;
     }
     return client::botMenuFromJson(
-        {{"menuId", query.number(0)}, {"items", nlohmann::json::parse(query.text(1))}});
+        {{"menuId", query.number(0)}, {"items", bazarish::parseJson(query.text(1))}});
 }
 
 std::int64_t Transcript::noteLocked(const std::string& kind, const std::string& peer,

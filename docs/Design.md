@@ -61,7 +61,7 @@ one-id-one-row rule would not hold.
   N arrive as ordinary relays, built from each post's current state.
 - **Posts go out packed.** The pump takes every consecutive post waiting for a
   member, asks the session how many of them one envelope holds
-  (`relayFitting`), and sends that many as one array; the member's cursor moves
+  (`relayFitter`), and sends that many as one array; the member's cursor moves
   past the last of them once the envelope is stored. An edit, a delete or a
   reactions update ends a pack.
 - **Names** are checked with ICU: case folding, NFKC, and the UTS #39 confusable

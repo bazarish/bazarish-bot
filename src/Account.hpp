@@ -49,7 +49,7 @@ public:
     void closeOnServer();
 
     Settings::AccountKind kind() const;
-    GroupEngine& group() const;
+    std::shared_ptr<GroupEngine> group() const;
     std::string postToGroup(const std::string& text);
 
     Bytes exportBundle(const std::string& bundlePassphrase);
@@ -158,8 +158,10 @@ private:
     void bringUp();
     client::Session& openSession() const;
     void applyKind(client::Session& session) const;
+    // Called under sessionMutex_; the watch itself never takes it.
     client::DeliveryWatch statusWatch(const std::string& peer, const std::string& messageId);
-    GroupLink groupLink();
+    GroupLink groupLink(client::RelayFitter fitting);
+    void refuseOwnFingerprint(const std::string& peer) const;
     void noteAliases(const client::Session& session);
     void startAliasErrand(client::Session::AliasErrandContext context, bool byHand);
     void runAliasErrand(const client::Session::AliasErrandContext& context);
@@ -175,7 +177,7 @@ private:
     std::shared_ptr<Transcript> transcript_;
     std::shared_ptr<Transfers> transfers_;
     const std::shared_ptr<const client::FileSource> files_ = client::localFiles();
-    std::unique_ptr<GroupEngine> group_;
+    std::shared_ptr<GroupEngine> group_;
 
     mutable std::mutex stateMutex_;
     std::string fingerprint_;

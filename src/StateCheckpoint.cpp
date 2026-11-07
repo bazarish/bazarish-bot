@@ -4,6 +4,7 @@
 #include <AccountKey.hpp>
 #include <KeyedDatabase.hpp>
 
+#include <bazarish/JsonRead.hpp>
 #include <bazarish/PathText.hpp>
 #include <bazarish/PrivateFile.hpp>
 
@@ -74,7 +75,7 @@ Bytes takeCheckpoint(const fs::path& stateDir)
 
 void restoreCheckpoint(const fs::path& stateDir, const Bytes& checkpoint)
 {
-    const nlohmann::json document = nlohmann::json::from_cbor(checkpoint);
+    const nlohmann::json document = bazarish::parseCbor(checkpoint);
     fs::remove_all(stateDir);
     fs::create_directories(stateDir);
     for (const auto& [name, content] : document.at(kFilesField).items()) {

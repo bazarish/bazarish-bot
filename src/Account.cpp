@@ -6,6 +6,7 @@
 
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Clock.hpp>
+#include <bazarish/JsonRead.hpp>
 #include <bazarish/Log.hpp>
 #include <bazarish/PathText.hpp>
 
@@ -119,6 +120,7 @@ void Account::bringUp()
     session->setDeviceSync(false);
     const std::string fingerprint = session->fingerprint();
     settings_.rememberAccount(id_, fingerprint, settings_.kind(id_));
+    mailbox.admit(fingerprint);
 
     const std::string destination = mailbox.serveDestinationFor(fingerprint, session->addressKeys());
     log::info("account {}: destination {}", id_,
@@ -141,9 +143,10 @@ void Account::bringUp()
     auto transfers = std::make_shared<Transfers>();
     session->setFileSource(files_);
     session->setTransferHandler(transferHandler(transfers, transcript, waiters_));
-    std::unique_ptr<GroupEngine> group;
+    std::shared_ptr<GroupEngine> group;
     if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
-        group = std::make_unique<GroupEngine>(accountFile_, groupLink(), []() { return nowMillis(); });
+        group = std::make_shared<GroupEngine>(
+            accountFile_, groupLink(session->relayFitter()), []() { return nowMillis(); });
         GroupEngine* const engine = group.get();
         session->setGroupBlockSource(
             [engine](const std::string& peer) { return engine->blockFor(peer); });
@@ -158,6 +161,7 @@ void Account::bringUp()
         name_ = session->displayName();
         signer_ = signer;
     }
+    std::shared_ptr<GroupEngine> started;
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         mailbox_ = &mailbox;
@@ -165,9 +169,10 @@ void Account::bringUp()
         transcript_ = std::move(transcript);
         transfers_ = std::move(transfers);
         group_ = std::move(group);
+        started = group_;
     }
-    if (group_ != nullptr) {
-        group_->start();
+    if (started != nullptr) {
+        started->start();
     }
     {
         const std::lock_guard<std::mutex> lock(stateMutex_);
@@ -209,8 +214,13 @@ void Account::close()
     if (errand.joinable()) {
         errand.join();
     }
-    if (group_ != nullptr) {
-        group_->stop();
+    std::shared_ptr<GroupEngine> group;
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        group = group_;
+    }
+    if (group != nullptr) {
+        group->stop();
     }
     std::unique_ptr<client::Session> session;
     {
@@ -228,10 +238,13 @@ void Account::close()
         transfers_.reset();
     }
     session.reset();
-    group_.reset();
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        group_.reset();
+    }
 }
 
-GroupLink Account::groupLink()
+GroupLink Account::groupLink(client::RelayFitter fitting)
 {
     const auto watching = [](GroupLink::Outcome done) {
         client::DeliveryWatch watch;
@@ -284,10 +297,7 @@ GroupLink Account::groupLink()
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         openSession().removeContact(peer);
     };
-    link.fitting = [this](const std::vector<client::RelayedPost>& posts) {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        return openSession().relayFitting(posts);
-    };
+    link.fitting = std::move(fitting);
     link.media = [this](const std::string& id, const std::string& type) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         return type == "image" ? openSession().picture(id) : openSession().voice(id);
@@ -298,16 +308,17 @@ GroupLink Account::groupLink()
 std::string Account::postToGroup(const std::string& text)
 {
     const std::string id = client::newMessageId();
-    group().hostPost(id, text);
+    group()->hostPost(id, text);
     return id;
 }
 
-GroupEngine& Account::group() const
+std::shared_ptr<GroupEngine> Account::group() const
 {
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
     if (group_ == nullptr) {
         throw std::runtime_error("this account is not a group, or it is not open");
     }
-    return *group_;
+    return group_;
 }
 
 void Account::closeOnServer()
@@ -533,10 +544,15 @@ void Account::drainMailbox()
         log::warn("account {}: mailbox: {}", id_, error.what());
     }
 
-    if (group_ != nullptr) {
+    std::shared_ptr<GroupEngine> group;
+    {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        group = group_;
+    }
+    if (group != nullptr) {
         for (const client::IncomingMessage& item : arrived) {
             try {
-                group_->onIncoming(item);
+                group->onIncoming(item);
                 acknowledge(item);
             } catch (const std::exception& error) {
                 log::warn("account {}: group: {}", id_, error.what());
@@ -615,6 +631,13 @@ std::string Account::fingerprint() const
     return fingerprint_;
 }
 
+void Account::refuseOwnFingerprint(const std::string& peer) const
+{
+    if (peer == fingerprint()) {
+        throw std::invalid_argument("a bot account has no chat with itself");
+    }
+}
+
 std::string Account::displayName() const
 {
     const std::lock_guard<std::mutex> lock(stateMutex_);
@@ -662,15 +685,15 @@ std::vector<Line> Account::chats() const
 client::DeliveryWatch Account::statusWatch(const std::string& peer, const std::string& messageId)
 {
     client::DeliveryWatch watch;
-    watch.onOutcome = [this, peer, messageId](const client::OutboundCourier::Outcome& outcome) {
+    watch.onOutcome = [this, transcript = std::weak_ptr<Transcript>(transcript_), peer, messageId](
+                          const client::OutboundCourier::Outcome& outcome) {
         const std::string status = outcome.stored
             ? std::string("delivered")
             : "failed: "
                 + (outcome.errorMessage.empty() ? outcome.errorCode : outcome.errorMessage);
         try {
-            const std::lock_guard<std::mutex> held(sessionMutex_);
-            if (transcript_ != nullptr) {
-                transcript_->setStatus(peer, messageId, status);
+            if (const std::shared_ptr<Transcript> held = transcript.lock()) {
+                held->setStatus(peer, messageId, status);
             }
         } catch (const std::exception& error) {
             log::warn("account {}: transcript: {}", id_, error.what());
@@ -683,6 +706,7 @@ client::DeliveryWatch Account::statusWatch(const std::string& peer, const std::s
 std::string Account::sendText(const std::string& peer, const std::string& text,
     const std::string& replyTo, const bool forwarded)
 {
+    refuseOwnFingerprint(peer);
     Line line;
     line.e2eId = client::newMessageId();
     {
@@ -706,6 +730,7 @@ std::string Account::sendText(const std::string& peer, const std::string& text,
 std::string Account::forward(
     const std::string& fromPeer, const std::string& messageId, const std::string& toPeer)
 {
+    refuseOwnFingerprint(toPeer);
     std::optional<Line> original;
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -724,8 +749,9 @@ std::string Account::forward(
 std::string Account::sendKeyboard(
     const std::string& peer, const std::string& text, const std::string& keyboardJson)
 {
+    refuseOwnFingerprint(peer);
     client::InlineKeyboard keyboard;
-    for (const nlohmann::json& row : nlohmann::json::parse(keyboardJson)) {
+    for (const nlohmann::json& row : bazarish::parseJson(keyboardJson)) {
         std::vector<client::InlineButton> buttons;
         for (const nlohmann::json& button : row) {
             buttons.push_back({button.value("text", std::string()),
@@ -755,6 +781,7 @@ std::string Account::sendKeyboard(
 std::string Account::sendPicture(const std::string& peer, const Bytes& bytes,
     const std::string& name, const std::string& mime, const std::string& replyTo)
 {
+    refuseOwnFingerprint(peer);
     Line line;
     line.e2eId = client::newMessageId();
     {
@@ -778,6 +805,7 @@ std::string Account::sendPicture(const std::string& peer, const Bytes& bytes,
 std::string Account::sendFile(
     const std::string& peer, const std::string& path, const std::string& replyTo)
 {
+    refuseOwnFingerprint(peer);
     Line line;
     line.e2eId = client::newMessageId();
     {

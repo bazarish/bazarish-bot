@@ -4,12 +4,15 @@
 #include <ApiClient.hpp>
 
 #include <bazarish/Crypto.hpp>
+#include <bazarish/Errors.hpp>
 #include <bazarish/I2p.hpp>
 #include <bazarish/ServerDescriptor.hpp>
 
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <optional>
+#include <string>
 
 #define CHECK(condition)                                                            \
     do {                                                                            \
@@ -38,9 +41,29 @@ int main()
         endpoint.facades = {client::Facade{server.host(), server.port()}};
         client::ApiClient api(owner, "bot01", endpoint);
 
+        const auto refusedFor = [&endpoint](const Identity& who, const std::string& path)
+            -> std::optional<ErrorCode> {
+            client::ApiClient caller(who, "bot02", endpoint);
+            try {
+                (void)caller.postJson(path, nlohmann::json::object());
+            } catch (const client::ApiError& error) {
+                return error.code;
+            }
+            return std::nullopt;
+        };
+        const Identity stranger = Identity::generate();
+        CHECK(refusedFor(stranger, "/v1/account/registration") == ErrorCode::eRequestFailed);
+
+        server.admit(owner.fingerprint());
         CHECK(api.postJson("/v1/account/registration", nlohmann::json::object()).status == 200);
         CHECK(api.get("/v1/account/i2p-status").json().at("approval") == "none");
-        CHECK(api.get("/v1/messaging/storage-usage").status == 200);
+        bool unknownToMailbox = false;
+        try {
+            (void)api.get("/v1/messaging/storage-usage");
+        } catch (const client::ApiError& error) {
+            unknownToMailbox = error.code == ErrorCode::eAccountUnknown;
+        }
+        CHECK(unknownToMailbox);
 
         client::ServerEndpoint impostor = endpoint;
         impostor.serverFingerprint = Identity::generate().fingerprint();

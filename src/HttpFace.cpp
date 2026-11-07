@@ -9,6 +9,8 @@
 #include <BuildVersion.hpp>
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Clock.hpp>
+#include <bazarish/HttpClient.hpp>
+#include <bazarish/JsonRead.hpp>
 #include <bazarish/Log.hpp>
 #include <bazarish/Portal.hpp>
 
@@ -36,13 +38,33 @@ constexpr const char* kOperator = "operator";
 constexpr const char* kSessionCookie = "bazarish_bot";
 constexpr int kDefaultWaitSeconds = 30;
 constexpr int kDefaultPage = 50;
-constexpr const char* kAccountPath = "/ui/accounts/([0-9a-f]+)";
+constexpr const char* kAccountPath = "/ui/accounts/{hex}";
 constexpr const char* kStoragePath = "/v1/storage";
 constexpr const char* kAvatarName = "avatar";
 constexpr const char* kStatusPath = "/v1/status";
 constexpr const char* kTimerEvent = "timer";
 constexpr std::uint64_t kMebibyte = 1024 * 1024;
 constexpr std::uint64_t kMaxBackupBytes = 512 * kMebibyte;
+constexpr char kLoopbackV4[] = "127.0.0.1";
+constexpr char kLoopbackV6[] = "::1";
+constexpr char kLocalhost[] = "localhost";
+
+std::vector<std::string> answeredHosts(const Config& config)
+{
+    std::vector<std::string> hosts;
+    if (config.listenHost == kLoopbackV6) {
+        hosts.push_back("[" + config.listenHost + "]");
+    } else {
+        hosts.push_back(config.listenHost);
+    }
+    if (config.listenHost == kLoopbackV4 || config.listenHost == kLoopbackV6) {
+        hosts.emplace_back(kLocalhost);
+    }
+    for (const std::string& place : config.consumer.place) {
+        hosts.push_back(http::parseUrl(place).host);
+    }
+    return hosts;
+}
 
 std::string sessionSecret()
 {
@@ -105,7 +127,7 @@ nlohmann::json lineJson(const Line& line)
         item["replyTo"] = line.replyTo;
     }
     if (!line.keyboard.empty()) {
-        item["keyboard"] = nlohmann::json::parse(line.keyboard, nullptr, false);
+        item["keyboard"] = bazarish::parseJsonOrDiscarded(line.keyboard);
     }
     if (!line.reactions.empty()) {
         nlohmann::json reactions = nlohmann::json::array();
@@ -134,7 +156,7 @@ nlohmann::json storageJson(const client::DatabaseFootprint& footprint)
 
 bool clearsForEveryone(const http::Request& request)
 {
-    const nlohmann::json body = nlohmann::json::parse(request.body);
+    const nlohmann::json body = bazarish::parseJson(request.body);
     if (!body.contains("everyone") || !body.at("everyone").is_boolean()) {
         throw std::invalid_argument("\"everyone\" says whether the chat goes on both sides");
     }
@@ -436,6 +458,7 @@ int HttpFace::start()
     http::Server::Options options;
     options.host = runtime_.config().listenHost;
     options.port = runtime_.config().listenPort;
+    options.hosts = answeredHosts(runtime_.config());
     server_ = std::make_unique<http::Server>(options);
     apiRoutes();
     operatorRoutes();
@@ -501,7 +524,7 @@ void HttpFace::apiRoutes()
 
     server_->post(kStatusPath, [this, guarded, statusOf](const http::Request& request) {
         return guarded(request, [this, statusOf](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             if (!body.contains("enabled") || !body.at("enabled").is_boolean()) {
                 return failure(400, "\"enabled\" is true or false");
             }
@@ -515,7 +538,7 @@ void HttpFace::apiRoutes()
             if (account.kind() != Settings::AccountKind::eGroup) {
                 return failure(409, "only a group takes posts; a bot writes with /v1/messages");
             }
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             return json({{"id", account.postToGroup(body.value("text", std::string()))}});
         });
     });
@@ -534,11 +557,11 @@ void HttpFace::apiRoutes()
 
     server_->post("/v1/contacts", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            return addContact(account, nlohmann::json::parse(call.body));
+            return addContact(account, bazarish::parseJson(call.body));
         });
     });
 
-    server_->del("/v1/contacts/([a-z2-7]+)", [guarded](const http::Request& request) {
+    server_->del("/v1/contacts/{b32}", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
             account.removeContact(call.captures.at(0));
             return json({{"removed", call.captures.at(0)}});
@@ -564,7 +587,7 @@ void HttpFace::apiRoutes()
 
     server_->post("/v1/messages", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string peer = body.value("peer", std::string());
             const std::string text = body.value("text", std::string());
             if (peer.empty() || text.empty()) {
@@ -583,7 +606,7 @@ void HttpFace::apiRoutes()
 
     server_->post("/v1/pictures", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string peer = body.value("peer", std::string());
             if (peer.empty()) {
                 return failure(400, "a picture is a \"peer\" and the bytes in \"data\"");
@@ -601,7 +624,7 @@ void HttpFace::apiRoutes()
 
     server_->post("/v1/files", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string peer = body.value("peer", std::string());
             const std::string path = body.value("path", std::string());
             if (peer.empty() || path.empty()) {
@@ -618,7 +641,7 @@ void HttpFace::apiRoutes()
 
     server_->post("/v1/downloads", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string peer = body.value("peer", std::string());
             const std::string messageId = body.value("messageId", std::string());
             const std::string path = body.value("path", std::string());
@@ -648,7 +671,7 @@ void HttpFace::apiRoutes()
         });
     });
 
-    server_->get("/v1/transfers/([0-9a-f]+)", [guarded](const http::Request& request) {
+    server_->get("/v1/transfers/{hex}", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
             const std::optional<Transfer> transfer
                 = account.transfer(call.query("peer"), call.captures.at(0));
@@ -660,7 +683,7 @@ void HttpFace::apiRoutes()
         });
     });
 
-    server_->del("/v1/transfers/([0-9a-f]+)", [guarded](const http::Request& request) {
+    server_->del("/v1/transfers/{hex}", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
             if (!account.cancelTransfer(call.query("peer"), call.captures.at(0))) {
                 return failure(404, "no transfer of the message " + call.captures.at(0)
@@ -672,7 +695,7 @@ void HttpFace::apiRoutes()
 
     server_->post("/v1/menu", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string peer = body.value("peer", std::string());
             if (peer.empty() || !body.contains("items") || !body.at("items").is_array()) {
                 return failure(400, "a menu is a \"peer\" and its \"items\"");
@@ -688,7 +711,7 @@ void HttpFace::apiRoutes()
 
     server_->post("/v1/forward", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string from = body.value("from", std::string());
             const std::string messageId = body.value("messageId", std::string());
             const std::string to = body.value("to", std::string());
@@ -699,9 +722,9 @@ void HttpFace::apiRoutes()
         });
     });
 
-    server_->post("/v1/messages/([0-9a-f]+)", [guarded](const http::Request& request) {
+    server_->post("/v1/messages/{hex}", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string peer = body.value("peer", std::string());
             if (peer.empty()) {
                 return failure(400, "\"peer\" names whose conversation the message is in");
@@ -711,7 +734,7 @@ void HttpFace::apiRoutes()
         });
     });
 
-    server_->del("/v1/messages/([0-9a-f]+)", [guarded](const http::Request& request) {
+    server_->del("/v1/messages/{hex}", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
             const std::string peer = call.query("peer");
             if (peer.empty()) {
@@ -724,7 +747,7 @@ void HttpFace::apiRoutes()
 
     server_->post("/v1/reactions", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string peer = body.value("peer", std::string());
             const std::string messageId = body.value("messageId", std::string());
             if (peer.empty() || messageId.empty()) {
@@ -735,22 +758,22 @@ void HttpFace::apiRoutes()
         });
     });
 
-    server_->post("/v1/chats/([a-z2-7]+)/clear", [guarded](const http::Request& request) {
+    server_->post("/v1/chats/{b32}/clear", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
             account.clearChat(call.captures.at(0), clearsForEveryone(call));
             return json({{"cleared", call.captures.at(0)}});
         });
     });
 
-    server_->get("/v1/chats/([a-z2-7]+)/timer", [guarded](const http::Request& request) {
+    server_->get("/v1/chats/{b32}/timer", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
             return json({{"seconds", account.chatTimer(call.captures.at(0))}});
         });
     });
 
-    server_->post("/v1/chats/([a-z2-7]+)/timer", [guarded](const http::Request& request) {
+    server_->post("/v1/chats/{b32}/timer", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             if (!body.contains("seconds") || !body.at("seconds").is_number_integer()) {
                 return failure(400, "a timer is \"seconds\", a whole number");
             }
@@ -774,7 +797,7 @@ void HttpFace::apiRoutes()
 
     server_->post("/v1/receipts", [guarded](const http::Request& request) {
         return guarded(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string peer = body.value("peer", std::string());
             const std::string messageId = body.value("messageId", std::string());
             if (peer.empty() || messageId.empty()) {
@@ -832,7 +855,7 @@ void HttpFace::operatorRoutes()
 
     server_->post("/ui/login", [this](const http::Request& request) {
         try {
-            const nlohmann::json body = nlohmann::json::parse(request.body);
+            const nlohmann::json body = bazarish::parseJson(request.body);
             operator_.signIn(body.value("challenge", std::string()),
                 body.value("blob", std::string()), nowSeconds());
             http::Response response = json({{"ok", true}});
@@ -870,7 +893,7 @@ void HttpFace::operatorRoutes()
 
     server_->post("/ui/settings", [this, operatorOnly](const http::Request& request) {
         return operatorOnly(request, [this](const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             if (body.contains("transport")) {
                 const std::string named = body.at("transport").get<std::string>();
                 if (named != "sam" && named != "embedded") {
@@ -1010,7 +1033,7 @@ void HttpFace::operatorRoutes()
 
     server_->post("/ui/accounts", [this, operatorOnly](const http::Request& request) {
         return operatorOnly(request, [this](const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string action = body.value("action", std::string());
             if (action == "create") {
                 return json({{"id",
@@ -1031,7 +1054,7 @@ void HttpFace::operatorRoutes()
         response.body = assets_.file(signedIn(request) ? "index.html" : "login.html").body;
         return response;
     });
-    server_->get("/assets/([A-Za-z0-9._-]+)", [this](const http::Request& request) {
+    server_->get("/assets/{asset}", [this](const http::Request& request) {
         try {
             const WebAssets::File& file = assets_.file(request.captures.at(0));
             http::Response response;
@@ -1082,7 +1105,7 @@ void HttpFace::accountRoutes()
 
     server_->post(base + "/avatar", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const PictureCheck picture
                 = checkPicture(body.value("data", std::string()), kAvatarName);
             if (!picture.accepted) {
@@ -1115,7 +1138,7 @@ void HttpFace::accountRoutes()
 
     server_->post(base, [this, forAccount](const http::Request& request) {
         return forAccount(request, [this](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string action = body.value("action", std::string());
             if (action == "open") {
                 if (!runtime_.settings().enabled(account.id())) {
@@ -1164,7 +1187,7 @@ void HttpFace::accountRoutes()
 
     server_->post(base + "/export", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const Bytes bundle = account.exportBundle(body.value("bundlePassphrase", std::string()));
             http::Response response;
             response.contentType = "application/octet-stream";
@@ -1177,7 +1200,7 @@ void HttpFace::accountRoutes()
 
     server_->post(base + "/tokens", [this, forAccount](const http::Request& request) {
         return forAccount(request, [this](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string name = body.value("name", std::string());
             if (name.empty()) {
                 return failure(400, "a token is issued under a name");
@@ -1188,7 +1211,7 @@ void HttpFace::accountRoutes()
         });
     });
 
-    server_->del(base + "/tokens/([^/]+)", [this, forAccount](const http::Request& request) {
+    server_->del(base + "/tokens/{segment}", [this, forAccount](const http::Request& request) {
         return forAccount(request, [this](Account& account, const http::Request& call) {
             if (!runtime_.settings().revokeToken(account.id(), call.captures.at(1))) {
                 return failure(404, "no token by that name");
@@ -1199,7 +1222,7 @@ void HttpFace::accountRoutes()
 
     server_->post(base + "/sign", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string challenge = body.value("challenge", std::string());
             nlohmann::json described = consumerJson(challenge);
             if (body.value("sign", false)) {
@@ -1220,7 +1243,7 @@ void HttpFace::accountRoutes()
 
     server_->post(base + "/aliases", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             if (body.value("check", false)) {
                 account.checkAliases();
                 return json(aliasesJson(account.aliases()));
@@ -1237,22 +1260,22 @@ void HttpFace::accountRoutes()
 
     server_->get(base + "/group", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request&) {
-            GroupEngine& group = account.group();
+            const std::shared_ptr<GroupEngine> group = account.group();
             nlohmann::json states = nlohmann::json::object();
-            for (const Member& member : group.members()) {
+            for (const Member& member : group->members()) {
                 states[memberStateName(member.state)]
                     = states.value(memberStateName(member.state), 0) + 1;
             }
-            return json({{"config", groupConfigJson(group.config())}, {"states", states},
-                {"requests", group.requests().size()}});
+            return json({{"config", groupConfigJson(group->config())}, {"states", states},
+                {"requests", group->requests().size()}});
         });
     });
 
     server_->post(base + "/group", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            GroupEngine& group = account.group();
-            GroupConfig config = group.config();
+            const nlohmann::json body = bazarish::parseJson(call.body);
+            const std::shared_ptr<GroupEngine> group = account.group();
+            GroupConfig config = group->config();
             if (body.contains("kind")) {
                 config.kind = groupKindFromName(body.at("kind").get<std::string>());
             }
@@ -1268,44 +1291,44 @@ void HttpFace::accountRoutes()
             if (body.contains("language")) {
                 config.language = body.at("language").get<std::string>();
             }
-            group.setConfig(config);
-            return json(groupConfigJson(group.config()));
+            group->setConfig(config);
+            return json(groupConfigJson(group->config()));
         });
     });
 
     server_->get(base + "/group/members", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request&) {
-            return json(membersJson(account.group().members()));
+            return json(membersJson(account.group()->members()));
         });
     });
 
     server_->post(base + "/group/members", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string fingerprint = body.value("fingerprint", std::string());
             const std::string action = body.value("action", std::string());
-            GroupEngine& group = account.group();
+            const std::shared_ptr<GroupEngine> group = account.group();
             if (action == "admin" || action == "unadmin") {
-                group.setAdmin(fingerprint, action == "admin");
+                group->setAdmin(fingerprint, action == "admin");
             } else if (action == "exclude") {
-                group.exclude(fingerprint);
+                group->exclude(fingerprint);
             } else if (action == "block") {
-                group.block(fingerprint);
+                group->block(fingerprint);
             } else if (action == "unblock") {
-                group.unblock(fingerprint);
+                group->unblock(fingerprint);
             } else {
                 return failure(400, "the action is admin, unadmin, exclude, block or unblock");
             }
-            return json(membersJson(group.members()));
+            return json(membersJson(group->members()));
         });
     });
 
     server_->get(base + "/group/requests", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request&) {
-            GroupEngine& group = account.group();
-            const std::vector<Member> members = group.members();
+            const std::shared_ptr<GroupEngine> group = account.group();
+            const std::vector<Member> members = group->members();
             nlohmann::json rows = nlohmann::json::array();
-            for (const JoinRequest& asked : group.requests()) {
+            for (const JoinRequest& asked : group->requests()) {
                 rows.push_back({{"number", asked.number}, {"fingerprint", asked.fingerprint},
                     {"name", nameOf(members, asked.fingerprint)}, {"at", asked.at}});
             }
@@ -1315,23 +1338,23 @@ void HttpFace::accountRoutes()
 
     server_->post(base + "/group/requests", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
-            account.group().decide(body.at("number").get<std::int64_t>(), body.at("allow").get<bool>());
+            const nlohmann::json body = bazarish::parseJson(call.body);
+            account.group()->decide(body.at("number").get<std::int64_t>(), body.at("allow").get<bool>());
             return json({{"ok", true}});
         });
     });
 
     server_->get(base + "/group/posts", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            GroupEngine& group = account.group();
-            const std::vector<Member> members = group.members();
+            const std::shared_ptr<GroupEngine> group = account.group();
+            const std::vector<Member> members = group->members();
             nlohmann::json rows = nlohmann::json::array();
-            for (const Post& post : group.posts(intParam(call, "limit", kDefaultPage))) {
+            for (const Post& post : group->posts(intParam(call, "limit", kDefaultPage))) {
                 rows.push_back({{"id", post.id},
                     {"authorName", nameOf(members, post.author)}, {"type", post.type},
                     {"text", post.text}, {"sentAt", post.sentAt}, {"edited", post.edited},
                     {"deleted", post.deleted}, {"fromHost", post.author.empty()},
-                    {"reactions", group.reactionCounts(post.id)}});
+                    {"reactions", group->reactionCounts(post.id)}});
             }
             return json(rows);
         });
@@ -1339,14 +1362,14 @@ void HttpFace::accountRoutes()
 
     server_->post(base + "/group/posts", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             return json({{"id", account.postToGroup(body.value("text", std::string()))}});
         });
     });
 
-    server_->del(base + "/group/posts/([^/]+)", [forAccount](const http::Request& request) {
+    server_->del(base + "/group/posts/{segment}", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            account.group().deletePost(call.captures.at(1));
+            account.group()->deletePost(call.captures.at(1));
             return json({{"ok", true}});
         });
     });
@@ -1359,7 +1382,7 @@ void HttpFace::accountRoutes()
 
     server_->post(base + "/contacts", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            return addContact(account, nlohmann::json::parse(call.body));
+            return addContact(account, bazarish::parseJson(call.body));
         });
     });
 
@@ -1369,7 +1392,7 @@ void HttpFace::accountRoutes()
         });
     });
 
-    server_->post(base + "/chats/([a-z2-7]+)/clear", [forAccount](const http::Request& request) {
+    server_->post(base + "/chats/{b32}/clear", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
             account.clearChat(call.captures.at(1), clearsForEveryone(call));
             return json({{"cleared", call.captures.at(1)}});
@@ -1401,7 +1424,7 @@ void HttpFace::accountRoutes()
 
     server_->post(base + "/messages", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             const std::string peer = body.value("peer", std::string());
             const std::string text = body.value("text", std::string());
             if (peer.empty() || text.empty()) {
@@ -1411,16 +1434,16 @@ void HttpFace::accountRoutes()
         });
     });
 
-    server_->post(base + "/messages/([0-9a-f]+)", [forAccount](const http::Request& request) {
+    server_->post(base + "/messages/{hex}", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             account.editMessage(body.value("peer", std::string()), call.captures.at(1),
                 body.value("text", std::string()));
             return json({{"edited", call.captures.at(1)}});
         });
     });
 
-    server_->del(base + "/messages/([0-9a-f]+)", [forAccount](const http::Request& request) {
+    server_->del(base + "/messages/{hex}", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
             account.deleteMessage(call.query("peer"), call.captures.at(1));
             return json({{"deleted", call.captures.at(1)}});
@@ -1429,7 +1452,7 @@ void HttpFace::accountRoutes()
 
     server_->post(base + "/reactions", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = nlohmann::json::parse(call.body);
+            const nlohmann::json body = bazarish::parseJson(call.body);
             account.react(body.value("peer", std::string()),
                 body.value("messageId", std::string()), body.value("emoji", std::string()));
             return json({{"ok", true}});
