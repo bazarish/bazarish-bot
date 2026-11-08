@@ -72,6 +72,7 @@ int main()
     write(from / "settings.json", "{\"accounts\": {}}", secret);
     write(from / "accounts" / "a.key", std::string("\0key\xff", 5), secret);
     write(from / "i2p" / "netDb" / "r1" / "routerInfo.dat", "a router record", open);
+    write(from / "server" / "server-card.der", "a card", open);
     write(from / kRestoreUpload, "an upload in progress", secret);
     write(config, "{\"operator\": \"me\"}", secret);
 
@@ -90,17 +91,17 @@ int main()
     restoreBackup(archive, to);
     CHECK(read(to / "settings.json") == "{\"accounts\": {}}");
     CHECK(read(to / "accounts" / "a.key") == std::string("\0key\xff", 5));
-    CHECK(read(to / "i2p" / "netDb" / "r1" / "routerInfo.dat") == "a router record");
+    CHECK(!fs::exists(to / "i2p"));
+    CHECK(read(to / "server" / "server-card.der") == "a card");
     CHECK(!fs::exists(to / "stale"));
     CHECK(!fs::exists(to / "bot.json"));
     CHECK(read(to / kRestoreUpload) == "kept");
     CHECK((fs::status(to / "accounts" / "a.key").permissions() & fs::perms::mask) == secret);
-    CHECK((fs::status(to / "i2p" / "netDb" / "r1" / "routerInfo.dat").permissions()
-              & fs::perms::mask)
+    CHECK((fs::status(to / "server" / "server-card.der").permissions() & fs::perms::mask)
         == open);
 
     Bytes tampered = archive;
-    const std::string marker = "a router record";
+    const std::string marker = "a card";
     const auto at = std::search(tampered.begin(), tampered.end(), marker.begin(), marker.end());
     CHECK(at != tampered.end());
     *at = 'R';

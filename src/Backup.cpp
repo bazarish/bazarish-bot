@@ -23,6 +23,7 @@ constexpr const char* kManifest = "bazarish-bot-backup.json";
 constexpr const char* kStatePrefix = "state/";
 constexpr const char* kConfigPrefix = "config/";
 constexpr int kFormat = 1;
+constexpr const char* kRouterDirectory = "i2p";
 
 Bytes readFile(const fs::path& file)
 {
@@ -84,17 +85,33 @@ Bytes exportBackup(const fs::path& stateDir, const fs::path& configFile,
 {
     std::vector<ZipEntry> entries;
     entries.push_back({kManifest, {}});
-    for (const fs::directory_entry& found : fs::recursive_directory_iterator(stateDir)) {
-        if (!found.is_regular_file()) {
+    // The router's directory stays out, as in a checkpoint: it rebuilds what it holds on its own.
+    for (auto found = fs::recursive_directory_iterator(stateDir);
+         found != fs::recursive_directory_iterator(); ++found) {
+        const fs::path relative = found->path().lexically_relative(stateDir);
+        if (found->is_directory() && relative == kRouterDirectory) {
+            found.disable_recursion_pending();
             continue;
         }
-        const fs::path relative = fs::relative(found.path(), stateDir);
-        // The router keeps rewriting its network database; a record it dropped mid-walk is gone.
-        if (relative == kRestoreUpload || !fs::exists(found.path())) {
+        if (!found->is_regular_file() || relative == kRestoreUpload) {
             continue;
         }
-        entries.push_back({kStatePrefix + relative.generic_string(), readFile(found.path()),
-            static_cast<unsigned>(found.status().permissions() & fs::perms::mask)});
+        std::error_code gone;
+        const fs::perms permissions = fs::status(found->path(), gone).permissions();
+        // Mail is deleted as it is acknowledged: a file that went mid-walk is not an error.
+        if (gone) {
+            continue;
+        }
+        std::ifstream in(found->path(), std::ios::binary);
+        if (!in) {
+            if (!fs::exists(found->path())) {
+                continue;
+            }
+            throw std::runtime_error("backup: cannot read " + found->path().string());
+        }
+        entries.push_back({kStatePrefix + relative.generic_string(),
+            Bytes(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()),
+            static_cast<unsigned>(permissions & fs::perms::mask)});
     }
     entries.push_back({kConfigPrefix + configFile.filename().string(), readFile(configFile),
         static_cast<unsigned>(fs::status(configFile).permissions() & fs::perms::mask)});

@@ -34,9 +34,9 @@ constexpr const char* kRunning = "running";
 
 client::TransferEventFn transferHandler(const std::shared_ptr<Transfers>& transfers,
     const std::shared_ptr<Transcript>& transcript,
-    const std::shared_ptr<std::condition_variable>& waiters)
+    const std::shared_ptr<Wakeup>& wakeup)
 {
-    return [transfers, transcript, waiters](const client::TransferEvent& event) {
+    return [transfers, transcript, wakeup](const client::TransferEvent& event) {
         const std::optional<Transfer> moved = transfers->note(event);
         if (!moved.has_value()) {
             return;
@@ -45,7 +45,7 @@ client::TransferEventFn transferHandler(const std::shared_ptr<Transfers>& transf
             transcript->keepFileAt(moved->peer, moved->messageId, moved->path);
         }
         transcript->noteTransfer(moved->peer, moved->messageId, moved->state);
-        waiters->notify_all();
+        wakeup->wake();
     };
 }
 
@@ -142,7 +142,7 @@ void Account::bringUp()
     transcript->failUnfinished();
     auto transfers = std::make_shared<Transfers>();
     session->setFileSource(files_);
-    session->setTransferHandler(transferHandler(transfers, transcript, waiters_));
+    session->setTransferHandler(transferHandler(transfers, transcript, wakeup_));
     std::shared_ptr<GroupEngine> group;
     if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
         group = std::make_shared<GroupEngine>(
@@ -188,7 +188,7 @@ void Account::close()
 {
     const std::lock_guard<std::mutex> lifecycle(lifecycleMutex_);
     {
-        const std::lock_guard<std::mutex> lock(waitMutex_);
+        const std::lock_guard<std::mutex> lock(wakeup_->mutex);
         stopping_ = true;
     }
     {
@@ -200,7 +200,7 @@ void Account::close()
     if (starter_.joinable()) {
         starter_.join();
     }
-    waiters_->notify_all();
+    wakeup_->wake();
     if (maintainer_.joinable()) {
         maintainer_.join();
     }
@@ -422,7 +422,7 @@ void Account::maintain()
                 swept = transcript_ != nullptr && transcript_->sweepExpired(nowMillis());
             }
             if (swept) {
-                waiters_->notify_all();
+                wakeup_->wake();
             }
         } catch (const std::exception& error) {
             log::warn("account {}: expired messages not removed: {}", id_, error.what());
@@ -470,8 +470,8 @@ void Account::maintain()
             }
         }
 
-        std::unique_lock<std::mutex> lock(waitMutex_);
-        waiters_->wait_for(lock, std::chrono::seconds(kMaintenanceSeconds),
+        std::unique_lock<std::mutex> lock(wakeup_->mutex);
+        wakeup_->changed.wait_for(lock, std::chrono::seconds(kMaintenanceSeconds),
             [this]() { return stopping_.load(); });
     }
 }
@@ -518,8 +518,8 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
                 refusal != nullptr && refusal->code == ErrorCode::eClientUnregistered) {
                 registerAgain();
             }
-            std::unique_lock<std::mutex> lock(waitMutex_);
-            waiters_->wait_until(lock, askedAt + std::chrono::seconds(kEventWaitSeconds),
+            std::unique_lock<std::mutex> lock(wakeup_->mutex);
+            wakeup_->changed.wait_until(lock, askedAt + std::chrono::seconds(kEventWaitSeconds),
                 [this]() { return stopping_.load(); });
             continue;
         }
@@ -579,7 +579,7 @@ void Account::drainMailbox()
     }
 
     if (wrote) {
-        waiters_->notify_all();
+        wakeup_->wake();
     }
 }
 
@@ -699,7 +699,7 @@ client::DeliveryWatch Account::statusWatch(const std::string& peer, const std::s
         } catch (const std::exception& error) {
             log::warn("account {}: transcript: {}", id_, error.what());
         }
-        waiters_->notify_all();
+        wakeup_->wake();
     };
     return watch;
 }
@@ -724,7 +724,7 @@ std::string Account::sendText(const std::string& peer, const std::string& text,
         line.sentAt = nowMillis();
         transcript_->append(line);
     }
-    waiters_->notify_all();
+    wakeup_->wake();
     return line.e2eId;
 }
 
@@ -775,7 +775,7 @@ std::string Account::sendKeyboard(
         line.sentAt = nowMillis();
         transcript_->append(line);
     }
-    waiters_->notify_all();
+    wakeup_->wake();
     return line.e2eId;
 }
 
@@ -799,7 +799,7 @@ std::string Account::sendPicture(const std::string& peer, const Bytes& bytes,
         line.sentAt = nowMillis();
         transcript_->append(line);
     }
-    waiters_->notify_all();
+    wakeup_->wake();
     return line.e2eId;
 }
 
@@ -824,7 +824,7 @@ std::string Account::sendFile(
         line.sentAt = nowMillis();
         transcript_->append(line);
     }
-    waiters_->notify_all();
+    wakeup_->wake();
     return line.e2eId;
 }
 
@@ -900,7 +900,7 @@ void Account::clearChat(const std::string& peer, const bool forEveryone)
         }
         transcript_->clearPeer(peer);
     }
-    waiters_->notify_all();
+    wakeup_->wake();
 }
 
 void Account::setChatTimer(const std::string& peer, const std::int64_t seconds)
@@ -916,7 +916,7 @@ void Account::setChatTimer(const std::string& peer, const std::int64_t seconds)
         openSession().sendChatTimer(peer, seconds);
         transcript_->setTimer(peer, seconds);
     }
-    waiters_->notify_all();
+    wakeup_->wake();
 }
 
 std::int64_t Account::chatTimer(const std::string& peer) const
@@ -1123,7 +1123,7 @@ void Account::editMessage(
         }
         (void)session.sendEdit(peer, messageId, text);
     }
-    waiters_->notify_all();
+    wakeup_->wake();
 }
 
 void Account::deleteMessage(const std::string& peer, const std::string& messageId)
@@ -1136,7 +1136,7 @@ void Account::deleteMessage(const std::string& peer, const std::string& messageI
         }
         session.sendDelete(peer, messageId);
     }
-    waiters_->notify_all();
+    wakeup_->wake();
 }
 
 void Account::react(
@@ -1148,7 +1148,7 @@ void Account::react(
         session.sendReaction(peer, messageId, emoji);
         transcript_->applyReaction(peer, messageId, "me", emoji);
     }
-    waiters_->notify_all();
+    wakeup_->wake();
 }
 
 void Account::confirmReceipt(const std::string& peer, const std::string& messageId)
@@ -1170,17 +1170,37 @@ std::vector<Event> Account::await(const std::int64_t sinceId, const int seconds)
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         return transcript_ != nullptr && transcript_->lastEventId() > sinceId;
     };
-    if (!ready()) {
-        const int wait = seconds > kMaxWaitSeconds ? kMaxWaitSeconds : seconds;
-        std::unique_lock<std::mutex> lock(waitMutex_);
-        waiters_->wait_for(lock, std::chrono::seconds(wait < 0 ? 0 : wait),
-            [&ready, this]() { return stopping_.load() || ready(); });
+    const int wait = seconds > kMaxWaitSeconds ? kMaxWaitSeconds : seconds;
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(wait < 0 ? 0 : wait);
+    while (true) {
+        std::uint64_t seen = 0;
+        {
+            const std::lock_guard<std::mutex> lock(wakeup_->mutex);
+            seen = wakeup_->events;
+        }
+        if (stopping_.load() || ready()) {
+            break;
+        }
+        std::unique_lock<std::mutex> lock(wakeup_->mutex);
+        if (!wakeup_->changed.wait_until(lock, until,
+                [this, seen]() { return stopping_.load() || wakeup_->events != seen; })) {
+            break;
+        }
     }
     const std::lock_guard<std::mutex> lock(sessionMutex_);
     if (transcript_ == nullptr) {
         return {};
     }
     return transcript_->since(sinceId);
+}
+
+void Wakeup::wake()
+{
+    {
+        const std::lock_guard<std::mutex> lock(mutex);
+        ++events;
+    }
+    changed.notify_all();
 }
 
 }  // namespace bazarish::bot

@@ -28,6 +28,15 @@
 
 namespace bazarish::bot {
 
+// Counted under the lock: a waiter that looked before a change and slept after it still wakes.
+struct Wakeup {
+    void wake();
+
+    std::mutex mutex;
+    std::condition_variable changed;
+    std::uint64_t events = 0;
+};
+
 class Account {
 public:
     using ServerSideFn = std::function<ServerSide&()>;
@@ -200,10 +209,8 @@ private:
     bool aliasErrandRunning_ = false;
     bool aliasErrandByHand_ = false;
     std::atomic<bool> aliasesAnswered_{false};
-    mutable std::mutex waitMutex_;
     // Shared with the transfer handler, which the session calls from threads of its own.
-    const std::shared_ptr<std::condition_variable> waiters_
-        = std::make_shared<std::condition_variable>();
+    const std::shared_ptr<Wakeup> wakeup_ = std::make_shared<Wakeup>();
 };
 
 }  // namespace bazarish::bot

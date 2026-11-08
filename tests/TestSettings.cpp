@@ -87,8 +87,11 @@ int main()
         CHECK(!settings.enabled(second));
         CHECK(!settings.keepsHistory(first) && settings.keepsHistory(second));
         CHECK(!settings.enabled("unknown"));
-        CHECK(settings.accountWithFingerprint("fp-second") == second);
-        CHECK(settings.accountWithFingerprint("fp-third").empty());
+        CHECK(settings.fingerprintOf(second) == "fp-second");
+        CHECK(settings.claimFingerprint("intruder", "fp-second", Settings::AccountKind::eBot)
+            == second);
+        CHECK(settings.fingerprintOf("intruder").empty());
+        CHECK(settings.claimFingerprint(second, "fp-second", Settings::AccountKind::eGroup).empty());
         CHECK(settings.fingerprintOf(first) == "fp-first");
         CHECK(settings.fingerprintOf("unknown").empty());
         CHECK(settings.tokens(first).size() == 1);
@@ -117,7 +120,7 @@ int main()
         settings.forgetAccount(second);
         CHECK(!settings.tokenFor(other.secret));
         CHECK(settings.kind(second) == Settings::AccountKind::eBot);
-        CHECK(settings.accountWithFingerprint("fp-second").empty());
+        CHECK(settings.fingerprintOf(second).empty());
         CHECK(settings.tokens(first).size() == 1);
     }
 

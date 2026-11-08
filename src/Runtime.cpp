@@ -32,6 +32,7 @@ Runtime::Runtime(Config config)
     , manager_(config_.stateDir / kAccountsDirectory)
 {
     bazarish::setSelfHostedFacadeOnLoopback(true);
+    manager_.discardInterruptedImports();
     for (const client::AccountInfo& info : manager_.list()) {
         const std::lock_guard<std::mutex> lock(accountsMutex_);
         accounts_[info.id] = std::make_shared<Account>(
@@ -113,12 +114,11 @@ std::shared_ptr<Account> Runtime::accountForToken(const std::string& secret)
 
 std::string Runtime::adopt(const client::AccountInfo& info, const Settings::AccountKind kind)
 {
-    const std::string held = settings_.accountWithFingerprint(info.fingerprint);
-    if (!held.empty() && held != info.id) {
+    const std::string held = settings_.claimFingerprint(info.id, info.fingerprint, kind);
+    if (!held.empty()) {
         manager_.remove(info.id);
         throw std::runtime_error("this account is already here as " + held);
     }
-    settings_.rememberAccount(info.id, info.fingerprint, kind);
     const auto added = std::make_shared<Account>(
         info.id, info.file, settings_, [this]() -> ServerSide& { return serverSide(); });
     {

@@ -259,14 +259,23 @@ void Settings::rememberAccount(
     save();
 }
 
-std::string Settings::accountWithFingerprint(const std::string& fingerprint) const
+std::string Settings::claimFingerprint(
+    const std::string& account, const std::string& fingerprint, const AccountKind kind)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    for (const auto& [account, entry] : accounts_) {
-        if (entry.fingerprint == fingerprint) {
-            return account;
+    for (const auto& [held, entry] : accounts_) {
+        if (entry.fingerprint == fingerprint && held != account) {
+            return held;
         }
     }
+    const bool known = accounts_.count(account) > 0;
+    AccountEntry& entry = accounts_[account];
+    if (!known) {
+        entry.acceptsContacts = kind == AccountKind::eBot;
+    }
+    entry.fingerprint = fingerprint;
+    entry.kind = kind;
+    save();
     return {};
 }
 

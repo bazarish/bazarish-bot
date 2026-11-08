@@ -47,7 +47,9 @@ public:
     std::optional<ApiToken> tokenFor(const std::string& secret) const;
 
     void rememberAccount(const std::string& account, const std::string& fingerprint, AccountKind kind);
-    std::string accountWithFingerprint(const std::string& fingerprint) const;
+    // Remembers the account unless another holds that identity, and names that one if so.
+    std::string claimFingerprint(
+        const std::string& account, const std::string& fingerprint, AccountKind kind);
     std::string fingerprintOf(const std::string& account) const;
     AccountKind kind(const std::string& account) const;
     bool acceptsContacts(const std::string& account) const;
