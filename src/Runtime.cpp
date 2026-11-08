@@ -284,7 +284,6 @@ void Runtime::quiesced(const std::function<void()>& work)
             wereOpen.push_back(account);
         }
     }
-    // The server stays up: its storage writes each file whole, and only the accounts keep databases.
     closeAll(all);
     const auto reopen = [&wereOpen]() {
         for (const std::shared_ptr<Account>& account : wereOpen) {

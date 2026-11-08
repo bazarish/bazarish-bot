@@ -11,7 +11,11 @@ using namespace bazarish::bot;
 
 int main()
 {
-    CHECK(copyComplete());
+    for (const char* const language : kGroupLanguages) {
+        for (int key = 0; key <= static_cast<int>(Copy::eBlocked); ++key) {
+            CHECK(!copyText(language, static_cast<Copy>(key)).empty());
+        }
+    }
     CHECK(copyText("en", Copy::eSettings, {"Ann"}) == "Your name in this group: Ann.");
     CHECK(copyText("ru", Copy::eAllowedBy, {"Fay", "Bob"}) == "Fay: одобрено админом Bob.");
     CHECK(copyText("ar", Copy::eOfferedNameTaken, {"Ann"}).find("Ann") != std::string::npos);

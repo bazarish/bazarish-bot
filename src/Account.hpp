@@ -28,7 +28,6 @@
 
 namespace bazarish::bot {
 
-// Counted under the lock: a waiter that looked before a change and slept after it still wakes.
 struct Wakeup {
     void wake();
 
@@ -121,7 +120,6 @@ public:
 
     void acceptContact(const std::string& peer);
     void removeContact(const std::string& peer);
-    // Returns once the card is found; the request travels on its own.
     std::string addContact(bool byAlias, const std::string& inviteOrAlias, const std::string& text);
 
     std::string signLogin(const std::string& challenge) const;
@@ -168,7 +166,6 @@ private:
     client::Session& openSession() const;
     void applyKind(client::Session& session) const;
     // Called under sessionMutex_; the watch itself never takes it.
-    // The outcome of a send reaches the transcript through the watch, not the call's result.
     using SendFn = std::function<void(
         client::Session& session, const std::string& id, const client::DeliveryWatch& watch)>;
     std::string sendLine(Line line, const SendFn& send);
@@ -192,7 +189,6 @@ private:
     const std::shared_ptr<const client::FileSource> files_ = client::localFiles();
     std::shared_ptr<GroupEngine> group_;
 
-    // Held through open() and close(), so one never runs into the other.
     std::mutex lifecycleMutex_;
     mutable std::mutex stateMutex_;
     std::string fingerprint_;
@@ -213,7 +209,6 @@ private:
     bool aliasErrandRunning_ = false;
     bool aliasErrandByHand_ = false;
     std::atomic<bool> aliasesAnswered_{false};
-    // Shared with the transfer handler, which the session calls from threads of its own.
     const std::shared_ptr<Wakeup> wakeup_ = std::make_shared<Wakeup>();
 };
 

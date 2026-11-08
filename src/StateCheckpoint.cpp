@@ -25,7 +25,6 @@ constexpr const char* kDatabaseExtension = ".db";
 constexpr const char* kCopySuffix = ".checkpoint";
 constexpr const char* kFilesField = "files";
 
-// A database's journals are inside its whole copy; a temporary is half of a write.
 bool leftOut(const std::string& name)
 {
     return name.ends_with("-wal") || name.ends_with("-shm") || name.ends_with(".tmp")

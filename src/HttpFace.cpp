@@ -447,7 +447,6 @@ void addRoute(http::Server& server, const Verb verb, const std::string& path, ht
 }
 
 constexpr char kApiPrefix[] = "/v1";
-// The operator's paths capture the account first, so an action's own captures start one later.
 constexpr std::size_t kApiFirstCapture = 0;
 constexpr std::size_t kOperatorFirstCapture = 1;
 

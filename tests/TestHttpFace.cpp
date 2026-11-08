@@ -76,7 +76,6 @@ int main()
         bazarish::bot::HttpFace face(runtime, BAZARISH_BOT_SOURCE_DIR "/web");
         const int port = face.start();
 
-        // Without I2P the account stays closed, so the token path stops at the open-account gate.
         const Headers bearer = {{"Authorization", "Bearer " + secret}};
         CHECK(call(port, "GET", "/v1/messages?peer=x").status == kUnauthorized);
         CHECK(says(call(port, "GET", "/v1/messages?peer=x", bearer), kUnavailable, "not open"));

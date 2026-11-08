@@ -58,12 +58,8 @@ struct Event {
     std::int64_t at = 0;
 };
 
-// The conversations sit in the account's database the way the client keeps them; the event feed of
-// the API and the menus this account gave out are its own tables in the same file.
 class Transcript {
 public:
-    // Without history a line lives only until its event is noted; the feed alone stays, for a day,
-    // and it is what tells a message delivered twice.
     Transcript(const std::filesystem::path& accountFile, std::string ownFingerprint,
         bool keepsHistory);
     ~Transcript();
@@ -75,7 +71,6 @@ public:
         bool wrote = false;
         bool added = false;
     };
-    // Throws when the store refused it, so the message stays in the mailbox.
     Taken takeIn(const client::IncomingMessage& message);
 
     std::int64_t append(const Line& line);
@@ -85,7 +80,6 @@ public:
     void applyReaction(const std::string& peer, const std::string& messageId,
         const std::string& reactor, const std::string& emoji);
     void clearPeer(const std::string& peer);
-    // What was still on its way when the account last closed did not leave.
     void failUnfinished();
     void setStatus(
         const std::string& peer, const std::string& messageId, const std::string& status);

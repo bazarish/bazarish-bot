@@ -69,6 +69,9 @@ std::string copyText(
         if (entry.key != key) {
             continue;
         }
+        if (entry.texts[index] == nullptr || *entry.texts[index] == '\0') {
+            throw std::runtime_error("group copy: a key has no text in " + language);
+        }
         std::string text = entry.texts[index];
         for (std::size_t value = 0; value < values.size(); ++value) {
             const std::string mark = "%" + std::to_string(value + 1);
@@ -80,18 +83,6 @@ std::string copyText(
         return text;
     }
     throw std::runtime_error("group copy: no text for a key");
-}
-
-bool copyComplete()
-{
-    for (const Entry& entry : kEntries) {
-        for (const char* const text : entry.texts) {
-            if (text == nullptr || *text == '\0') {
-                return false;
-            }
-        }
-    }
-    return std::size(kEntries) == static_cast<std::size_t>(Copy::eBlocked) + 1;
 }
 
 }  // namespace bazarish::bot

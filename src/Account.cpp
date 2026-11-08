@@ -114,7 +114,10 @@ void Account::bringUp()
     ServerSide& mailbox = serverSide_();
 
     log::info("account {}: opening", id_);
-    client::Session::assignHostedKind(accountFile_, storedAccountKind(settings_.kind(id_)));
+    if (client::Session::storedKind(accountFile_, std::string{})
+        != storedAccountKind(settings_.kind(id_))) {
+        throw std::runtime_error("this account was created as another kind of account");
+    }
     std::unique_ptr<client::Session> session = client::Session::open(accountFile_);
     applyKind(*session);
     session->setDeviceSync(false);
@@ -267,7 +270,7 @@ GroupLink Account::groupLink(client::RelayFitter fitting)
         const std::string id = client::newMessageId();
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         if (keyboard.empty()) {
-            (void)openSession().sendMessage(peer, text, id, watching(std::move(done)));
+            openSession().sendMessage(peer, text, id, watching(std::move(done)));
         } else {
             openSession().sendInteractive(peer, text, keyboard, id, watching(std::move(done)));
         }
@@ -276,12 +279,12 @@ GroupLink Account::groupLink(client::RelayFitter fitting)
     link.retell = [this](const std::string& peer, const std::string& id, const std::string& text,
                       const client::InlineKeyboard& keyboard) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
-        (void)openSession().sendEdit(peer, id, text, keyboard);
+        openSession().sendEdit(peer, id, text, keyboard);
     };
     link.relay = [this, watching](const std::string& peer,
                      const std::vector<client::RelayedPost>& posts, GroupLink::Outcome done) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
-        (void)openSession().relayPosts(peer, posts, watching(std::move(done)));
+        openSession().relayPosts(peer, posts, watching(std::move(done)));
     };
     link.receipt = [this](const std::string& peer, const std::string& messageId) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -719,7 +722,7 @@ std::string Account::sendText(const std::string& peer, const std::string& text,
     line.replyTo = replyTo;
     return sendLine(std::move(line),
         [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch) {
-            (void)session.sendMessage(peer, text, id, watch, replyTo, forwarded);
+            session.sendMessage(peer, text, id, watch, replyTo, forwarded);
         });
 }
 
@@ -775,7 +778,7 @@ std::string Account::sendPicture(const std::string& peer, const Bytes& bytes,
     line.replyTo = replyTo;
     return sendLine(std::move(line),
         [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch) {
-            (void)session.sendPicture(peer, bytes, name, mime, id, watch, replyTo);
+            session.sendPicture(peer, bytes, name, mime, id, watch, replyTo);
         });
 }
 
@@ -790,7 +793,7 @@ std::string Account::sendFile(
     line.replyTo = replyTo;
     return sendLine(std::move(line),
         [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch) {
-            (void)session.sendFile(peer, path, id, watch, replyTo);
+            session.sendFile(peer, path, id, watch, replyTo);
         });
 }
 
@@ -1104,7 +1107,7 @@ void Account::editMessage(
         if (!transcript_->applyEdit(peer, messageId, text, {}, true)) {
             throw std::runtime_error("no message of ours by that id in this conversation");
         }
-        (void)session.sendEdit(peer, messageId, text);
+        session.sendEdit(peer, messageId, text);
     }
     wakeup_->wake();
 }

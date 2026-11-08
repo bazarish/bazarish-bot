@@ -48,13 +48,11 @@ public:
 
     const std::string& fingerprint() const { return fingerprint_; }
 
-    // The keys are the account's own: its session issues them, this side only operates them.
     std::string serveDestinationFor(const std::string& account, const client::AddressKeys& keys);
     bool destinationNeedsRenewal(const std::string& account, std::int64_t now) const;
     std::string replaceDestinationFor(const std::string& account, const client::AddressKeys& keys);
     std::string destination(const std::string& account) const;
     void forget(const std::string& account);
-    // The address goes down; its key and the mail already stored stay for when it comes back.
     void takeDown(const std::string& account);
     void admit(const std::string& fingerprint);
     void endMailWait(const std::string& account);

@@ -71,7 +71,6 @@ Bytes exportBackup(const fs::path& stateDir, const fs::path& configFile,
 {
     std::vector<ZipEntry> entries;
     entries.push_back({kManifest, {}});
-    // The router's directory stays out, as in a checkpoint: it rebuilds what it holds on its own.
     for (auto found = fs::recursive_directory_iterator(stateDir);
          found != fs::recursive_directory_iterator(); ++found) {
         const fs::path relative = found->path().lexically_relative(stateDir);

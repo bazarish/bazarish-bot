@@ -9,7 +9,6 @@
 
 namespace bazarish::bot {
 
-// The composer's own cap: a picture this size and its envelope stay inside one 512 KiB message.
 inline constexpr std::size_t kMaxPictureNameBytes = 128;
 
 inline constexpr int kPictureMalformed = 400;

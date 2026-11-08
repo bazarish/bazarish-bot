@@ -41,6 +41,5 @@ enum class Copy {
 inline constexpr const char* kGroupLanguages[] = {"en", "ru", "es", "zh", "ar"};
 
 std::string copyText(const std::string& language, Copy key, const std::vector<std::string>& values = {});
-bool copyComplete();
 
 }  // namespace bazarish::bot

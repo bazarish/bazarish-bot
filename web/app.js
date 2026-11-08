@@ -65,13 +65,11 @@ const kPostsPage = 100;
 const kMsPerMinute = 60 * 1000;
 const kMsPerHour = 60 * kMsPerMinute;
 const kMsPerDay = 24 * kMsPerHour;
-// The desktop client's own avatar: a 256 px square JPEG.
 const kAvatarSide = 256;
 const kAvatarQuality = 0.9;
 const kCropView = 288;
 const kCropMaxZoom = 4;
 const kCropZoomStep = 0.01;
-// How fast the wheel zooms: one notch of 100 delta units is about a tenth.
 const kCropWheelRate = 0.001;
 const kQuarterTurn = Math.PI / 2;
 const kTurns = 4;
@@ -1263,7 +1261,6 @@ function pictureFrom(file) {
     });
 }
 
-// Resolves to the JPEG the account sends, or to null when the operator cancels.
 function cropAvatar(picture) {
     return new Promise((resolve) => {
         const sheet = node("dialog", "crop-sheet");
