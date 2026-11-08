@@ -38,6 +38,9 @@ constexpr std::size_t kSessionSecretBytes = 32;
 constexpr const char* kOperator = "operator";
 constexpr const char* kSessionCookie = "bazarish_bot";
 constexpr int kDefaultWaitSeconds = 30;
+// Each held poll is a thread; past this many the caller is told to slow down.
+constexpr std::size_t kMaxHeldPolls = 64;
+constexpr int kTooManyRequests = 429;
 constexpr int kDefaultPage = 50;
 constexpr const char* kAccountPath = "/ui/accounts/{hex}";
 constexpr const char* kStoragePath = "/v1/storage";
@@ -282,6 +285,12 @@ std::optional<http::Response> HttpFace::answerEvents(const std::shared_ptr<Accou
         return failure(400, error.what());
     }
     reapPolls(false);
+    {
+        const std::lock_guard<std::mutex> lock(pollsMutex_);
+        if (polls_.size() >= kMaxHeldPolls) {
+            return failure(kTooManyRequests, "too many event polls are held");
+        }
+    }
     const std::shared_ptr<std::atomic<bool>> done = std::make_shared<std::atomic<bool>>(false);
     std::thread poll([account, since, wait, respond = std::move(respond), done]() {
         try {
@@ -591,6 +600,7 @@ bool HttpFace::signedIn(const http::Request& request) const
 int HttpFace::start()
 {
     http::Server::Options options;
+    options.denyFraming = true;
     options.host = runtime_.config().listenHost;
     options.port = runtime_.config().listenPort;
     options.hosts = answeredHosts(runtime_.config());
@@ -910,7 +920,8 @@ void HttpFace::operatorRoutes()
         }
     });
 
-    server_->post("/ui/logout", [](const http::Request&) {
+    server_->post("/ui/logout", [this](const http::Request& request) {
+        sessions_.revoke(request.cookie(kSessionCookie), nowSeconds());
         http::Response response = http::jsonResponse({{"ok", true}});
         response.headers["Set-Cookie"]
             = std::string(kSessionCookie) + "=; Path=/; HttpOnly; Max-Age=0";

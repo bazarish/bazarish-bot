@@ -100,6 +100,9 @@ int main()
             "names whose conversation the message is in"));
         CHECK(says(call(port, "POST", base + "/reactions", cookie, R"({"peer":"p"})"),
             kBadRequest, "a reaction is"));
+        CHECK(call(port, "GET", base + "/messages?peer=p", cookie).status != kUnauthorized);
+        CHECK(call(port, "POST", "/ui/logout", cookie).status == kOk);
+        CHECK(call(port, "GET", base + "/messages?peer=p", cookie).status == kUnauthorized);
 
         face.stop();
     }
