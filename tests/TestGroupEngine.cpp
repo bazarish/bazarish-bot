@@ -5,6 +5,7 @@
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Crypto.hpp>
 #include <bazarish/Descriptor.hpp>
+#include <bazarish/KeyedSeal.hpp>
 
 #include <cstdio>
 #include <cstdlib>
@@ -116,7 +117,7 @@ GroupLink linkFor(Fake& fake)
         fake.sent.push_back({"receipt", peer, id, {}, {}, {}, {}, false});
     };
     link.descriptor = [](const std::string& peer) {
-        return encodeDescriptor(Descriptor{peer, kDest, "theirs"});
+        return encodeDescriptor(Descriptor{peer, kDest, newLinkKey(), "theirs"});
     };
     link.name = [&fake](const std::string& peer) {
         const auto found = fake.names.find(peer);
