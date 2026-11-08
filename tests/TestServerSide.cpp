@@ -32,7 +32,7 @@ int main()
     fs::remove_all(state);
     setSelfHostedFacadeOnLoopback(true);
     {
-        bot::ServerSide server(state, i2p::Privacy::eMiddle, nullptr);
+        bot::ServerSide server(state, i2p::Privacy::eMiddle, std::nullopt);
         server.start();
 
         const Identity owner = Identity::generate();

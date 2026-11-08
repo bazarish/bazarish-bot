@@ -134,7 +134,7 @@ client::GroupKind groupKindFromName(const std::string& name)
 }
 
 GroupStore::GroupStore(const std::filesystem::path& file)
-    : database_(file, "group store")
+    : database_(openDatabase(file, "group store"))
 {
     database_.run("CREATE TABLE IF NOT EXISTS hosted_config (row INTEGER PRIMARY KEY, kind TEXT NOT NULL,"
                   " joinMode TEXT NOT NULL, historySize INTEGER NOT NULL,"

@@ -138,10 +138,11 @@ nlohmann::json lineJson(const Line& line)
     }
     if (line.file.has_value()) {
         nlohmann::json file = {{"name", line.file->name}, {"size", line.file->size}};
-        for (const auto& [key, value] : {std::pair{"mime", &line.file->mime},
-                 std::pair{"sha256", &line.file->sha256}, std::pair{"path", &line.file->path}}) {
-            if (!value->empty()) {
-                file[key] = *value;
+        for (const auto& [key, value] : {std::pair{"mime", std::cref(line.file->mime)},
+                 std::pair{"sha256", std::cref(line.file->sha256)},
+                 std::pair{"path", std::cref(line.file->path)}}) {
+            if (!value.get().empty()) {
+                file[key] = value.get();
             }
         }
         item["file"] = file;
@@ -173,10 +174,11 @@ nlohmann::json transferJson(const Transfer& transfer)
         {"bytes", transfer.bytes},
         {"total", transfer.total},
     };
-    for (const auto& [key, value] : {std::pair{"stage", &transfer.stage},
-             std::pair{"error", &transfer.error}, std::pair{"path", &transfer.path}}) {
-        if (!value->empty()) {
-            item[key] = *value;
+    for (const auto& [key, value] : {std::pair{"stage", std::cref(transfer.stage)},
+             std::pair{"error", std::cref(transfer.error)},
+             std::pair{"path", std::cref(transfer.path)}}) {
+        if (!value.get().empty()) {
+            item[key] = value.get();
         }
     }
     return item;

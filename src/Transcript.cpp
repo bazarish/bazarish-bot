@@ -6,6 +6,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <functional>
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
@@ -86,7 +87,7 @@ Transcript::Transcript(
     const std::filesystem::path& accountFile, std::string ownFingerprint, const bool keepsHistory)
     : own_(std::move(ownFingerprint))
     , keepsHistory_(keepsHistory)
-    , ledger_(accountFile, "transcript")
+    , ledger_(openDatabase(accountFile, "transcript"))
 {
     if (!store_.open(accountFile)) {
         throw std::runtime_error("transcript: " + accountFile.string() + " did not open: "
@@ -117,10 +118,16 @@ public:
 
     Taken take(client::TranscriptIngest& ingest, const client::IncomingMessage& message)
     {
-        current_ = &message;
+        current_ = std::cref(message);
         taken_ = {};
-        const bool stored = ingest.takeIn(message);
-        current_ = nullptr;
+        bool stored = false;
+        try {
+            stored = ingest.takeIn(message);
+        } catch (...) {
+            current_.reset();
+            throw;
+        }
+        current_.reset();
         owner_.require(stored);
         return taken_;
     }
@@ -145,7 +152,8 @@ public:
 
     void chatTimerChanged(const std::string& peer, const std::int64_t seconds) override
     {
-        (void)owner_.noteLocked("timer", peer, current_->e2eId, std::to_string(seconds), actor(), 0);
+        (void)owner_.noteLocked(
+            "timer", peer, current_->get().e2eId, std::to_string(seconds), actor(), 0);
         timerNote_ = true;
         taken_.wrote = true;
     }
@@ -183,8 +191,8 @@ public:
     }
     void deliveredThrough(const std::string& peer, std::int64_t) override
     {
-        if (current_->contentType == client::kTypeReceipt) {
-            (void)owner_.noteLocked("receipt", peer, current_->refId, {}, peer, 0);
+        if (current_->get().contentType == client::kTypeReceipt) {
+            (void)owner_.noteLocked("receipt", peer, current_->get().refId, {}, peer, 0);
         }
         taken_.wrote = true;
     }
@@ -197,11 +205,11 @@ public:
 private:
     std::string actor() const
     {
-        return current_->sentByUs ? std::string() : current_->fromFingerprint;
+        return current_->get().sentByUs ? std::string() : current_->get().fromFingerprint;
     }
 
     Transcript& owner_;
-    const client::IncomingMessage* current_ = nullptr;
+    std::optional<std::reference_wrapper<const client::IncomingMessage>> current_;
     Taken taken_;
     bool timerNote_ = false;
 };

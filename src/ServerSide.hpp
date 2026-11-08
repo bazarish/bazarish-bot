@@ -2,6 +2,8 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
+#include <optional>
 
 #include <AccountApi.hpp>
 #include <DeliveryEngine.hpp>
@@ -31,7 +33,8 @@ namespace bazarish::bot {
 
 class ServerSide {
 public:
-    ServerSide(std::filesystem::path stateDir, i2p::Privacy privacy, i2p::Router* router);
+    ServerSide(std::filesystem::path stateDir, i2p::Privacy privacy,
+        std::optional<std::reference_wrapper<i2p::Router>> router);
     ~ServerSide();
 
     ServerSide(const ServerSide&) = delete;
@@ -59,7 +62,7 @@ public:
 private:
     std::filesystem::path stateDir_;
     i2p::Privacy privacy_ = i2p::Privacy::eMiddle;
-    i2p::Router* router_ = nullptr;
+    const std::optional<std::reference_wrapper<i2p::Router>> router_;
     std::string host_;
     int mailboxPort_ = 0;
     int nodePort_ = 0;

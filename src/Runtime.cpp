@@ -66,7 +66,8 @@ ServerSide& Runtime::serverSide()
                 (config_.stateDir / kI2pDirectory).string());
         }
         i2p::Router& shared = router();
-        auto mailbox = std::make_unique<ServerSide>(config_.stateDir, settings_.privacy(), &shared);
+        auto mailbox = std::make_unique<ServerSide>(
+            config_.stateDir, settings_.privacy(), std::ref(shared));
         mailbox->start();
         mailbox_ = std::move(mailbox);
     }

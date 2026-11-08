@@ -181,7 +181,7 @@ private:
     const ServerSideFn serverSide_;
 
     mutable std::mutex sessionMutex_;
-    ServerSide* mailbox_ = nullptr;
+    std::optional<std::reference_wrapper<ServerSide>> mailbox_;
     std::unique_ptr<client::Session> session_;
     std::shared_ptr<Transcript> transcript_;
     std::shared_ptr<Transfers> transfers_;

@@ -37,7 +37,8 @@ bool renewalDue(const std::int64_t expires, const std::int64_t now)
 
 }  // namespace
 
-ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Router* const router)
+ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy,
+    const std::optional<std::reference_wrapper<i2p::Router>> router)
     : stateDir_(std::move(stateDir))
     , privacy_(privacy)
     , router_(router)
@@ -117,7 +118,6 @@ void ServerSide::start()
     options.tlsCertificate = credential.certificate.string();
     options.tlsKey = credential.key.string();
     options.defaultQuotaBytes = kOwnQuotaBytes;
-    options.eventGate = gate_.get();
     options.serverCardDer = card_;
     options.sealingKey = sealing_;
     options.identity = identity_;
@@ -137,7 +137,7 @@ void ServerSide::start()
     options.accountKnown = [cards = nodeCards_](const std::string& user) {
         return cards->card(user).has_value();
     };
-    api_ = std::make_unique<server::HttpApi>(*storage_, options);
+    api_ = std::make_unique<server::HttpApi>(*storage_, *gate_, options);
     mailboxPort_ = api_->bind(host_, 0);
     if (mailboxPort_ <= 0) {
         throw std::runtime_error("the mailbox cannot take a port on " + host_);

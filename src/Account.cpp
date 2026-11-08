@@ -147,9 +147,14 @@ void Account::bringUp()
     if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
         group = std::make_shared<GroupEngine>(
             accountFile_, groupLink(session->relayFitter()), []() { return nowMillis(); });
-        GroupEngine* const engine = group.get();
         session->setGroupBlockSource(
-            [engine](const std::string& peer) { return engine->blockFor(peer); });
+            [engine = std::weak_ptr<GroupEngine>(group)](const std::string& peer) {
+                const std::shared_ptr<GroupEngine> held = engine.lock();
+                if (held == nullptr) {
+                    throw std::runtime_error("the group is closed");
+                }
+                return held->blockFor(peer);
+            });
     }
 
     cardCarriesDestination_ = false;
@@ -164,7 +169,7 @@ void Account::bringUp()
     std::shared_ptr<GroupEngine> started;
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
-        mailbox_ = &mailbox;
+        mailbox_ = std::ref(mailbox);
         session_ = std::move(session);
         transcript_ = std::move(transcript);
         transfers_ = std::move(transfers);
@@ -193,8 +198,8 @@ void Account::close()
     }
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
-        if (mailbox_ != nullptr && session_ != nullptr) {
-            mailbox_->endMailWait(session_->fingerprint());
+        if (mailbox_.has_value() && session_ != nullptr) {
+            mailbox_->get().endMailWait(session_->fingerprint());
         }
     }
     if (starter_.joinable()) {
@@ -377,7 +382,7 @@ void Account::newAddress()
     const std::lock_guard<std::mutex> lock(sessionMutex_);
     client::Session& session = openSession();
     session.issueAddressKeys();
-    const std::string address = mailbox_->replaceDestinationFor(fingerprint(), session.addressKeys());
+    const std::string address = mailbox_->get().replaceDestinationFor(fingerprint(), session.addressKeys());
     cardCarriesDestination_ = false;
     log::info("account {}: address replaced: {}", id_, address.empty() ? "building" : address);
 }
@@ -386,13 +391,13 @@ void Account::maintain()
 {
     const std::string fingerprint = this->fingerprint();
     while (!stopping_) {
-        if (mailbox_->destinationNeedsRenewal(fingerprint, bazarish::nowSeconds())) {
+        if (mailbox_->get().destinationNeedsRenewal(fingerprint, bazarish::nowSeconds())) {
             try {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
                 if (session_ != nullptr) {
-                    mailbox_->serveDestinationFor(fingerprint, session_->addressKeys());
+                    mailbox_->get().serveDestinationFor(fingerprint, session_->addressKeys());
                     log::info("account {}: delegation re-issued for {}", id_,
-                        mailbox_->destination(fingerprint));
+                        mailbox_->get().destination(fingerprint));
                 }
             } catch (const std::exception& error) {
                 log::warn("account {}: delegation not re-issued: {}", id_, error.what());
@@ -451,14 +456,14 @@ void Account::maintain()
             log::warn("account {}: alias servicing not started: {}", id_, error.what());
         }
 
-        if (!cardCarriesDestination_ && !mailbox_->destination(fingerprint).empty()) {
+        if (!cardCarriesDestination_ && !mailbox_->get().destination(fingerprint).empty()) {
             try {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
                 if (session_ != nullptr) {
                     const bool moved = session_->refreshOwnCard();
                     cardCarriesDestination_ = true;
                     log::info("account {}: card re-issued with the destination {}", id_,
-                        mailbox_->destination(fingerprint));
+                        mailbox_->get().destination(fingerprint));
                     if (moved) {
                         session_->announceNewRouting();
                     } else {
@@ -623,7 +628,7 @@ bool Account::storeIncoming(const client::IncomingMessage& item)
 std::string Account::destination() const
 {
     const std::lock_guard<std::mutex> lock(stateMutex_);
-    return status_ == kRunning ? mailbox_->destination(fingerprint_) : std::string();
+    return status_ == kRunning ? mailbox_->get().destination(fingerprint_) : std::string();
 }
 
 std::string Account::fingerprint() const
