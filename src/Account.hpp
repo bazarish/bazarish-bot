@@ -179,6 +179,8 @@ private:
     const std::shared_ptr<const client::FileSource> files_ = client::localFiles();
     std::shared_ptr<GroupEngine> group_;
 
+    // Held through open() and close(), so one never runs into the other.
+    std::mutex lifecycleMutex_;
     mutable std::mutex stateMutex_;
     std::string fingerprint_;
     std::string name_;

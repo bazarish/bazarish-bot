@@ -274,7 +274,9 @@ std::int64_t longParam(const http::Request& request, const std::string& key)
     }
 }
 
-std::optional<http::Response> answerEvents(const std::shared_ptr<Account>& account,
+}  // namespace
+
+std::optional<http::Response> HttpFace::answerEvents(const std::shared_ptr<Account>& account,
     const http::Request& request, http::Responder respond)
 {
     std::int64_t since = 0;
@@ -285,7 +287,9 @@ std::optional<http::Response> answerEvents(const std::shared_ptr<Account>& accou
     } catch (const std::invalid_argument& error) {
         return failure(400, error.what());
     }
-    std::thread([account, since, wait, respond = std::move(respond)]() {
+    reapPolls(false);
+    const std::shared_ptr<std::atomic<bool>> done = std::make_shared<std::atomic<bool>>(false);
+    std::thread poll([account, since, wait, respond = std::move(respond), done]() {
         try {
             const std::vector<Event> events = account->await(since, wait);
             respond(json({{"events", eventsJson(events)},
@@ -293,9 +297,32 @@ std::optional<http::Response> answerEvents(const std::shared_ptr<Account>& accou
         } catch (const std::exception& error) {
             respond(failure(503, error.what()));
         }
-    }).detach();
+        done->store(true);
+    });
+    const std::lock_guard<std::mutex> lock(pollsMutex_);
+    polls_.push_back(Poll{std::move(poll), done});
     return std::nullopt;
 }
+
+void HttpFace::reapPolls(const bool all)
+{
+    std::list<Poll> finished;
+    {
+        const std::lock_guard<std::mutex> lock(pollsMutex_);
+        for (auto it = polls_.begin(); it != polls_.end();) {
+            if (all || it->done->load()) {
+                finished.splice(finished.end(), polls_, it++);
+            } else {
+                ++it;
+            }
+        }
+    }
+    for (Poll& poll : finished) {
+        poll.thread.join();
+    }
+}
+
+namespace {
 
 http::Response addContact(Account& account, const nlohmann::json& body)
 {
@@ -428,6 +455,7 @@ HttpFace::HttpFace(Runtime& runtime, std::filesystem::path assets)
 HttpFace::~HttpFace()
 {
     stop();
+    reapPolls(true);
 }
 
 std::shared_ptr<Account> HttpFace::accountForToken(const http::Request& request) const

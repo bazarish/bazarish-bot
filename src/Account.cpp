@@ -86,6 +86,7 @@ std::string Account::status() const
 
 void Account::open()
 {
+    const std::lock_guard<std::mutex> lifecycle(lifecycleMutex_);
     {
         const std::lock_guard<std::mutex> lock(stateMutex_);
         if (status_ == kRunning || status_ == kStarting) {
@@ -114,8 +115,7 @@ void Account::bringUp()
 
     log::info("account {}: opening", id_);
     client::Session::assignHostedKind(accountFile_, storedAccountKind(settings_.kind(id_)));
-    auto session
-        = std::make_unique<client::Session>(client::Session::open(accountFile_));
+    std::unique_ptr<client::Session> session = client::Session::open(accountFile_);
     applyKind(*session);
     session->setDeviceSync(false);
     const std::string fingerprint = session->fingerprint();
@@ -186,6 +186,7 @@ void Account::bringUp()
 
 void Account::close()
 {
+    const std::lock_guard<std::mutex> lifecycle(lifecycleMutex_);
     {
         const std::lock_guard<std::mutex> lock(waitMutex_);
         stopping_ = true;
@@ -878,12 +879,13 @@ bool Account::cancelTransfer(const std::string& peer, const std::string& message
 bool Account::setMenu(const std::string& peer, std::vector<client::BotMenuItem> items)
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
+    client::Session& session = openSession();
     const std::optional<client::BotMenu> menu
         = replacingMenu(transcript_->menu(peer), std::move(items));
     if (!menu) {
         return false;
     }
-    openSession().sendMenu(peer, *menu);
+    session.sendMenu(peer, *menu);
     transcript_->setMenu(peer, *menu);
     return true;
 }

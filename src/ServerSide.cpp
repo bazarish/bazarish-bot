@@ -55,10 +55,6 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy, i2p::Route
     engineOptions.onDelivered = [this](const std::string& user) { gate_->notify(user); };
     engine_ = std::make_unique<server::DeliveryEngine>(*storage_, engineOptions);
 
-    destinations_ = std::make_unique<server::PerUserDestinations>(router_, *engine_, serverDir,
-        privacy_);
-    destinations_->reloadPersisted(nowSeconds());
-
     card_ = ServerCard::issue(*identity_, ServerCard::Service::eMessaging,
         Key::fromPublicDer(sealing_->publicDer()), nowSeconds());
     writeFileAtomic(serverDir / "server-card.der", card_);
@@ -133,6 +129,11 @@ void ServerSide::start()
     };
     nodeCards_ = std::make_shared<server::NodeCards>(
         server::NodeAddress{host_, nodePort_, true, credential.pin}, identity_);
+    destinations_ = std::make_unique<server::PerUserDestinations>(router_, *engine_,
+        stateDir_ / "server", privacy_,
+        [cards = nodeCards_](const std::string& fingerprint) { return cards->card(fingerprint); },
+        std::function<void()>{});
+    destinations_->reloadPersisted(nowSeconds());
     options.accountKnown = [cards = nodeCards_](const std::string& user) {
         return cards->card(user).has_value();
     };
@@ -151,9 +152,6 @@ void ServerSide::start()
     if (facadePort_ <= 0) {
         throw std::runtime_error("the facade cannot take a port on " + host_);
     }
-
-    destinations_->setGetCard(
-        [cards = nodeCards_](const std::string& fingerprint) { return cards->card(fingerprint); });
 
     log::info("server up on {}: mailbox {}, accounts {}, facade {}", host_, mailboxPort_,
         nodePort_, facadePort_);

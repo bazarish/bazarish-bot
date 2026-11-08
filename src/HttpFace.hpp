@@ -8,9 +8,14 @@
 #include <bazarish/PortalSession.hpp>
 #include <bazarish/WebAssets.hpp>
 
+#include <atomic>
 #include <functional>
+#include <list>
 #include <memory>
+#include <mutex>
+#include <optional>
 #include <string>
+#include <thread>
 
 namespace bazarish::bot {
 
@@ -30,6 +35,15 @@ private:
     void accountRoutes();
     std::shared_ptr<Account> accountForToken(const http::Request& request) const;
     bool signedIn(const http::Request& request) const;
+    // A held events request waits on a thread of its own, which the face joins.
+    std::optional<http::Response> answerEvents(const std::shared_ptr<Account>& account,
+        const http::Request& request, http::Responder respond);
+    void reapPolls(bool all);
+
+    struct Poll {
+        std::thread thread;
+        std::shared_ptr<std::atomic<bool>> done;
+    };
 
     Runtime& runtime_;
     OperatorAuth operator_;
@@ -38,6 +52,8 @@ private:
     std::unique_ptr<http::Server> server_;
     std::function<void()> restoreReady_;
     std::function<void()> restartAsked_;
+    std::mutex pollsMutex_;
+    std::list<Poll> polls_;
 };
 
 }  // namespace bazarish::bot

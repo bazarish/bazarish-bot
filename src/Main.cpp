@@ -10,6 +10,7 @@
 #include <Restart.hpp>
 
 #include <condition_variable>
+#include <cerrno>
 #include <csignal>
 #include <cstdio>
 #include <cstring>
@@ -40,6 +41,35 @@ void stopWhenAsked()
 }
 
 // Signals land on one sigwait thread: a handler may not touch a mutex or a condition variable.
+class SignalWaiter {
+public:
+    explicit SignalWaiter(const sigset_t signals)
+        : thread_([signals]() {
+            int caught = 0;
+            if (sigwait(&signals, &caught) == 0) {
+                stopWhenAsked();
+            }
+        })
+    {
+    }
+
+    // A stop that came from inside leaves the waiter in sigwait: a signal of its own ends it.
+    ~SignalWaiter()
+    {
+        const int woken = pthread_kill(thread_.native_handle(), SIGTERM);
+        if (woken != 0 && woken != ESRCH) {
+            bazarish::log::error("the signal waiter could not be woken: {}", woken);
+        }
+        thread_.join();
+    }
+
+    SignalWaiter(const SignalWaiter&) = delete;
+    SignalWaiter& operator=(const SignalWaiter&) = delete;
+
+private:
+    std::thread thread_;
+};
+
 sigset_t stopSignals()
 {
     sigset_t set;
@@ -103,12 +133,7 @@ int main(int argc, char** argv)
     bazarish::log::setLevel(*level);
 
     const sigset_t signals = stopSignals();
-    std::thread([signals]() {
-        int caught = 0;
-        if (sigwait(&signals, &caught) == 0) {
-            stopWhenAsked();
-        }
-    }).detach();
+    const SignalWaiter signalWaiter(signals);
     {
         bazarish::bot::Runtime runtime(config);
         runtime.openAll();
@@ -144,6 +169,7 @@ int main(int argc, char** argv)
         face.stop();
         runtime.stop();
     }
+
     if (g_restarting) {
         bazarish::log::info("exiting to be started again");
         return bazarish::kRestartExitCode;
