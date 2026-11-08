@@ -1,6 +1,7 @@
 // Bazarish project (c) 2026
 #include "Backup.hpp"
-#include "Zip.hpp"
+#include "TestUtil.hpp"
+#include <bazarish/Zip.hpp>
 
 #include <algorithm>
 #include <cstdio>
@@ -10,32 +11,9 @@
 #include <iterator>
 #include <string>
 
-#define CHECK(condition)                                                            \
-    do {                                                                            \
-        if (!(condition)) {                                                         \
-            std::fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, \
-                #condition);                                                        \
-            std::exit(1);                                                           \
-        }                                                                           \
-    } while (false)
-
-#define CHECK_THROWS(expression)                                                     \
-    do {                                                                             \
-        bool threw = false;                                                          \
-        try {                                                                        \
-            expression;                                                              \
-        } catch (const std::exception&) {                                            \
-            threw = true;                                                            \
-        }                                                                            \
-        if (!threw) {                                                                \
-            std::fprintf(stderr, "CHECK_THROWS failed at %s:%d: %s did not throw\n", \
-                __FILE__, __LINE__, #expression);                                    \
-            std::exit(1);                                                            \
-        }                                                                            \
-    } while (false)
-
 namespace fs = std::filesystem;
 using bazarish::Bytes;
+using namespace bazarish;
 using namespace bazarish::bot;
 
 namespace {
@@ -62,8 +40,7 @@ Bytes bytesOf(const std::string& text)
 
 int main()
 {
-    const fs::path root = fs::temp_directory_path() / "bz-bot-backup-test";
-    fs::remove_all(root);
+    const fs::path root = testutil::freshDir("bot-backup-test");
     const fs::path from = root / "from";
     const fs::path to = root / "to";
     const fs::path config = root / "bot.json";

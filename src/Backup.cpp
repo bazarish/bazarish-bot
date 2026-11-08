@@ -2,8 +2,8 @@
 #include "Backup.hpp"
 
 #include <bazarish/JsonRead.hpp>
-
-#include "Zip.hpp"
+#include <bazarish/PrivateFile.hpp>
+#include <bazarish/Zip.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -24,20 +24,6 @@ constexpr const char* kStatePrefix = "state/";
 constexpr const char* kConfigPrefix = "config/";
 constexpr int kFormat = 1;
 constexpr const char* kRouterDirectory = "i2p";
-
-Bytes readFile(const fs::path& file)
-{
-    std::ifstream in(file, std::ios::binary);
-    if (!in) {
-        throw std::runtime_error("backup: cannot read " + file.string());
-    }
-    return Bytes(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-}
-
-bool startsWith(const std::string& text, const std::string& prefix)
-{
-    return text.compare(0, prefix.size(), prefix) == 0;
-}
 
 fs::path insideState(const std::string& name)
 {
@@ -67,10 +53,10 @@ std::vector<ZipEntry> checkedEntries(const Bytes& archive)
         throw std::runtime_error("backup: a format this build does not read");
     }
     for (const ZipEntry& entry : entries) {
-        if (entry.name == kManifest || startsWith(entry.name, kConfigPrefix)) {
+        if (entry.name == kManifest || entry.name.starts_with(kConfigPrefix)) {
             continue;
         }
-        if (!startsWith(entry.name, kStatePrefix)) {
+        if (!entry.name.starts_with(kStatePrefix)) {
             throw std::runtime_error("backup: " + entry.name + " belongs nowhere");
         }
         (void)insideState(entry.name);
@@ -113,7 +99,7 @@ Bytes exportBackup(const fs::path& stateDir, const fs::path& configFile,
             Bytes(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()),
             static_cast<unsigned>(permissions & fs::perms::mask)});
     }
-    entries.push_back({kConfigPrefix + configFile.filename().string(), readFile(configFile),
+    entries.push_back({kConfigPrefix + configFile.filename().string(), readFileBytes(configFile),
         static_cast<unsigned>(fs::status(configFile).permissions() & fs::perms::mask)});
     const std::string manifest = nlohmann::json{{"format", kFormat}, {"version", version},
         {"createdAt", createdAt}, {"files", entries.size() - 1}}.dump(2);
@@ -135,7 +121,7 @@ void restoreBackup(const Bytes& archive, const fs::path& stateDir)
         }
     }
     for (const ZipEntry& entry : entries) {
-        if (!startsWith(entry.name, kStatePrefix)) {
+        if (!entry.name.starts_with(kStatePrefix)) {
             continue;
         }
         const fs::path target = stateDir / insideState(entry.name);

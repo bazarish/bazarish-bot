@@ -1,5 +1,6 @@
 // Bazarish project (c) 2026
 #include "Transcript.hpp"
+#include "TestUtil.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -7,15 +8,6 @@
 #include <map>
 #include <string>
 #include <vector>
-
-#define CHECK(condition)                                                            \
-    do {                                                                            \
-        if (!(condition)) {                                                         \
-            std::fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, \
-                #condition);                                                        \
-            std::exit(1);                                                           \
-        }                                                                           \
-    } while (false)
 
 namespace fs = std::filesystem;
 using bazarish::bot::Event;
@@ -41,8 +33,7 @@ Line lineFor(const std::string& peer, const std::string& text, const std::string
 
 int main()
 {
-    const fs::path dir = fs::temp_directory_path() / "bz-bot-transcript";
-    fs::remove_all(dir);
+    const fs::path dir = testutil::freshDir("bot-transcript");
     const fs::path file = dir / "account.db";
     const std::string self = "selffingerprint";
 

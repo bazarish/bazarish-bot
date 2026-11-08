@@ -55,11 +55,6 @@ std::string_view trimmed(std::string_view text)
     return text.substr(first, text.find_last_not_of(kBlank) - first + 1);
 }
 
-bool startsWith(const std::string& text, const std::string& prefix)
-{
-    return text.rfind(prefix, 0) == 0;
-}
-
 }  // namespace
 
 GroupEngine::GroupEngine(const std::filesystem::path& file, GroupLink link, Clock clock)
@@ -429,15 +424,15 @@ void GroupEngine::handleLocked(
     }
     if (message.contentType == "bot.callback") {
         const std::string& data = message.callbackData;
-        const bool approve = startsWith(data, kApprove);
-        if ((approve || startsWith(data, kDecline)) && member.admin) {
+        const bool approve = data.starts_with(kApprove);
+        if ((approve || data.starts_with(kDecline)) && member.admin) {
             const std::string number
                 = data.substr(std::string(approve ? kApprove : kDecline).size());
             decideLocked(std::stoll(number), approve, member.name, actions);
             return;
         }
         commandLocked(member, data, actions);
-        if (startsWith(data, kContactableCommand)) {
+        if (data.starts_with(kContactableCommand)) {
             showSettingsLocked(member, message.refId, actions);
         }
     }

@@ -1,5 +1,6 @@
 // Bazarish project (c) 2026
 #include "StateCheckpoint.hpp"
+#include "TestUtil.hpp"
 
 #include <AccountDb.hpp>
 #include <TranscriptDb.hpp>
@@ -11,22 +12,12 @@
 #include <filesystem>
 #include <string>
 
-#define CHECK(condition)                                                            \
-    do {                                                                            \
-        if (!(condition)) {                                                         \
-            std::fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, \
-                #condition);                                                        \
-            std::exit(1);                                                           \
-        }                                                                           \
-    } while (false)
-
 namespace fs = std::filesystem;
 using namespace bazarish;
 
 int main()
 {
-    const fs::path root = fs::temp_directory_path() / "bz-bot-checkpoint";
-    fs::remove_all(root);
+    const fs::path root = testutil::freshDir("bot-checkpoint");
     const fs::path live = root / "live";
     const fs::path account = live / "accounts" / "a1.db";
     fs::create_directories(live / "server");

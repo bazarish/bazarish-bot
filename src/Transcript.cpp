@@ -18,7 +18,6 @@ namespace {
 using client::DeliveryState;
 
 constexpr int kMaxPage = 500;
-constexpr std::int64_t kMillisPerSecond = 1000;
 constexpr std::int64_t kFeedKeptMs = kSecondsPerDay * kMillisPerSecond;
 constexpr const char* kOwnReactor = "me";
 constexpr const char* kFailedStatus = "failed";
@@ -34,7 +33,7 @@ int stateOf(const std::string& status)
     if (status == "read") {
         return static_cast<int>(DeliveryState::eDelivered);
     }
-    if (status.rfind(kFailedStatus, 0) == 0) {
+    if (status.starts_with(kFailedStatus)) {
         return static_cast<int>(DeliveryState::eFailed);
     }
     return static_cast<int>(DeliveryState::ePreparing);

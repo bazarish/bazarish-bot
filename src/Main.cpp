@@ -6,12 +6,11 @@
 
 #include <BuildVersion.hpp>
 #include <bazarish/Log.hpp>
+#include <bazarish/PrivateFile.hpp>
 
 #include <Restart.hpp>
 
 #include <condition_variable>
-#include <cerrno>
-#include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -38,48 +37,6 @@ void stopWhenAsked()
     const std::lock_guard<std::mutex> lock(g_stopMutex);
     g_stopping = true;
     g_stop.notify_all();
-}
-
-// Signals land on one sigwait thread: a handler may not touch a mutex or a condition variable.
-class SignalWaiter {
-public:
-    explicit SignalWaiter(const sigset_t signals)
-        : thread_([signals]() {
-            int caught = 0;
-            if (sigwait(&signals, &caught) == 0) {
-                stopWhenAsked();
-            }
-        })
-    {
-    }
-
-    // A stop that came from inside leaves the waiter in sigwait: a signal of its own ends it.
-    ~SignalWaiter()
-    {
-        const int woken = pthread_kill(thread_.native_handle(), SIGTERM);
-        if (woken != 0 && woken != ESRCH) {
-            bazarish::log::error("the signal waiter could not be woken: {}", woken);
-        }
-        thread_.join();
-    }
-
-    SignalWaiter(const SignalWaiter&) = delete;
-    SignalWaiter& operator=(const SignalWaiter&) = delete;
-
-private:
-    std::thread thread_;
-};
-
-sigset_t stopSignals()
-{
-    sigset_t set;
-    sigemptyset(&set);
-    sigaddset(&set, SIGINT);
-    sigaddset(&set, SIGTERM);
-    if (pthread_sigmask(SIG_BLOCK, &set, nullptr) != 0) {
-        throw std::runtime_error("the stop signals could not be blocked");
-    }
-    return set;
 }
 
 void usage()
@@ -132,8 +89,7 @@ int main(int argc, char** argv)
     }
     bazarish::log::setLevel(*level);
 
-    const sigset_t signals = stopSignals();
-    const SignalWaiter signalWaiter(signals);
+    const bazarish::SignalWaiter signalWaiter(stopWhenAsked);
     {
         bazarish::bot::Runtime runtime(config);
         runtime.openAll();
@@ -178,10 +134,7 @@ int main(int argc, char** argv)
         return 0;
     }
     const std::filesystem::path upload = config.stateDir / bazarish::bot::kRestoreUpload;
-    std::ifstream in(upload, std::ios::binary);
-    const bazarish::Bytes archive(
-        (std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-    in.close();
+    const bazarish::Bytes archive = bazarish::readFileBytes(upload);
     bazarish::bot::restoreBackup(archive, config.stateDir);
     std::filesystem::remove(upload);
     bazarish::log::info("the backup is restored; exiting to be started again");

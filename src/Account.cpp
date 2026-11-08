@@ -712,25 +712,15 @@ client::DeliveryWatch Account::statusWatch(const std::string& peer, const std::s
 std::string Account::sendText(const std::string& peer, const std::string& text,
     const std::string& replyTo, const bool forwarded)
 {
-    refuseOwnFingerprint(peer);
     Line line;
-    line.e2eId = client::newMessageId();
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        client::Session& session = openSession();
-        (void)session.sendMessage(
-            peer, text, line.e2eId, statusWatch(peer, line.e2eId), replyTo, forwarded);
-        line.status = "sending";
-        line.peer = peer;
-        line.outgoing = true;
-        line.type = "text";
-        line.text = text;
-        line.replyTo = replyTo;
-        line.sentAt = nowMillis();
-        transcript_->append(line);
-    }
-    wakeup_->wake();
-    return line.e2eId;
+    line.peer = peer;
+    line.type = client::kTypeText;
+    line.text = text;
+    line.replyTo = replyTo;
+    return sendLine(std::move(line),
+        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch) {
+            (void)session.sendMessage(peer, text, id, watch, replyTo, forwarded);
+        });
 }
 
 std::string Account::forward(
@@ -755,7 +745,6 @@ std::string Account::forward(
 std::string Account::sendKeyboard(
     const std::string& peer, const std::string& text, const std::string& keyboardJson)
 {
-    refuseOwnFingerprint(peer);
     client::InlineKeyboard keyboard;
     for (const nlohmann::json& row : bazarish::parseJson(keyboardJson)) {
         std::vector<client::InlineButton> buttons;
@@ -766,66 +755,55 @@ std::string Account::sendKeyboard(
         keyboard.push_back(std::move(buttons));
     }
     Line line;
-    line.e2eId = client::newMessageId();
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        client::Session& session = openSession();
-        session.sendInteractive(peer, text, keyboard, line.e2eId, statusWatch(peer, line.e2eId));
-        line.status = "sending";
-        line.peer = peer;
-        line.outgoing = true;
-        line.type = "text";
-        line.text = text;
-        line.keyboard = client::inlineKeyboardJson(keyboard);
-        line.sentAt = nowMillis();
-        transcript_->append(line);
-    }
-    wakeup_->wake();
-    return line.e2eId;
+    line.peer = peer;
+    line.type = client::kTypeText;
+    line.text = text;
+    line.keyboard = client::inlineKeyboardJson(keyboard);
+    return sendLine(std::move(line),
+        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch) {
+            session.sendInteractive(peer, text, keyboard, id, watch);
+        });
 }
 
 std::string Account::sendPicture(const std::string& peer, const Bytes& bytes,
     const std::string& name, const std::string& mime, const std::string& replyTo)
 {
-    refuseOwnFingerprint(peer);
     Line line;
-    line.e2eId = client::newMessageId();
-    {
-        const std::lock_guard<std::mutex> lock(sessionMutex_);
-        client::Session& session = openSession();
-        (void)session.sendPicture(
-            peer, bytes, name, mime, line.e2eId, statusWatch(peer, line.e2eId), replyTo);
-        line.status = "sending";
-        line.peer = peer;
-        line.outgoing = true;
-        line.type = "image";
-        line.text = name;
-        line.replyTo = replyTo;
-        line.sentAt = nowMillis();
-        transcript_->append(line);
-    }
-    wakeup_->wake();
-    return line.e2eId;
+    line.peer = peer;
+    line.type = client::kTypeImage;
+    line.text = name;
+    line.replyTo = replyTo;
+    return sendLine(std::move(line),
+        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch) {
+            (void)session.sendPicture(peer, bytes, name, mime, id, watch, replyTo);
+        });
 }
 
 std::string Account::sendFile(
     const std::string& peer, const std::string& path, const std::string& replyTo)
 {
-    refuseOwnFingerprint(peer);
     Line line;
+    line.peer = peer;
+    line.type = client::kTypeFile;
+    line.text = files_->name(path);
+    line.file = FileInfo{line.text, std::filesystem::file_size(pathFromUtf8(path)), {}, {}, path};
+    line.replyTo = replyTo;
+    return sendLine(std::move(line),
+        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch) {
+            (void)session.sendFile(peer, path, id, watch, replyTo);
+        });
+}
+
+std::string Account::sendLine(Line line, const SendFn& send)
+{
+    refuseOwnFingerprint(line.peer);
     line.e2eId = client::newMessageId();
+    line.status = "sending";
+    line.outgoing = true;
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        (void)session.sendFile(peer, path, line.e2eId, statusWatch(peer, line.e2eId), replyTo);
-        line.status = "sending";
-        line.peer = peer;
-        line.outgoing = true;
-        line.type = client::kTypeFile;
-        line.text = files_->name(path);
-        line.file = FileInfo{
-            line.text, std::filesystem::file_size(pathFromUtf8(path)), {}, {}, path};
-        line.replyTo = replyTo;
+        send(session, line.e2eId, statusWatch(line.peer, line.e2eId));
         line.sentAt = nowMillis();
         transcript_->append(line);
     }

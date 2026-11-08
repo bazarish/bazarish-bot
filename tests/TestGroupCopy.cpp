@@ -1,19 +1,11 @@
 // Bazarish project (c) 2026
 #include "GroupCopy.hpp"
+#include "TestUtil.hpp"
 
 #include <cstdio>
 #include <cstdlib>
 #include <stdexcept>
 #include <string>
-
-#define CHECK(condition)                                                            \
-    do {                                                                            \
-        if (!(condition)) {                                                         \
-            std::fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, \
-                #condition);                                                        \
-            std::exit(1);                                                           \
-        }                                                                           \
-    } while (false)
 
 using namespace bazarish::bot;
 

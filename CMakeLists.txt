@@ -38,7 +38,6 @@ add_library(bazarish_bot_lib STATIC
     src/GroupStore.cpp
     src/NameRules.cpp
     src/PictureRules.cpp
-    src/QrSvg.cpp
     src/MenuRules.cpp
     src/Transcript.cpp
     src/Transfers.cpp
@@ -46,17 +45,13 @@ add_library(bazarish_bot_lib STATIC
     src/StateCheckpoint.cpp
     src/Settings.cpp
     src/SystemInfo.cpp
-    src/Zip.cpp
 )
 bazarish_stamp_version(bazarish_bot_lib)
 target_include_directories(bazarish_bot_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_include_directories(bazarish_bot_lib PRIVATE ${SQLCIPHER_INCLUDE_DIR})
-find_library(QRENCODE_LIBRARY NAMES qrencode REQUIRED)
-find_path(QRENCODE_INCLUDE_DIR NAMES qrencode.h REQUIRED)
-target_include_directories(bazarish_bot_lib PRIVATE ${QRENCODE_INCLUDE_DIR})
 target_link_libraries(bazarish_bot_lib PUBLIC
     Bazarish::Client bazarish_server_lib bazarish_service_lib bazarish_facade_lib
-    ICU::uc ICU::i18n Threads::Threads ${QRENCODE_LIBRARY})
+    ICU::uc ICU::i18n Threads::Threads)
 target_compile_options(bazarish_bot_lib PRIVATE -Wall -Wextra -Werror)
 
 if(NOT PROJECT_IS_TOP_LEVEL)
@@ -71,7 +66,7 @@ enable_testing()
 
 function(bazarish_bot_add_test name)
     add_executable(${name} tests/${name}.cpp)
-    target_link_libraries(${name} PRIVATE bazarish_bot_lib)
+    target_link_libraries(${name} PRIVATE bazarish_bot_lib bazarish_test_util)
     target_compile_options(${name} PRIVATE -Wall -Wextra -Werror)
     add_test(NAME ${name} COMMAND ${name})
 endfunction()
@@ -85,7 +80,6 @@ bazarish_bot_add_test(TestTranscript)
 bazarish_bot_add_test(TestGroupEngine)
 bazarish_bot_add_test(TestNameRules)
 bazarish_bot_add_test(TestPictureRules)
-bazarish_bot_add_test(TestQrSvg)
 bazarish_bot_add_test(TestFileRules)
 bazarish_bot_add_test(TestTransfers)
 bazarish_bot_add_test(TestMenuRules)
@@ -93,8 +87,10 @@ bazarish_bot_add_test(TestGroupCopy)
 bazarish_bot_add_test(TestBackup)
 bazarish_bot_add_test(TestServerSide)
 bazarish_bot_add_test(TestStateCheckpoint)
+bazarish_bot_add_test(TestHttpFace)
+target_compile_definitions(TestHttpFace PRIVATE BAZARISH_BOT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME WebTranslations
-    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check-web-i18n.py
+    COMMAND ${Python3_EXECUTABLE} ${BAZARISH_SERVER_DIR}/tools/check-web-i18n.py
         ${CMAKE_CURRENT_SOURCE_DIR}/web)

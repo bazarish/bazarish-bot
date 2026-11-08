@@ -1,27 +1,18 @@
 // Bazarish project (c) 2026
 #include "FileRules.hpp"
+#include "TestUtil.hpp"
 
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 
-#define CHECK(condition)                                                            \
-    do {                                                                            \
-        if (!(condition)) {                                                         \
-            std::fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, \
-                #condition);                                                        \
-            std::exit(1);                                                           \
-        }                                                                           \
-    } while (false)
-
 namespace fs = std::filesystem;
 using namespace bazarish::bot;
 
 int main()
 {
-    const fs::path root = fs::temp_directory_path() / "bazarish-bot-file-rules-test";
-    fs::remove_all(root);
+    const fs::path root = testutil::freshDir("bot-file-rules-test");
     fs::create_directories(root / "dir");
     { std::ofstream(root / "kept.txt") << "the operator's data\n"; }
     fs::create_symlink(root / "nowhere", root / "dangling");

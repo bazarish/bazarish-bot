@@ -25,16 +25,11 @@ constexpr const char* kDatabaseExtension = ".db";
 constexpr const char* kCopySuffix = ".checkpoint";
 constexpr const char* kFilesField = "files";
 
-bool endsWith(const std::string& text, const std::string& tail)
-{
-    return text.size() >= tail.size() && text.compare(text.size() - tail.size(), tail.size(), tail) == 0;
-}
-
 // A database's journals are inside its whole copy; a temporary is half of a write.
 bool leftOut(const std::string& name)
 {
-    return endsWith(name, "-wal") || endsWith(name, "-shm") || endsWith(name, ".tmp")
-        || endsWith(name, kCopySuffix);
+    return name.ends_with("-wal") || name.ends_with("-shm") || name.ends_with(".tmp")
+        || name.ends_with(kCopySuffix);
 }
 
 Bytes bytesOf(const std::string& text)

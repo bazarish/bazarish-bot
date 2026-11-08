@@ -1,5 +1,6 @@
 // Bazarish project (c) 2026
 #include "ServerSide.hpp"
+#include "TestUtil.hpp"
 
 #include <ApiClient.hpp>
 
@@ -14,22 +15,12 @@
 #include <optional>
 #include <string>
 
-#define CHECK(condition)                                                            \
-    do {                                                                            \
-        if (!(condition)) {                                                         \
-            std::fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__, \
-                #condition);                                                        \
-            std::exit(1);                                                           \
-        }                                                                           \
-    } while (false)
-
 namespace fs = std::filesystem;
 using namespace bazarish;
 
 int main()
 {
-    const fs::path state = fs::temp_directory_path() / "bazarish-bot-test-server-side";
-    fs::remove_all(state);
+    const fs::path state = testutil::freshDir("bot-test-server-side");
     setSelfHostedFacadeOnLoopback(true);
     {
         bot::ServerSide server(state, i2p::Privacy::eMiddle, std::nullopt);
