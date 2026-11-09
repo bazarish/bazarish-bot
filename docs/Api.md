@@ -132,8 +132,8 @@ curl -s -X POST http://127.0.0.1:8440/v1/pictures \
 ```
 
 A picture travels inside the message, so it has a limit: the decoded bytes are at
-most **256 KiB**, the same cap the client's composer shrinks a photo to, which
-keeps the picture and its envelope inside the 512 KiB message. The daemon does
+most **515207 bytes**, what the 512 KiB message leaves for media once everything
+else it may carry is counted, the same cap the client's composer shrinks a photo to. The daemon does
 not shrink or re-encode anything; a larger picture is refused with `413`.
 
 Only PNG and JPEG are taken, told by their first bytes rather than by any field
@@ -144,9 +144,11 @@ in the conversation has the type `image` and the name as its text.
 
 ### Files
 
-A file does not travel in a message. The message announces it - name, size, type and
-SHA-256 - and the bytes go from one side to the other over a one-time I2P address
-when the receiver asks for them, so a file of any size is sent by naming it:
+A file of at most 515207 bytes travels inside its message, like a picture. A larger one
+does not: the message announces it - name, size, type and SHA-256 - and the bytes go
+from one side to the other over a one-time I2P address when the receiver asks for them.
+Either way a file of any size is sent by naming it, and the daemon picks the way by the
+size it reads:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8440/v1/files \
@@ -159,8 +161,9 @@ curl -s -X POST http://127.0.0.1:8440/v1/files \
 ```
 
 The path is absolute and names a regular file on this host; otherwise the answer is
-`400` or `404`. The daemon reads the file once to announce it and again each time the
-peer asks for it, so it stays at that path, unchanged, until the peer has it.
+`400` or `404`. A file carried in the message is read once and kept with the message. A
+larger one is read once to announce it and again each time the peer asks for it, so it
+stays at that path, unchanged, until the peer has it.
 
 A file that comes in is a line of the type `file`:
 
@@ -170,8 +173,9 @@ A file that comes in is a line of the type `file`:
  "mime": "application/pdf", "sha256": "5d41..."}}
 ```
 
-`mime` and `sha256` are what the sender announced. Nothing is fetched until it is asked
-for:
+`mime` and `sha256` are what the sender announced. A file that came inside its message
+is already here and a download writes it out at once, its transfer `done` straight away;
+for an announced one nothing is fetched until it is asked for:
 
 ```bash
 curl -s -X POST http://127.0.0.1:8440/v1/downloads \

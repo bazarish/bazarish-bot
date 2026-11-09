@@ -827,6 +827,16 @@ FileCheck Account::download(
         return FileCheck{false, kFileInTheWay, "this file is already on its way"};
     }
     transfers_->expect(peer, messageId, path);
+    if (const std::optional<Bytes> carried = session.fileBytes(messageId); carried.has_value()) {
+        const client::FileTarget target = client::fileTargetAt(pathFromUtf8(path));
+        const std::unique_ptr<client::FileOutput> out = target.open();
+        out->write(*carried);
+        out->finish();
+        const client::TransferEvent done{messageId, peer, client::TransferState::eDone,
+            carried->size(), carried->size(), {}, client::TransferStage::eNone};
+        transferHandler(transfers_, transcript_, wakeup_)(done);
+        return FileCheck{true, 0, {}};
+    }
     try {
         session.requestFile(
             peer, messageId, line->file->sha256, client::fileTargetAt(pathFromUtf8(path)));
