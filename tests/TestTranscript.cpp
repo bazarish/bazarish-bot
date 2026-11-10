@@ -242,6 +242,14 @@ int main()
         const bazarish::bot::Event pressed = transcript.since(transcript.lastEventId() - 1).back();
         CHECK(pressed.type == "bot.callback" && pressed.text == "lang:en" && pressed.actor == "gina");
 
+        bazarish::client::IncomingMessage request;
+        request.contentType = bazarish::client::kTypeContactRequest;
+        request.fromFingerprint = "hank";
+        request.e2eId = "h1";
+        CHECK(transcript.takeIn(request).added);
+        const bazarish::bot::Event asked = transcript.since(transcript.lastEventId() - 1).back();
+        CHECK(asked.type == bazarish::client::kTypeContactRequest && asked.actor == "hank");
+
         CHECK(transcript.append(lineFor("gina", "Choose a language.", "r1", true, 800)) != 0);
         CHECK(transcript.conversation("gina", 0, 10).empty());
         CHECK(transcript.since(transcript.lastEventId() - 1).back().text == "Choose a language.");
