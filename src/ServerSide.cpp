@@ -96,6 +96,8 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy,
         = [this](const std::string& user, const std::uint64_t quotaBytes) {
         storage_->setUserQuota(user, quotaBytes);
     };
+    accountOptions.publishCardChanged
+        = [this](const std::string& user) { nodeCards_->forget(user); };
     accounts_ = std::make_unique<service::AccountApi>(*subscriptions_, *grants_, accountOptions);
 }
 
