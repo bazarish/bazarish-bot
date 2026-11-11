@@ -133,7 +133,7 @@ void Account::bringUp()
     endpoint.serverFingerprint = mailbox.fingerprint();
     endpoint.facades.push_back(client::Facade{mailbox.host(), mailbox.port()});
     session->connectServer(endpoint);
-    session->registerSelfHosted();
+    session->registerSelfHosted(destination);
     session->setAcceptCalls(false);
     log::info("account {}: registered and up", id_);
     const client::Session::ContactFetchContext waiterContext = session->contactFetchContext();
@@ -160,7 +160,7 @@ void Account::bringUp()
             });
     }
 
-    cardCarriesDestination_ = false;
+    cardCarriesDestination_ = true;
     lastAliasErrand_ = 0;
     aliasesAnswered_ = false;
     {
@@ -603,7 +603,7 @@ void Account::registerAgain()
 {
     try {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
-        openSession().registerSelfHosted();
+        openSession().registerSelfHosted(mailbox_->get().destination(fingerprint()));
         log::info("account {}: registered again", id_);
     } catch (const std::exception& error) {
         log::warn("account {}: registering again: {}", id_, error.what());
