@@ -24,7 +24,6 @@ constexpr const char* kDeliveryRejected = "DELIVERY_REJECTED";
 constexpr const char* kApprove = "approve:";
 constexpr const char* kDecline = "decline:";
 constexpr const char* kSettingsCommand = "settings";
-constexpr const char* kSettingsTyped = "/settings";
 constexpr const char* kContactableCommand = "contactable";
 constexpr const char* kRenameCommand = "rename";
 constexpr const char* kTypeText = "text";
@@ -43,16 +42,6 @@ std::pair<std::string, std::string> splitCommand(const std::string& line)
         return {line, {}};
     }
     return {line.substr(0, space), line.substr(space + 1)};
-}
-
-std::string_view trimmed(std::string_view text)
-{
-    constexpr std::string_view kBlank = " \t\r\n";
-    const std::size_t first = text.find_first_not_of(kBlank);
-    if (first == std::string_view::npos) {
-        return {};
-    }
-    return text.substr(first, text.find_last_not_of(kBlank) - first + 1);
 }
 
 }  // namespace
@@ -378,10 +367,6 @@ void GroupEngine::handleLocked(
         break;
     }
 
-    if (message.contentType == kTypeText && trimmed(message.text) == kSettingsTyped) {
-        offerSettingsLocked(member, actions);
-        return;
-    }
     if (isPost(message.contentType) && renaming_.count(peer) != 0) {
         renameLocked(member, message, actions);
         return;

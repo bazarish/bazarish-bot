@@ -234,6 +234,8 @@ int main()
         CHECK(press("contactable on") == "contactable off");
 
         engine.onIncoming(textFrom(ann, " /settings\n", "p-settings"));
+        CHECK(fake.take("tell", ann).empty());
+        engine.onIncoming(commandFrom(ann, "settings", ""));
         const std::vector<Sent> offered = fake.take("tell", ann);
         CHECK(offered.size() == 1);
         CHECK(offered[0].text == "Your name in this group: Ann.");
@@ -258,10 +260,11 @@ int main()
         pump(engine);
         CHECK(fake.take("relay", ann).empty());
         const std::vector<Sent> toBob = fake.take("relay", bob);
-        CHECK(toBob.size() == 1);
-        CHECK(toBob[0].id == "p1");
-        CHECK(toBob[0].author == "Ann");
-        CHECK(fake.take("relay", cid).size() == 1);
+        CHECK(toBob.size() == 2);
+        CHECK(toBob[0].id == "p-settings");
+        CHECK(toBob[1].id == "p1");
+        CHECK(toBob[1].author == "Ann");
+        CHECK(fake.take("relay", cid).size() == 2);
         fake.accepted.clear();
         engine.onIncoming(incoming(ann, "contact.request"));
         CHECK(fake.accepted == std::vector<std::string>{ann});
@@ -480,7 +483,7 @@ int main()
         rename.callbackData = "rename";
         engine.onIncoming(rename);
         CHECK(fake.take("tell", ann).back().text == "Send your new name.");
-        engine.onIncoming(textFrom(ann, "/settings", "p-settings-2"));
+        engine.onIncoming(commandFrom(ann, "settings", ""));
         CHECK(fake.take("tell", ann).back().text == "Your name in this group: Ann.");
         engine.onIncoming(textFrom(ann, "Anna", "p-anna"));
         CHECK(fake.take("tell", ann).back().text == "Your name is now Anna.");
