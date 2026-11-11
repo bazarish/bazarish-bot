@@ -1,9 +1,8 @@
 # Bazarish bot
 
-Bazarish accounts that run as a service instead of as a desktop application,
-and answer a REST API. Automation talks to that API and never to the protocol:
-a bot is written against `POST /v1/messages`, not against sealed envelopes,
-delivery passes and destinations.
+Bazarish accounts that run as a service and answer a REST API. Automation
+talks to that API and never to the protocol: a bot is written against
+`POST /v1/messages`.
 
 One daemon holds any number of accounts on one I2P router, like the desktop
 client does. Each account is a **bot** or a **group**. A group account is a
@@ -55,8 +54,8 @@ cd bazarish-bot && packaging/deb/build.sh out
 ```
 
 The embedded router is always built in and carries every account in the
-daemon; a daemon that would rather borrow a router already running on the host
-over SAM says so in its interface, not at build time.
+daemon; a daemon that borrows a router already running on the host over SAM
+says so in its interface.
 
 The config listens on loopback; edit `listen` in `/etc/bazarish/bot.json` and
 restart the service to open it elsewhere.
@@ -67,22 +66,18 @@ becomes the operator and is written into the config as `operator`; from then on
 that key and no other opens the interface. Everything else - the transport, the
 accounts, the tokens - is set there.
 
-There is one operator for the whole host and no sign-in per account, and an
-account file here carries no passphrase: the host is the account's server and
-its operator, so a second lock on the same disk would guard nothing.
+There is one operator for the whole host and one sign-in for every account,
+and an account file here carries no passphrase: the host is the account's
+server and its operator.
 
-## What it will not do
+## One device per account
 
-- **It is not multi-device.** The daemon is the server of every account it
-  holds and runs each one on its own, so it sends nothing to an account's own
-  mailbox for other devices: no copies of what it sent, no address book, no
-  read marks - none of the `device.*` traffic the desktop client keeps its
-  devices in step with. An account comes in and goes out as a `.bazarish`
-  backup, the same file the desktop client uses. The backup moves the account;
-  two places cannot serve one account, and the interface says so where it offers
-  the export.
-- **It is not a desktop client.** No calls, no file picker. What a bot and its
-  operator need, and no more.
+The daemon is the server of every account it holds and runs each one on its
+own, so it sends nothing to an account's own mailbox for other devices: no
+copies of what it sent, no address book, no read marks, no `device.*` traffic.
+An account comes in and goes out as a `.bazarish` backup, the same file the
+desktop client uses. The backup moves the account; one account is served from
+one place, and the interface says so where it offers the export.
 
 ## Documents
 

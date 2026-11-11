@@ -305,9 +305,8 @@ visible here.
 
 **Admission.** A message is admitted to a mailbox by the **pass** its owner
 issued this account when they accepted the contact. A pass is one per
-correspondent and nothing runs it down, so there is no stash to keep topped up
-and no count to read: `GET /v1/contacts` answers `writable` and that is the whole
-of it.
+correspondent and does not run down: `GET /v1/contacts` answers `writable` and
+that is the whole of it.
 
 ```json
 [{"fingerprint": "...", "name": "alice", "pending": false, "accepting": false, "writable": true}]

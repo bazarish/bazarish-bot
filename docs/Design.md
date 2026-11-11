@@ -80,61 +80,50 @@ chosen by the owner. A member who is let in gets no welcome message.
 
 Everything that makes a conversation a *bot* conversation - commands, inline
 keyboards, callbacks - is end-to-end content and nothing else. The
-infrastructure never learns that a bot was involved, and this daemon needs no
-protocol of its own: it is an ordinary identity, exactly as the protocol
-specifies a bot to be.
+infrastructure never learns that a bot was involved: this daemon is an
+ordinary identity, exactly as the protocol specifies a bot to be.
 
 ## Self-hosting
 
 The daemon carries its own mailbox and federates on its own destination. A bot
-that runs as a service already has the uptime a mailbox needs, and depending on
-somebody else's server for it buys nothing while adding an operator, a
-subscription and a second thing to be down.
+that runs as a service already has the uptime a mailbox needs.
 
-This has one consequence worth stating. On a public server the account's serving
-destination is delegated: the user keeps the master key and hands the server a
-short-lived offline transient, so an operator who is not the user cannot become
-them. Inside one process there is no such boundary - the account, the mailbox and
-the operator are the same party - but the delegation stays, because it is not
-only a trust boundary. The per-day blinded keys it carries are what let the
-server publish the address as an **encrypted** leaseset without holding the
-master signing key, and the server refuses a delegation that has none: a bare
-master would build tunnels and then never publish.
+On a public server the account's serving destination is delegated: the user
+keeps the master key and hands the server a short-lived offline transient, so an
+operator who is not the user cannot become them. Inside one process the account,
+the mailbox and the operator are the same party, and the account's destination
+is delegated all the same. The per-day blinded keys the delegation carries are
+what let the server publish the address as an **encrypted** leaseset without
+holding the master signing key, and the server refuses a delegation that has
+none: a bare master would build tunnels and then never publish.
 
 So the daemon keeps each account's master on disk and issues a delegation to its
 own server side, re-issuing it from that master well before the term runs out.
 Two things follow:
 
 - The address is the blinded b33 of an encrypted leaseset, like every other
-  destination in the project. Nothing is forced back to a plain b32.
+  destination in the project.
 - The SAM transport asks an external router for the same encrypted leaseset, so
-  borrowing a router already running on the host stays possible. It needs
-  i2pd >= 3.0.0, and the one
-  thing SAM will not do is swap a live transient in place: a re-issue there
-  rebuilds the session, which keeps the address because the master is unchanged.
+  a router already running on the host can be borrowed. It needs
+  i2pd >= 3.0.0. Over SAM a re-issue rebuilds the session, which keeps the
+  address because the master is unchanged.
 
-Both of those have been run against an external i2pd, not only reasoned about:
-two daemons on one borrowed router published b33 addresses from their delegations,
-held a conversation in both directions, and kept their addresses across a re-issue.
-One thing to know when borrowing a router: a destination there gets exactly one
-stream forward, and asking twice takes down the one that works.
+When borrowing a router: a destination there gets exactly one stream forward,
+and asking twice takes down the one that works.
 
 The embedded router is always built in, so a single daemon is a single thing to
-install. Borrowing a router instead is a configuration, not a build: the
-transport is chosen at runtime, and there is one shape of the library.
+install. Borrowing a router is a configuration: the transport is chosen at
+runtime, and there is one shape of the library.
 
-## What it is not
+## One place per account
 
-- **Not multi-device.** Each account lives in one place and runs on its own. The
-  desktop client keeps its devices in step through the account's own mailbox -
-  a copy of everything sent, the address book, read marks, the `device.*`
-  messages; the daemon switches all of that off in the client core
-  (`Session::setDeviceSync(false)`), so nothing it does lands in its own
-  mailbox and nothing asks for devices that do not exist. A service does not
-  need another device, and paying for one here would buy nothing. An account is
-  moved by the password-protected `.bazarish` backup. Moving is not sharing:
-  two places cannot serve one account.
-- **Not a second protocol.** Where the REST API names a thing, it names the
+- **One device.** Each account lives in one place and runs on its own. The
+  daemon switches device sync off in the client core
+  (`Session::setDeviceSync(false)`): nothing it does lands in its own mailbox -
+  no copy of what it sent, no address book, no read marks, no `device.*`
+  messages. An account is moved by the password-protected `.bazarish` backup,
+  and one account is served from one place.
+- **The protocol's names.** Where the REST API names a thing, it names the
   thing the protocol already has.
 
 ## The API
@@ -148,8 +137,7 @@ Mail reaches the account the way it reaches every client: the account keeps one
 `events` request open to its own mailbox and reads the mailbox when that request
 says something is waiting, and once when the account comes up. What it reads goes
 into the transcript, and a bot's waiting poll is answered from there at once.
-There is no periodic mailbox read and no fallback; a wait that fails is asked
-again. Upkeep - renewing the delegation, the routing fan-out after a new
+A wait that fails is asked again. Upkeep - renewing the delegation, the routing fan-out after a new
 address, the alias status, re-issuing the card - runs on its own five-second
 turn and never reads the mailbox. Stopping an account releases its open request
 at once.
@@ -158,13 +146,12 @@ Authentication is a bearer token, issued in the web interface under a name and
 shown once. Whoever holds one holds the account, so the listener is on loopback
 unless the operator moves it deliberately.
 
-The web interface is the operator's, and the operator is a key, not a password:
-the interface shows a sign-in challenge, the operator signs it with their
+The web interface is the operator's, and the operator is a key: the interface shows a sign-in challenge, the operator signs it with their
 Bazarish identity, and the daemon checks the signature against the `operator`
 fingerprint in its config - the same sign-in-with-key the admin panel uses. A
 host with no operator in its config is unclaimed, and the first key to sign in
-claims it and is written there. There is one operator for every account and no
-sign-in per account. Account files carry no passphrase either: the operator and
+claims it and is written there. There is one operator for every account and one
+sign-in for all of them. Account files carry no passphrase: the operator and
 the server of an account are the same party on the same disk, so every account
 opens by itself at start.
 
@@ -222,5 +209,5 @@ administrator.
 | `common-cpp` | the client core (accounts, session, courier, invites) and the crypto and I2P transport under it |
 | `bazarish-server` | `server-core` for the mailbox, the delivery engine and the federation this daemon serves to itself, `service-node` for the account it registers with itself, and `facade-http` in front of both |
 
-The client core is shared with the desktop client rather than copied, so both
+The client core is shared with the desktop client, so both
 front-ends speak the protocol through exactly the same code.
