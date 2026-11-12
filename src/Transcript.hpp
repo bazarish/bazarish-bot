@@ -80,7 +80,7 @@ public:
     void applyReaction(const std::string& peer, const std::string& messageId,
         const std::string& reactor, const std::string& emoji);
     void clearPeer(const std::string& peer);
-    void failUnfinished();
+    std::vector<client::UnsentRow> unfinished();
     void setStatus(
         const std::string& peer, const std::string& messageId, const std::string& status);
     void keepFileAt(

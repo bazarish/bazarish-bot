@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <limits>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -42,6 +43,10 @@ struct Fake {
     std::vector<std::string> forgotten;
     std::vector<std::string> states;
     std::map<std::string, std::string> refuse;
+    // Members whose server does not answer: their relays wait in the outbox.
+    std::set<std::string> away;
+    std::map<std::string, client::DeliveryWatch> parked;
+    std::vector<std::string> withdrawn;
     std::map<std::string, std::string> names;
     std::map<std::string, int> relayCalls;
     std::size_t batchCap = std::numeric_limits<std::size_t>::max();
@@ -88,7 +93,7 @@ GroupLink linkFor(Fake& fake)
         fake.sent.push_back({"retell", peer, id, text, {}, keyboard, {}, false});
     };
     link.relay = [&fake](const std::string& peer, const std::vector<client::RelayedPost>& posts,
-                     const GroupLink::Outcome& done) {
+                     const client::DeliveryWatch& watch) {
         ++fake.relayCalls[peer];
         for (const client::RelayedPost& post : posts) {
             switch (post.kind) {
@@ -107,7 +112,12 @@ GroupLink linkFor(Fake& fake)
                 break;
             }
         }
-        done(fake.outcomeFor(peer));
+        if (fake.away.count(peer) != 0) {
+            fake.parked[peer] = watch;
+            watch.onPhase(client::kPhaseWaiting);
+            return;
+        }
+        watch.onOutcome(fake.outcomeFor(peer));
     };
     link.state = [&fake](const std::string& peer, const GroupLink::Outcome& done) {
         fake.states.push_back(peer);
@@ -124,6 +134,7 @@ GroupLink linkFor(Fake& fake)
         return found == fake.names.end() ? std::string() : found->second;
     };
     link.forget = [&fake](const std::string& peer) { fake.forgotten.push_back(peer); };
+    link.withdraw = [&fake](const std::string& peer) { fake.withdrawn.push_back(peer); };
     link.fitting = [&fake](const std::vector<client::RelayedPost>& posts) {
         std::size_t count = 0;
         while (count < posts.size() && count < fake.batchCap && posts[count].text != "huge") {
@@ -587,30 +598,57 @@ int main()
         join(engine, dead, gus, "Gus");
         const std::string ida = member();
         join(engine, dead, ida, "Ida");
-        dead.refuse[gus] = "RECIPIENT_SERVER_UNREACHABLE";
-        dead.refuse[ida] = "RECIPIENT_SERVER_UNREACHABLE";
+        dead.away = {gus, ida};
         engine.onIncoming(textFrom(host, "first", "d1"));
         pump(engine);
+        CHECK(dead.parked.count(gus) == 1 && dead.parked.count(ida) == 1);
 
         now += kDeadAfterMs / 2;
-        dead.refuse.erase(ida);
-        pump(engine);
-        dead.refuse[ida] = "RECIPIENT_SERVER_UNREACHABLE";
+        dead.away.erase(ida);
+        dead.parked.at(ida).onOutcome(dead.outcomeFor(ida));
+        dead.parked.erase(ida);
+        dead.away.insert(ida);
         engine.onIncoming(textFrom(host, "second", "d2"));
         pump(engine);
+        CHECK(dead.parked.count(ida) == 1);
         CHECK(stateIn(gus) == MemberState::eMember);
 
         now += kDeadAfterMs / 2 + kRelayRetryMs;
-        pump(engine);
+        dead.parked.at(gus).onPhase(client::kPhaseWaiting);
+        dead.parked.at(ida).onPhase(client::kPhaseWaiting);
         CHECK(stateIn(gus) == MemberState::eLeft);
         CHECK(stateIn(ida) == MemberState::eMember);
+        CHECK(dead.withdrawn == std::vector<std::string>{gus});
+        dead.parked.at(gus).onOutcome(
+            client::OutboundCourier::Outcome{false, {}, client::kWithdrawnMessage});
+        dead.parked.erase(gus);
+        CHECK(stateIn(gus) == MemberState::eLeft);
 
-        dead.refuse.erase(gus);
+        dead.away.erase(gus);
         dead.forget();
         engine.onIncoming(textFrom(gus, "back", "d3"));
         pump(engine);
         CHECK(stateIn(gus) == MemberState::eMember);
         CHECK(!dead.take("relay", gus).empty());
+    }
+
+    {
+        Fake crowd;
+        GroupEngine engine(dir / "crowd.db", linkFor(crowd), [&now]() { return now; });
+        const std::string host = member();
+        join(engine, crowd, host, "Hub");
+        for (std::size_t i = 0; i <= kMaxRelaysInFlight; ++i) {
+            const std::string gone = member();
+            join(engine, crowd, gone, "Away " + std::to_string(i));
+            crowd.away.insert(gone);
+        }
+        const std::string present = member();
+        join(engine, crowd, present, "Here");
+        crowd.forget();
+        engine.onIncoming(textFrom(host, "to everyone", "c1"));
+        pump(engine);
+        CHECK(crowd.parked.size() == kMaxRelaysInFlight + 1);
+        CHECK(crowd.take("relay", present).size() == 1);
     }
 
     fs::remove_all(dir);

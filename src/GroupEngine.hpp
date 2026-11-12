@@ -40,14 +40,15 @@ struct GroupLink {
     std::function<void(const std::string& peer, const std::string& messageId,
         const std::string& text, const client::InlineKeyboard& keyboard)>
         retell;
-    std::function<void(
-        const std::string& peer, const std::vector<client::RelayedPost>& posts, Outcome done)>
+    std::function<void(const std::string& peer, const std::vector<client::RelayedPost>& posts,
+        client::DeliveryWatch watch)>
         relay;
     std::function<void(const std::string& peer, Outcome done)> state;
     std::function<void(const std::string& peer, const std::string& messageId)> receipt;
     std::function<std::string(const std::string& peer)> descriptor;
     std::function<std::string(const std::string& peer)> name;
     std::function<void(const std::string& peer)> forget;
+    std::function<void(const std::string& peer)> withdraw;
     std::function<std::size_t(const std::vector<client::RelayedPost>& posts)> fitting;
     std::function<std::optional<Bytes>(const std::string& id, const std::string& type)> media;
 };
@@ -125,6 +126,8 @@ private:
     void saveLocked(const Member& member);
     void deliveredLocked(const std::string& fingerprint, std::int64_t seq,
         const client::OutboundCourier::Outcome& outcome);
+    // True when the member has waited long enough to count as gone.
+    bool waitingLocked(const std::string& fingerprint);
     GroupLink::Outcome watchRefusal(const std::string& peer);
     void refusedLocked(const std::string& fingerprint);
     void goneLocked(const std::string& fingerprint);
@@ -141,6 +144,8 @@ private:
     std::map<std::string, Member> members_;
     std::map<std::string, std::int64_t> retryAt_;
     std::map<std::string, bool> inFlight_;
+    // In flight to a member whose server does not answer: held by the outbox, not by a slot.
+    std::set<std::string> waiting_;
     std::set<std::string> renaming_;
     std::map<std::string, std::string> joinRequests_;
     std::int64_t memberCount_ = 0;

@@ -688,8 +688,10 @@ void GroupEngine::pumpOnce()
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         const std::int64_t now = clock_();
-        std::size_t busy = static_cast<std::size_t>(std::count_if(
-            inFlight_.begin(), inFlight_.end(), [](const auto& entry) { return entry.second; }));
+        std::size_t busy = static_cast<std::size_t>(
+            std::count_if(inFlight_.begin(), inFlight_.end(), [this](const auto& entry) {
+                return entry.second && waiting_.count(entry.first) == 0;
+            }));
         for (auto& [fingerprint, member] : members_) {
             if (busy >= kMaxRelaysInFlight) {
                 break;
@@ -740,13 +742,29 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
 {
     const std::string peer = member.fingerprint;
     const auto done = [this, peer](const std::int64_t seq) {
-        return [this, peer, seq](const client::OutboundCourier::Outcome& outcome) {
+        client::DeliveryWatch watch;
+        watch.onPhase = [this, peer](const std::string& phase) {
+            if (phase != client::kPhaseWaiting) {
+                return;
+            }
+            bool gone = false;
+            {
+                const std::lock_guard<std::mutex> lock(mutex_);
+                gone = waitingLocked(peer);
+            }
+            if (gone) {
+                link_.withdraw(peer);
+            }
+            nudge();
+        };
+        watch.onOutcome = [this, peer, seq](const client::OutboundCourier::Outcome& outcome) {
             {
                 const std::lock_guard<std::mutex> lock(mutex_);
                 deliveredLocked(peer, seq, outcome);
             }
             nudge();
         };
+        return watch;
     };
     const auto guarded = [this, peer](std::function<void()> send) {
         return [this, peer, send = std::move(send)]() {
@@ -836,8 +854,8 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
         throw std::runtime_error("a group log entry does not fit an envelope by itself");
     }
     items.resize(fit);
-    return guarded([this, peer, items, outcome = done(seqs[fit - 1])]() {
-        link_.relay(peer, items, outcome);
+    return guarded([this, peer, items, watch = done(seqs[fit - 1])]() {
+        link_.relay(peer, items, watch);
     });
 }
 
@@ -845,6 +863,7 @@ void GroupEngine::deliveredLocked(const std::string& fingerprint, const std::int
     const client::OutboundCourier::Outcome& outcome)
 {
     inFlight_[fingerprint] = false;
+    waiting_.erase(fingerprint);
     const auto found = members_.find(fingerprint);
     if (found == members_.end()) {
         return;
@@ -862,20 +881,35 @@ void GroupEngine::deliveredLocked(const std::string& fingerprint, const std::int
         refusedLocked(fingerprint);
         return;
     }
+    if (member.state != MemberState::eMember) {
+        return;
+    }
+    log::warn("group: {}'s server refused a relay, it is tried again: {}",
+        log::redact(fingerprint),
+        outcome.errorMessage.empty() ? outcome.errorCode : outcome.errorMessage);
+    retryAt_[fingerprint] = clock_() + kRelayRetryMs;
+}
+
+bool GroupEngine::waitingLocked(const std::string& fingerprint)
+{
+    const auto found = members_.find(fingerprint);
+    if (found == members_.end() || found->second.state != MemberState::eMember) {
+        return false;
+    }
+    waiting_.insert(fingerprint);
     const std::int64_t now = clock_();
     const std::optional<std::int64_t> since = store_.offlineSince(fingerprint);
     if (!since) {
         store_.markOffline(fingerprint, now);
-    } else if (now - *since >= kDeadAfterMs) {
-        store_.clearOffline(fingerprint);
-        retryAt_.erase(fingerprint);
-        goneLocked(fingerprint);
-        return;
+        return false;
     }
-    log::warn("group: a relay to {} did not arrive, it is tried again: {}",
-        log::redact(fingerprint),
-        outcome.errorMessage.empty() ? outcome.errorCode : outcome.errorMessage);
-    retryAt_[fingerprint] = clock_() + kRelayRetryMs;
+    if (now - *since < kDeadAfterMs) {
+        return false;
+    }
+    store_.clearOffline(fingerprint);
+    retryAt_.erase(fingerprint);
+    goneLocked(fingerprint);
+    return true;
 }
 
 GroupLink::Outcome GroupEngine::watchRefusal(const std::string& peer)

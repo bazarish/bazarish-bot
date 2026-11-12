@@ -31,6 +31,7 @@ constexpr int kMaxWaitSeconds = 60;
 constexpr const char* kClosed = "closed";
 constexpr const char* kStarting = "starting";
 constexpr const char* kRunning = "running";
+constexpr const char* kNotLeftStatus = "failed: this message did not leave this device";
 
 client::TransferEventFn transferHandler(const std::shared_ptr<Transfers>& transfers,
     const std::shared_ptr<Transcript>& transcript,
@@ -142,7 +143,6 @@ void Account::bringUp()
 
     auto transcript
         = std::make_shared<Transcript>(accountFile_, fingerprint, settings_.keepsHistory(id_));
-    transcript->failUnfinished();
     auto transfers = std::make_shared<Transfers>();
     session->setFileSource(files_);
     session->setTransferHandler(transferHandler(transfers, transcript, wakeup_));
@@ -178,6 +178,11 @@ void Account::bringUp()
         transfers_ = std::move(transfers);
         group_ = std::move(group);
         started = group_;
+        for (const client::UnsentRow& row : transcript_->unfinished()) {
+            if (!session_->watchDelivery(row.peer, row.e2eId, statusWatch(row.peer, row.e2eId))) {
+                transcript_->setStatus(row.peer, row.e2eId, kNotLeftStatus);
+            }
+        }
     }
     if (started != nullptr) {
         started->start();
@@ -281,10 +286,10 @@ GroupLink Account::groupLink(client::RelayFitter fitting)
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         openSession().sendEdit(peer, id, text, keyboard);
     };
-    link.relay = [this, watching](const std::string& peer,
-                     const std::vector<client::RelayedPost>& posts, GroupLink::Outcome done) {
+    link.relay = [this](const std::string& peer, const std::vector<client::RelayedPost>& posts,
+                     client::DeliveryWatch watch) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
-        openSession().relayPosts(peer, posts, watching(std::move(done)));
+        openSession().relayPosts(peer, posts, watch);
     };
     link.receipt = [this](const std::string& peer, const std::string& messageId) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
@@ -305,6 +310,10 @@ GroupLink Account::groupLink(client::RelayFitter fitting)
     link.forget = [this](const std::string& peer) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         openSession().removeContact(peer);
+    };
+    link.withdraw = [this](const std::string& peer) {
+        const std::lock_guard<std::mutex> lock(sessionMutex_);
+        openSession().withdrawDeliveries(peer);
     };
     link.fitting = std::move(fitting);
     link.media = [this](const std::string& id, const std::string& type) {
@@ -469,8 +478,6 @@ void Account::maintain()
                         mailbox_->get().destination(fingerprint));
                     if (moved) {
                         session_->announceNewRouting();
-                    } else {
-                        session_->runRoutingFanout();
                     }
                 }
             } catch (const std::exception& error) {

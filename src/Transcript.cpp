@@ -410,13 +410,14 @@ void Transcript::applyReaction(const std::string& peer, const std::string& messa
     (void)noteLocked("reaction", peer, messageId, emoji, reactor, 0);
 }
 
-void Transcript::failUnfinished()
+std::vector<client::UnsentRow> Transcript::unfinished()
 {
     const std::lock_guard<std::mutex> lock(mutex_);
-    require(store_.failUnsentOnLoad(static_cast<int>(DeliveryState::ePreparing),
-                      static_cast<int>(DeliveryState::eDelivering),
-                      static_cast<int>(DeliveryState::eFailed))
-                .has_value());
+    std::optional<std::vector<client::UnsentRow>> rows
+        = store_.unsentOutgoing(static_cast<int>(DeliveryState::ePreparing),
+            static_cast<int>(DeliveryState::eDelivering));
+    require(rows.has_value());
+    return std::move(*rows);
 }
 
 void Transcript::clearPeer(const std::string& peer)

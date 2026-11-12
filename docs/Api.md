@@ -323,18 +323,21 @@ requests automatically as they arrive unless that is switched off in the panel.
 Adding a contact answers once their card is found; the request then travels on its
 own, and a definite refusal takes the contact back.
 
-**Delivery.** `POST /v1/messages` answers as soon as the message is queued; this
-account delivers it in the background with retries, as the desktop client does.
-What became of it is on the line and in the feed:
+**Delivery.** `POST /v1/messages` answers as soon as the message is in the
+account's outbox; the account delivers it from there in the background, as the
+desktop client does, and keeps it there across a restart until the recipient's
+server signs for it or refuses it (`docs-main/Messages.md`). What became of it is
+on the line and in the feed:
 
 ```json
 {"id": 12, "messageId": "5373671a07d8b517", "outgoing": true, "text": "notice",
  "status": "delivered"}
 ```
 
-`status` is `sending` while the courier is working, `delivered` once the
+`status` is `sending` while the message is in the outbox, `delivered` once the
 recipient's server has signed for it, `read` once the recipient's read receipt
-covers it, or `failed`. A change to `delivered` or `failed` is an event of kind
+covers it, or `failed` when that server refused it or the message never reached
+the outbox. A change to `delivered` or `failed` is an event of kind
 `status`; its text is the status, and for a failure `failed: <reason>`. A read
 one is an event of kind `receipt`, so a long poll sees both without re-reading
 the conversation.
