@@ -26,7 +26,8 @@ namespace {
 constexpr int kMaintenanceSeconds = 5;
 constexpr std::int64_t kAliasServiceSeconds = 60;
 constexpr std::int64_t kRegistryRetrySeconds = 10;
-constexpr int kEventWaitSeconds = 30;
+// A failed wait asks again after this.
+constexpr std::chrono::seconds kMailWaitRetry{30};
 constexpr int kMaxWaitSeconds = 60;
 constexpr const char* kClosed = "closed";
 constexpr const char* kStarting = "starting";
@@ -208,6 +209,10 @@ void Account::close()
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         if (mailbox_.has_value() && session_ != nullptr) {
             mailbox_->get().endMailWait(session_->fingerprint());
+        }
+        // A held wait has no end of its own: only its link going down ends it.
+        if (session_ != nullptr) {
+            session_->releaseI2pLinks();
         }
     }
     if (starter_.joinable()) {
@@ -526,7 +531,7 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
             if (waiter == nullptr) {
                 waiter = client::Session::makeEventClient(context);
             }
-            waiting = client::Session::waitForMail(*waiter, kEventWaitSeconds);
+            waiting = client::Session::waitForMail(*waiter, client::Client::MailWait::eHeld);
         } catch (const std::exception& error) {
             log::info("mail wait failed, asking again: {}", error.what());
             if (const auto* refusal = dynamic_cast<const client::ApiError*>(&error);
@@ -534,7 +539,7 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
                 registerAgain();
             }
             std::unique_lock<std::mutex> lock(wakeup_->mutex);
-            wakeup_->changed.wait_until(lock, askedAt + std::chrono::seconds(kEventWaitSeconds),
+            wakeup_->changed.wait_until(lock, askedAt + kMailWaitRetry,
                 [this]() { return stopping_.load(); });
             continue;
         }
