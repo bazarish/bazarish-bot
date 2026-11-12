@@ -26,8 +26,6 @@ namespace {
 constexpr int kMaintenanceSeconds = 5;
 constexpr std::int64_t kAliasServiceSeconds = 60;
 constexpr std::int64_t kRegistryRetrySeconds = 10;
-// A failed wait asks again after this.
-constexpr std::chrono::seconds kMailWaitRetry{30};
 constexpr int kMaxWaitSeconds = 60;
 constexpr const char* kClosed = "closed";
 constexpr const char* kStarting = "starting";
@@ -100,6 +98,7 @@ void Account::open()
         starter_.join();
     }
     stopping_ = false;
+    mailGate_.restart();
     starter_ = std::thread([this]() {
         try {
             bringUp();
@@ -147,6 +146,7 @@ void Account::bringUp()
     auto transfers = std::make_shared<Transfers>();
     session->setFileSource(files_);
     session->setTransferHandler(transferHandler(transfers, transcript, wakeup_));
+    session->onServerAnswered([this]() { mailGate_.serverAnswered(); });
     std::shared_ptr<GroupEngine> group;
     if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
         group = std::make_shared<GroupEngine>(
@@ -205,6 +205,7 @@ void Account::close()
         const std::lock_guard<std::mutex> lock(wakeup_->mutex);
         stopping_ = true;
     }
+    mailGate_.stop();
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         if (mailbox_.has_value() && session_ != nullptr) {
@@ -526,21 +527,29 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
     std::unique_ptr<client::Client> waiter;
     while (!stopping_) {
         std::vector<client::PendingEntry> waiting;
-        const auto askedAt = std::chrono::steady_clock::now();
+        mailGate_.asking();
         try {
             if (waiter == nullptr) {
                 waiter = client::Session::makeEventClient(context);
             }
             waiting = client::Session::waitForMail(*waiter, client::Client::MailWait::eHeld);
+            mailGate_.answered();
         } catch (const std::exception& error) {
-            log::info("mail wait failed, asking again: {}", error.what());
+            log::info("account {}: mail wait failed: {}", id_, error.what());
             if (const auto* refusal = dynamic_cast<const client::ApiError*>(&error);
                 refusal != nullptr && refusal->code == ErrorCode::eClientUnregistered) {
                 registerAgain();
             }
-            std::unique_lock<std::mutex> lock(wakeup_->mutex);
-            wakeup_->changed.wait_until(lock, askedAt + kMailWaitRetry,
-                [this]() { return stopping_.load(); });
+            const client::MailWaitCause cause = mailGate_.awaitCause(
+                [&waiter]() { return waiter != nullptr && waiter->facadePublishedAnew(); });
+            if (cause == client::MailWaitCause::eStopped) {
+                return;
+            }
+            log::info("account {}: asking for mail again: {}", id_,
+                client::mailWaitCauseName(cause));
+            if (waiter != nullptr && cause != client::MailWaitCause::eStaleLeaseSet) {
+                waiter->liftStandOff();
+            }
             continue;
         }
         if (stopping_) {
@@ -617,6 +626,7 @@ void Account::registerAgain()
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         openSession().registerSelfHosted(mailbox_->get().destination(fingerprint()));
         log::info("account {}: registered again", id_);
+        mailGate_.registered();
     } catch (const std::exception& error) {
         log::warn("account {}: registering again: {}", id_, error.what());
     }

@@ -10,6 +10,7 @@
 
 #include <FileTransfer.hpp>
 #include <LoginSigner.hpp>
+#include <MailWaitGate.hpp>
 #include <Session.hpp>
 
 #include <bazarish/Bytes.hpp>
@@ -201,6 +202,7 @@ private:
     std::thread starter_;
     std::thread maintainer_;
     std::thread eventWaiter_;
+    client::MailWaitGate mailGate_;
     std::atomic<bool> stopping_{false};
     std::atomic<bool> cardCarriesDestination_{false};
     std::int64_t lastAliasErrand_ = 0;
