@@ -136,9 +136,8 @@ void ServerSide::start()
         [cards = nodeCards_](const std::string& fingerprint) { return cards->card(fingerprint); },
         std::function<void()>{});
     destinations_->reloadPersisted(nowSeconds());
-    options.accountKnown = [cards = nodeCards_](const std::string& user) {
-        return cards->card(user).has_value();
-    };
+    options.accountDevices
+        = [cards = nodeCards_](const std::string& user) { return cards->devices(user); };
     api_ = std::make_unique<server::HttpApi>(*storage_, *gate_, options);
     mailboxPort_ = api_->bind(host_, 0);
     if (mailboxPort_ <= 0) {
