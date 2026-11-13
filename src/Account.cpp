@@ -525,6 +525,7 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
 {
     drainMailbox();
     std::unique_ptr<client::Client> waiter;
+    bool serverWasDown = false;
     while (!stopping_) {
         std::vector<client::PendingEntry> waiting;
         mailGate_.asking();
@@ -534,14 +535,25 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
             }
             waiting = client::Session::waitForMail(*waiter, client::Client::MailWait::eHeld);
             mailGate_.answered();
+            if (serverWasDown) {
+                log::info("account {}: the server behind the facade answers again", id_);
+            }
+            serverWasDown = false;
         } catch (const std::exception& error) {
             log::info("account {}: mail wait failed: {}", id_, error.what());
             if (const auto* refusal = dynamic_cast<const client::ApiError*>(&error);
                 refusal != nullptr && refusal->code == ErrorCode::eClientUnregistered) {
                 registerAgain();
             }
-            const client::MailWaitCause cause = mailGate_.awaitCause(
-                [&waiter]() { return waiter != nullptr && waiter->facadePublishedAnew(); });
+            const bool serverDown = waiter != nullptr && waiter->serverBehindFacadeDown();
+            if (serverDown && !serverWasDown) {
+                log::warn("account {}: the facade answers but its server is down", id_);
+            }
+            serverWasDown = serverDown;
+            const client::MailWaitCause cause = serverDown
+                ? mailGate_.awaitServer()
+                : mailGate_.awaitCause(
+                    [&waiter]() { return waiter != nullptr && waiter->facadePublishedAnew(); });
             if (cause == client::MailWaitCause::eStopped) {
                 return;
             }
