@@ -147,6 +147,7 @@ void Account::bringUp()
     session->setFileSource(files_);
     session->setTransferHandler(transferHandler(transfers, transcript, wakeup_));
     session->onServerAnswered([this]() { mailGate_.serverAnswered(); });
+    session->openOutboxWhenAnswered(mailGate_);
     std::shared_ptr<GroupEngine> group;
     if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
         group = std::make_shared<GroupEngine>(
@@ -526,6 +527,7 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
     drainMailbox();
     std::unique_ptr<client::Client> waiter;
     bool serverWasDown = false;
+    bool answered = false;
     while (!stopping_) {
         std::vector<client::PendingEntry> waiting;
         mailGate_.asking();
@@ -533,13 +535,16 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
             if (waiter == nullptr) {
                 waiter = client::Session::makeEventClient(context);
             }
-            waiting = client::Session::waitForMail(*waiter, client::Client::MailWait::eHeld);
+            waiting = client::Session::waitForMail(*waiter,
+                answered ? client::Client::MailWait::eHeld : client::Client::MailWait::eAtOnce);
+            answered = true;
             mailGate_.answered();
             if (serverWasDown) {
                 log::info("account {}: the server behind the facade answers again", id_);
             }
             serverWasDown = false;
         } catch (const std::exception& error) {
+            answered = false;
             log::info("account {}: mail wait failed: {}", id_, error.what());
             if (const auto* refusal = dynamic_cast<const client::ApiError*>(&error);
                 refusal != nullptr && refusal->code == ErrorCode::eClientUnregistered) {
