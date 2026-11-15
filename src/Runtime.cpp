@@ -303,6 +303,16 @@ Bytes Runtime::exportEverything()
 {
     Bytes archive;
     quiesced([this, &archive]() {
+        std::vector<std::shared_ptr<Account>> all;
+        {
+            const std::lock_guard<std::mutex> lock(accountsMutex_);
+            for (const auto& [id, account] : accounts_) {
+                all.push_back(account);
+            }
+        }
+        for (const std::shared_ptr<Account>& account : all) {
+            account->eraseEndedEpochKeys();
+        }
         archive = exportBackup(config_.stateDir, config_.path, kBuildVersion, nowSeconds());
     });
     return archive;

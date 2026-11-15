@@ -373,6 +373,21 @@ Bytes Account::exportBundle(const std::string& bundlePassphrase)
     return openSession().exportAccountBytes(bundlePassphrase);
 }
 
+void Account::eraseEndedEpochKeys()
+{
+    const std::lock_guard<std::mutex> lifecycle(lifecycleMutex_);
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    if (session_ != nullptr) {
+        session_->eraseEndedEpochKeys();
+        return;
+    }
+    // A session on its way up erases them as it opens.
+    if (live()) {
+        return;
+    }
+    static_cast<void>(client::Session::open(accountFile_, std::string()));
+}
+
 void Account::rename(const std::string& name)
 {
     {

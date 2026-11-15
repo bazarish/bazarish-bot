@@ -62,6 +62,7 @@ public:
     std::string postToGroup(const std::string& text);
 
     Bytes exportBundle(const std::string& bundlePassphrase);
+    void eraseEndedEpochKeys();
 
 
     void rename(const std::string& name);
