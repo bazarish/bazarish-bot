@@ -148,6 +148,7 @@ public:
     {
         return "A message of the type " + rawType + " this host does not know.";
     }
+    std::string unreadable() const override { return "A message could not be read"; }
 
     void chatTimerChanged(const std::string& peer, const std::int64_t seconds) override
     {
