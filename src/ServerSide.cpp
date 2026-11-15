@@ -98,12 +98,25 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy,
         const std::lock_guard<std::mutex> lock(ownMutex_);
         return own_.count(user) != 0;
     };
-    accountOptions.publishQuota
-        = [this](const std::string& user, const std::uint64_t quotaBytes) {
-        storage_->setUserQuota(user, quotaBytes);
-    };
-    accountOptions.publishCardChanged
-        = [this](const std::string& user) { nodeCards_->forget(user); };
+    accountOptions.pushes = std::make_shared<service::PushQueue>(serverDir / "node",
+        *subscriptions_, *accountOptions.userLocks,
+        service::PushQueue::Delivery{
+            .quota =
+                [this](const std::string& user, const std::uint64_t quotaBytes) {
+                    storage_->setUserQuota(user, quotaBytes);
+                    return service::PushOutcome::eDelivered;
+                },
+            .card =
+                [this](const std::string& user) {
+                    nodeCards_->forget(user);
+                    return service::PushOutcome::eDelivered;
+                },
+            .takeDownAddress =
+                [this](const std::string& user) {
+                    nodeCards_->forget(user);
+                    destinations_->forget(user);
+                    return service::PushOutcome::eDelivered;
+                }});
     accounts_ = std::make_unique<service::AccountApi>(*subscriptions_, *grants_, accountOptions);
 }
 
