@@ -197,7 +197,9 @@ behind; compacting the database rewrites the file without them.
 
 The System page exports one zip of the state directory and the config file,
 with a `bazarish-bot-backup.json` manifest naming the format and the version.
-Entries are stored, not deflated, and keep their file modes. While it is
+Entries are stored, not deflated, and keep their file modes. Before it is
+written each account erases its epoch keys that are 30 days past their epoch's
+end (`docs-main`, `Identity.md`, Epoch keys), so the archive carries none of them. While it is
 written every account is closed, so no account database is copied mid-write;
 the server stays up, since its storage replaces each file whole.
 
