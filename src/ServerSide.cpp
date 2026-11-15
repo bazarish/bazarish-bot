@@ -24,6 +24,12 @@ namespace fs = std::filesystem;
 
 namespace {
 
+// The server keeps a served address's keys as PEM text by design.
+std::string textOf(const SecretBytes& pem)
+{
+    return std::string(pem.bytes().begin(), pem.bytes().end());
+}
+
 constexpr const char* kMailboxHost = "127.0.0.1";
 constexpr int kOwnDelegationDays = static_cast<int>(bazarish::kMaxDelegationDays);
 constexpr std::uint64_t kOwnQuotaBytes = 4ULL * 1024 * 1024 * 1024;
@@ -196,7 +202,7 @@ std::string ServerSide::serveDestinationFor(
     const std::int64_t held = destinations_->heldUntil(account);
     const std::shared_ptr<Key> served = destinations_->assignmentFor(account, nowSeconds()).sealingKey;
     const bool sameKeys
-        = served && served->publicDer() == Key::fromPrivatePem(keys.sealingPem).publicDer();
+        = served && served->publicDer() == Key::fromPrivatePem(textOf(keys.sealingPem)).publicDer();
     if (held > 0 && sameKeys && fs::exists(keyFile) && !renewalDue(held, nowSeconds())) {
         {
             const std::lock_guard<std::mutex> lock(expiresMutex_);
@@ -219,7 +225,7 @@ std::string ServerSide::serveDestinationFor(
         destinationExpires_[account] = delegated.transientExpires();
     }
     destinations_->provision(account, toBase64(delegated.blob()), delegated.transientExpires(),
-        keys.sealingPem, keys.signingPem);
+        textOf(keys.sealingPem), textOf(keys.signingPem));
     return destinations_->assignmentFor(account, nowSeconds()).dest;
 }
 
