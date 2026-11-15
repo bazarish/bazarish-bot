@@ -178,8 +178,11 @@ come back. A contact is added by alias as well as by invite.
 
 ## One database per account
 
-An account is one encrypted file under `accounts/`, the same file a client
-keeps an account in. The conversations sit in it in the client's tables and
+An account is one SQLCipher file under `accounts/` with its `.key` file beside
+it, the same pair a client keeps an account in. A bot account has no passphrase,
+so its `.key` file holds the database key sealed under the fixed secret every
+client knows: whoever holds the account directory opens the account
+(`client-qt/docs/AccountStorage.md`, Files). The conversations sit in it in the client's tables and
 through the client core's store, so deleting a message or clearing a chat takes
 its pictures and voice notes with it. The bot adds two tables of its own: the
 event feed of the API and the menus it gave out.
