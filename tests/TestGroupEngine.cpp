@@ -22,7 +22,7 @@ using namespace bazarish::bot;
 
 namespace {
 
-constexpr const char* kDest = "dlkbeyqjykssca6o7qlbwgq4fr2hry7kw2ursn2sh3lt3acox6gq.b32.i2p";
+constexpr const char* kDest = "dlkbeyqjykssca6o7qlbwgq4fr2hry7kw2ursn2sh3lt3acox6gqaaaa.b32.i2p";
 constexpr int kPumpRounds = 8;
 constexpr const char* kAskName = "Choose your name in this chat.";
 
