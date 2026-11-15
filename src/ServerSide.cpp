@@ -121,6 +121,7 @@ void ServerSide::start()
     options.tlsKey = credential.key.string();
     options.defaultQuotaBytes = kOwnQuotaBytes;
     options.serverCardDer = card_;
+    options.fingerprint = fingerprint_;
     options.sealingKey = sealing_;
     options.identity = identity_;
     options.assignDestination
