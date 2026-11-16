@@ -24,7 +24,6 @@ namespace bazarish::bot {
 
 inline constexpr std::int64_t kMemberCountPeriodMs = 60 * 60 * 1000;
 inline constexpr std::int64_t kMediaSweepMs = 30 * 1000;
-inline constexpr std::int64_t kRelayRetryMs = 60 * 1000;
 inline constexpr std::int64_t kDeadAfterDays = 30;
 inline constexpr std::int64_t kMsPerDay = 24 * 60 * 60 * 1000;
 inline constexpr std::int64_t kDeadAfterMs = kDeadAfterDays * kMsPerDay;
@@ -142,7 +141,8 @@ private:
     Clock clock_;
     GroupConfig config_;
     std::map<std::string, Member> members_;
-    std::map<std::string, std::int64_t> retryAt_;
+    // Relays held until something comes from the member: a full mailbox or a local failure.
+    std::set<std::string> held_;
     std::map<std::string, bool> inFlight_;
     // In flight to a member whose server does not answer: held by the outbox, not by a slot.
     std::set<std::string> waiting_;

@@ -13,6 +13,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -25,6 +26,8 @@ namespace {
 constexpr const char* kDest = "dlkbeyqjykssca6o7qlbwgq4fr2hry7kw2ursn2sh3lt3acox6gqaaaa.b32.i2p";
 constexpr int kPumpRounds = 8;
 constexpr const char* kAskName = "Choose your name in this chat.";
+// The minute the engine once waited before it sent a refused relay again.
+constexpr std::int64_t kOldRetryMs = 60 * 1000;
 
 struct Sent {
     std::string kind;
@@ -49,6 +52,8 @@ struct Fake {
     std::vector<std::string> withdrawn;
     std::map<std::string, std::string> names;
     std::map<std::string, int> relayCalls;
+    // Members whose relays fail on this device before they leave it.
+    std::set<std::string> broken;
     std::size_t batchCap = std::numeric_limits<std::size_t>::max();
     int told = 0;
 
@@ -95,6 +100,9 @@ GroupLink linkFor(Fake& fake)
     link.relay = [&fake](const std::string& peer, const std::vector<client::RelayedPost>& posts,
                      const client::DeliveryWatch& watch) {
         ++fake.relayCalls[peer];
+        if (fake.broken.count(peer) != 0) {
+            throw std::runtime_error("no delivery pass for this contact yet: " + peer);
+        }
         for (const client::RelayedPost& post : posts) {
             switch (post.kind) {
             case client::RelayKind::ePost:
@@ -613,7 +621,7 @@ int main()
         CHECK(dead.parked.count(ida) == 1);
         CHECK(stateIn(gus) == MemberState::eMember);
 
-        now += kDeadAfterMs / 2 + kRelayRetryMs;
+        now += kDeadAfterMs / 2 + 1;
         dead.parked.at(gus).onPhase(client::kPhaseWaiting);
         dead.parked.at(ida).onPhase(client::kPhaseWaiting);
         CHECK(stateIn(gus) == MemberState::eLeft);
@@ -649,6 +657,58 @@ int main()
         pump(engine);
         CHECK(crowd.parked.size() == kMaxRelaysInFlight + 1);
         CHECK(crowd.take("relay", present).size() == 1);
+    }
+
+    {
+        Fake refused;
+        GroupEngine engine(dir / "refused.db", linkFor(refused), [&now]() { return now; });
+        const std::string host = member();
+        join(engine, refused, host, "Hoy");
+        const std::string full = member();
+        join(engine, refused, full, "Jam");
+        const std::string large = member();
+        join(engine, refused, large, "Kit");
+        const std::string local = member();
+        join(engine, refused, local, "Lou");
+        refused.refuse[full] = "STORAGE_FULL";
+        refused.refuse[large] = "MESSAGE_TOO_LARGE";
+        refused.broken.insert(local);
+        refused.forget();
+        refused.relayCalls.clear();
+        engine.onIncoming(textFrom(host, "first", "r1"));
+        pump(engine);
+        CHECK(refused.relayCalls[full] == 1);
+        CHECK(refused.relayCalls[large] == 1);
+        CHECK(refused.relayCalls[local] == 1);
+
+        now += kOldRetryMs;
+        pump(engine);
+        CHECK(refused.relayCalls[full] == 1);
+        CHECK(refused.relayCalls[large] == 1);
+        CHECK(refused.relayCalls[local] == 1);
+
+        refused.refuse.erase(large);
+        refused.forget();
+        engine.onIncoming(textFrom(host, "second", "r2"));
+        pump(engine);
+        const std::vector<Sent> after = refused.take("relay", large);
+        CHECK(after.size() == 1);
+        CHECK(after[0].id == "r2");
+        CHECK(refused.relayCalls[full] == 1);
+        CHECK(refused.relayCalls[local] == 1);
+
+        refused.refuse.erase(full);
+        refused.broken.erase(local);
+        refused.forget();
+        engine.onIncoming(incoming(full, "receipt"));
+        engine.onIncoming(incoming(local, "receipt"));
+        pump(engine);
+        for (const std::string& heard : {full, local}) {
+            const std::vector<Sent> caught = refused.take("relay", heard);
+            CHECK(caught.size() == 2);
+            CHECK(caught[0].id == "r1");
+            CHECK(caught[1].id == "r2");
+        }
     }
 
     fs::remove_all(dir);

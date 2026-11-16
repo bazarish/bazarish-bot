@@ -21,6 +21,7 @@ constexpr std::int64_t kPumpIdleMs = 1000;
 constexpr std::int64_t kLogBatch = 64;
 constexpr std::size_t kMaxUtf8Bytes = 4;
 constexpr const char* kDeliveryRejected = "DELIVERY_REJECTED";
+constexpr const char* kStorageFull = "STORAGE_FULL";
 constexpr const char* kApprove = "approve:";
 constexpr const char* kDecline = "decline:";
 constexpr const char* kSettingsCommand = "settings";
@@ -269,6 +270,9 @@ void GroupEngine::onIncoming(const client::IncomingMessage& message)
     Actions actions;
     {
         const std::lock_guard<std::mutex> lock(mutex_);
+        if (!message.sentByUs) {
+            held_.erase(message.fromFingerprint);
+        }
         handleLocked(message, prefetched, actions);
         receiptLocked(message, actions);
     }
@@ -687,7 +691,6 @@ void GroupEngine::pumpOnce()
     Actions actions;
     {
         const std::lock_guard<std::mutex> lock(mutex_);
-        const std::int64_t now = clock_();
         std::size_t busy = static_cast<std::size_t>(
             std::count_if(inFlight_.begin(), inFlight_.end(), [this](const auto& entry) {
                 return entry.second && waiting_.count(entry.first) == 0;
@@ -699,8 +702,7 @@ void GroupEngine::pumpOnce()
             if (member.state != MemberState::eMember || inFlight_[fingerprint]) {
                 continue;
             }
-            const auto retry = retryAt_.find(fingerprint);
-            if (retry != retryAt_.end() && retry->second > now) {
+            if (held_.count(fingerprint) != 0) {
                 continue;
             }
             Member copy = member;
@@ -771,10 +773,12 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
             try {
                 send();
             } catch (const std::exception& error) {
-                log::warn("group: a relay did not leave, it is tried again: {}", error.what());
+                log::error("group: a relay to {} did not leave; it waits until they are heard"
+                           " from: {}",
+                    log::redact(peer), error.what());
                 const std::lock_guard<std::mutex> lock(mutex_);
                 inFlight_[peer] = false;
-                retryAt_[peer] = clock_() + kRelayRetryMs;
+                held_.insert(peer);
             }
         };
     };
@@ -870,7 +874,6 @@ void GroupEngine::deliveredLocked(const std::string& fingerprint, const std::int
     }
     Member member = found->second;
     if (outcome.stored) {
-        retryAt_.erase(fingerprint);
         store_.clearOffline(fingerprint);
         member.cursor = std::max(member.cursor, seq);
         saveLocked(member);
@@ -884,10 +887,17 @@ void GroupEngine::deliveredLocked(const std::string& fingerprint, const std::int
     if (member.state != MemberState::eMember) {
         return;
     }
-    log::warn("group: {}'s server refused a relay, it is tried again: {}",
+    if (outcome.errorCode == kStorageFull) {
+        held_.insert(fingerprint);
+        log::info("group: {}'s mailbox is full; relays wait until they are heard from",
+            log::redact(fingerprint));
+        return;
+    }
+    log::warn("group: {}'s server refused a relay for good, those rows are passed: {}",
         log::redact(fingerprint),
         outcome.errorMessage.empty() ? outcome.errorCode : outcome.errorMessage);
-    retryAt_[fingerprint] = clock_() + kRelayRetryMs;
+    member.cursor = std::max(member.cursor, seq);
+    saveLocked(member);
 }
 
 bool GroupEngine::waitingLocked(const std::string& fingerprint)
@@ -907,7 +917,7 @@ bool GroupEngine::waitingLocked(const std::string& fingerprint)
         return false;
     }
     store_.clearOffline(fingerprint);
-    retryAt_.erase(fingerprint);
+    held_.erase(fingerprint);
     goneLocked(fingerprint);
     return true;
 }

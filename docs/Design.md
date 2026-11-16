@@ -53,8 +53,11 @@ one-id-one-row rule would not hold.
   and the log survives a restart: a post to a thousand members that takes an
   hour is not lost by stopping halfway. A refusal from the member's server
   (`DELIVERY_REJECTED`) means the member left: the name stays theirs and the
-  pump stops; another refusal (a full mailbox, a rate limit) is tried again a
-  minute later. A member whose server does not answer keeps their relay in the
+  pump stops. A full mailbox (`STORAGE_FULL`) holds the member's relays until
+  anything comes from them; any other refusal is final for those rows, which
+  the member's cursor passes. A relay that fails on the bot's own side is an
+  error and also holds the member's relays until they are heard from. A member
+  whose server does not answer keeps their relay in the
   outbox, which does not hold one of the pump's slots, and goes on the offline
   list; after 30 days on it they leave and the relay is withdrawn.
 - **The host's own posts.** A post from the panel or `POST /v1/posts` is a row
