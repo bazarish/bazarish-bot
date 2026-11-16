@@ -74,7 +74,8 @@ std::string copyText(
         }
         std::string text = entry.texts[index];
         for (std::size_t value = 0; value < values.size(); ++value) {
-            const std::string mark = "%" + std::to_string(value + 1);
+            std::string mark("%");
+            mark += std::to_string(value + 1);
             for (std::size_t at = text.find(mark); at != std::string::npos;
                  at = text.find(mark, at + values[value].size())) {
                 text.replace(at, mark.size(), values[value]);
