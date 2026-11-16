@@ -71,7 +71,7 @@ try {
             ownCheckFailed = true;
         }
         CHECK(ownCheckFailed);
-        CHECK(misled.linkFailure() == client::LinkFailure::eServerRefused);
+        CHECK(misled.linkFailure() == client::LinkFailure::eServerMalformed);
         server.stop();
     }
     std::printf("TestServerSide OK\n");
