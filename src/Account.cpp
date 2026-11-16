@@ -3,6 +3,7 @@
 #include "MenuRules.hpp"
 
 #include <ApiClient.hpp>
+#include <KeyedDatabase.hpp>
 
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Clock.hpp>
@@ -539,7 +540,9 @@ client::Session& Account::openSession() const
 
 void Account::waitForEvents(const client::Session::ContactFetchContext& context)
 {
-    drainMailbox();
+    if (!drainMailbox()) {
+        return;
+    }
     std::unique_ptr<client::Client> waiter;
     bool serverWasDown = false;
     bool answered = false;
@@ -587,21 +590,24 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
         if (stopping_) {
             return;
         }
-        if (!waiting.empty()) {
-            drainMailbox();
+        if (!waiting.empty() && !drainMailbox()) {
+            return;
         }
     }
 }
 
-void Account::drainMailbox()
+bool Account::drainMailbox()
 {
     std::vector<client::IncomingMessage> arrived;
     try {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         if (session_ == nullptr) {
-            return;
+            return true;
         }
         arrived = session_->sync(false);
+    } catch (const client::StorageError& error) {
+        log::error("account {}: receiving stopped: {}", id_, error.what());
+        return false;
     } catch (const std::exception& error) {
         log::warn("account {}: mailbox: {}", id_, error.what());
     }
@@ -620,7 +626,7 @@ void Account::drainMailbox()
                 log::warn("account {}: group: {}", id_, error.what());
             }
         }
-        return;
+        return true;
     }
 
     bool wrote = false;
@@ -642,6 +648,7 @@ void Account::drainMailbox()
     if (wrote) {
         wakeup_->wake();
     }
+    return true;
 }
 
 void Account::acknowledge(const client::IncomingMessage& item)

@@ -160,7 +160,7 @@ public:
 private:
     void maintain();
     void waitForEvents(const client::Session::ContactFetchContext& context);
-    void drainMailbox();
+    bool drainMailbox();
     void registerAgain();
     bool storeIncoming(const client::IncomingMessage& item);
     void acknowledge(const client::IncomingMessage& item);
