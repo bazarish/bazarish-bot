@@ -205,7 +205,6 @@ private:
     std::thread eventWaiter_;
     client::MailWaitGate mailGate_;
     std::atomic<bool> stopping_{false};
-    std::atomic<bool> cardCarriesDestination_{false};
     std::int64_t lastAliasErrand_ = 0;
     std::mutex errandMutex_;
     std::thread aliasErrand_;

@@ -163,7 +163,6 @@ void Account::bringUp()
             });
     }
 
-    cardCarriesDestination_ = true;
     lastAliasErrand_ = 0;
     aliasesAnswered_ = false;
     {
@@ -418,8 +417,14 @@ void Account::newAddress()
     client::Session& session = openSession();
     session.issueAddressKeys();
     const std::string address = mailbox_->get().replaceDestinationFor(fingerprint(), session.addressKeys());
-    cardCarriesDestination_ = false;
-    log::info("account {}: address replaced: {}", id_, address.empty() ? "building" : address);
+    if (address.empty()) {
+        throw std::runtime_error("the mailbox serves no destination for the new address");
+    }
+    const bool moved = session.refreshOwnCard();
+    log::info("account {}: address replaced, card re-issued with {}", id_, address);
+    if (moved) {
+        session.announceNewRouting();
+    }
 }
 
 void Account::maintain()
@@ -489,23 +494,6 @@ void Account::maintain()
             }
         } catch (const std::exception& error) {
             log::warn("account {}: alias servicing not started: {}", id_, error.what());
-        }
-
-        if (!cardCarriesDestination_ && !mailbox_->get().destination(fingerprint).empty()) {
-            try {
-                const std::lock_guard<std::mutex> lock(sessionMutex_);
-                if (session_ != nullptr) {
-                    const bool moved = session_->refreshOwnCard();
-                    cardCarriesDestination_ = true;
-                    log::info("account {}: card re-issued with the destination {}", id_,
-                        mailbox_->get().destination(fingerprint));
-                    if (moved) {
-                        session_->announceNewRouting();
-                    }
-                }
-            } catch (const std::exception& error) {
-                log::warn("account {}: card not re-issued yet: {}", id_, error.what());
-            }
         }
 
         std::unique_lock<std::mutex> lock(wakeup_->mutex);
