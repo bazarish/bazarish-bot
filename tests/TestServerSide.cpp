@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -60,13 +61,16 @@ int main()
         client::ServerEndpoint impostor = endpoint;
         impostor.serverFingerprint = Identity::generate().fingerprint();
         client::ApiClient misled(owner.device, impostor);
-        bool refused = false;
+        bool ownCheckFailed = false;
         try {
             (void)misled.get("/v1/account/i2p-status");
         } catch (const client::ApiError&) {
-            refused = true;
+            ownCheckFailed = false;
+        } catch (const std::runtime_error&) {
+            ownCheckFailed = true;
         }
-        CHECK(refused);
+        CHECK(ownCheckFailed);
+        CHECK(misled.linkFailure() == client::LinkFailure::eServerRefused);
         server.stop();
     }
     fs::remove_all(state);
