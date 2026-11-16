@@ -67,6 +67,11 @@ Bytes takeCheckpoint(const fs::path& stateDir)
     return nlohmann::json::to_cbor(nlohmann::json{{kFilesField, std::move(files)}});
 }
 
+bool isCheckpointScratch(const fs::path& file)
+{
+    return file.filename().string().find(kCopySuffix) != std::string::npos;
+}
+
 void restoreCheckpoint(const fs::path& stateDir, const Bytes& checkpoint)
 {
     const nlohmann::json document = bazarish::parseCbor(checkpoint);

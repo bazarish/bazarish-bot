@@ -59,6 +59,11 @@ int main()
     bot::restoreCheckpoint(restored, bot::takeCheckpoint(live));
     CHECK(client::AccountDb(restored / "accounts" / "a1.db", std::string()).text("probe") == "after");
 
+    CHECK(bot::isCheckpointScratch(account.string() + ".checkpoint"));
+    CHECK(bot::isCheckpointScratch(account.string() + ".checkpoint-wal"));
+    CHECK(!bot::isCheckpointScratch(account));
+    CHECK(!bot::isCheckpointScratch(account.string() + "-wal"));
+
     store.close();
     fs::remove_all(root);
     std::fprintf(stderr, "TestStateCheckpoint passed\n");
