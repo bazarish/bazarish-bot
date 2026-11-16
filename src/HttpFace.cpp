@@ -2,6 +2,7 @@
 #include "HttpFace.hpp"
 #include "Backup.hpp"
 #include "FileRules.hpp"
+#include "KeyboardRules.hpp"
 #include "PictureRules.hpp"
 #include "SystemInfo.hpp"
 
@@ -519,7 +520,7 @@ std::vector<SharedRoute> sharedRoutes()
                 }
                 return http::jsonResponse({{"messageId",
                     body.contains("keyboard")
-                        ? account.sendKeyboard(peer, text, body.at("keyboard").dump())
+                        ? account.sendKeyboard(peer, text, keyboardFromJson(body.at("keyboard")))
                         : account.sendText(peer, text, replyTo)}});
             }},
         {Verb::ePost, "/messages/{hex}",
@@ -529,8 +530,8 @@ std::vector<SharedRoute> sharedRoutes()
                 if (peer.empty()) {
                     return failure(400, "\"peer\" names whose conversation the message is in");
                 }
-                account.editMessage(
-                    peer, call.captures.at(first), body.value("text", std::string()));
+                account.editMessage(peer, call.captures.at(first),
+                    body.value("text", std::string()), keyboardOfEdit(body));
                 return http::jsonResponse({{"edited", call.captures.at(first)}});
             }},
         {Verb::eDelete, "/messages/{hex}",

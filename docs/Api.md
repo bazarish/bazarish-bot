@@ -23,42 +23,57 @@ apart, because those are different mistakes:
 
 While the account is closed or still coming up, every route but `/v1/status`
 answers `503` with the status in it: `{"error": "the account is not open: starting"}`.
+The status is `starting`, `running`, `closed` or `failed: <reason>`.
+
+Every refusal is `{"error": "<what was wrong>"}` under one of these codes:
+
+| Code | When |
+|---|---|
+| `400` | the body or a parameter is not what the route takes, or the account cannot do what it names, such as an edit of a message it did not send |
+| `401` | no token, or a token that does not open the API |
+| `404` | no such file, path or transfer |
+| `409` | a route the account's kind does not take; a download onto a path that is taken, or of a file already on its way |
+| `413` | a picture over its limit |
+| `415` | a picture that is neither PNG nor JPEG |
+| `429` | 64 event polls are held open already |
+| `503` | the account is not open, or it closed while a poll waited |
 
 ## Routes
 
-| Route | What it does |
-|---|---|
-| `GET /v1/status` | the account's `fingerprint`, `name`, `kind` (`bot` or `group`), `enabled`, `destination`, `status`, the id of the last event and the `link` to I2P |
-| `POST /v1/status` | `{"enabled": false}` switches the account off, `{"enabled": true}` on; answers like `GET /v1/status` |
-| `GET /v1/invite` | the invite URI to hand out to be added as a contact |
-| `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted, `accepting` while the acceptance is on its way, and `writable` for whether this account holds the pass that admits it to their mailbox |
-| `POST /v1/contacts` | `{"invite": "...", "text": "..."}` or `{"alias": "!name", "text": "..."}` adds one; `{"accept": "<fingerprint>"}` accepts a request |
-| `DELETE /v1/contacts/{fingerprint}` | removes a contact and revokes the pass it was issued, or declines a request; the conversation stays |
-| `GET /v1/chats` | the last line of every conversation |
-| `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first |
-| `POST /v1/messages` | `{"peer": "...", "text": "...", "replyTo": "<messageId>", "keyboard": [...]}`; `replyTo` and `keyboard` are optional, and a message with a keyboard takes no `replyTo` |
-| `POST /v1/pictures` | `{"peer": "...", "data": "<base64>", "name": "qr.png", "replyTo": "<messageId>"}` sends a picture; `name` and `replyTo` are optional |
-| `POST /v1/files` | `{"peer": "...", "path": "/srv/outbox/report.pdf", "replyTo": "<messageId>"}` offers a file on this host; `replyTo` is optional |
-| `POST /v1/downloads` | `{"peer": "...", "messageId": "...", "path": "/srv/inbox/report.pdf"}` fetches a file the peer offered into a path on this host |
-| `GET /v1/transfers` | every file transfer since the account opened, each as `GET /v1/transfers/{messageId}` shows it |
-| `GET /v1/transfers/{messageId}?peer=` | how far one transfer has got |
-| `DELETE /v1/transfers/{messageId}?peer=` | stops a transfer under way |
-| `POST /v1/menu` | `{"peer": "...", "items": [{"title": "Balance", "command": "balance"}]}` sets the commands this account offers that contact; `[]` takes them away |
-| `POST /v1/forward` | `{"from": "<fingerprint>", "messageId": "...", "to": "<fingerprint>"}` sends a text message on, marked forwarded |
-| `POST /v1/messages/{id}` | `{"peer": "...", "text": "..."}` revises a message this account sent |
-| `DELETE /v1/messages/{id}?peer=` | takes a message this account sent back, on both sides |
-| `POST /v1/reactions` | `{"peer": "...", "messageId": "...", "emoji": "👍"}`; an empty emoji takes it back |
-| `POST /v1/receipts` | `{"peer": "...", "messageId": "..."}` tells the peer their message was read, and every earlier one with it |
-| `POST /v1/chats/{fingerprint}/clear` | `{"everyone": true}` drops the conversation on both sides, `{"everyone": false}` only here |
-| `GET /v1/chats/{fingerprint}/timer` | the conversation's auto-delete timer, `{"seconds": 3600}`; `0` is off |
-| `POST /v1/chats/{fingerprint}/timer` | `{"seconds": 86400}` sets the timer on both sides, `{"seconds": 0}` turns it off |
-| `GET /v1/storage` | the size of the account's database, `fileBytes`, and how much of it is free pages, `freeBytes` |
-| `POST /v1/storage/compact` | rewrites the database without its free pages; answers like `GET /v1/storage` |
-| `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds, at most 60 |
-| `POST /v1/posts` | `{"text": "..."}` posts in a group as the group itself; group accounts only |
+| Route | What it does | Answer |
+|---|---|---|
+| `GET /v1/status` | the account's `fingerprint`, `name`, `kind` (`bot` or `group`), `enabled`, `status`, `destination`, the id of the last event, `lastEventId`, and the `link` to I2P | the account |
+| `POST /v1/status` | `{"enabled": false}` switches the account off, `{"enabled": true}` on | like `GET /v1/status` |
+| `GET /v1/invite` | the invite URI to hand out to be added as a contact | `{"invite": "..."}` |
+| `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted, `accepting` while the acceptance is on its way, and `writable` for whether this account holds the pass that admits it to their mailbox | `[{"fingerprint", "name", "pending", "accepting", "writable"}]` |
+| `POST /v1/contacts` | `{"invite": "...", "text": "..."}` or `{"alias": "!name", "text": "..."}` adds one, `text` optional; `{"accept": "<fingerprint>"}` accepts a request | `{"fingerprint": "..."}`; for `accept`, `{"accepted": "<fingerprint>"}` |
+| `DELETE /v1/contacts/{fingerprint}` | removes a contact and revokes the pass it was issued, or declines a request; the conversation stays | `{"removed": "<fingerprint>"}` |
+| `GET /v1/chats` | the newest line of every conversation, the newest conversation first | lines |
+| `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first (*Lines*) | lines |
+| `POST /v1/messages` | `{"peer": "...", "text": "...", "replyTo": "<messageId>", "keyboard": [...]}`; `replyTo` and `keyboard` are optional, and a message with a keyboard takes no `replyTo` | `{"messageId": "..."}` |
+| `POST /v1/pictures` | `{"peer": "...", "data": "<base64>", "name": "qr.png", "replyTo": "<messageId>"}` sends a picture; `name` and `replyTo` are optional | `{"messageId": "..."}` |
+| `POST /v1/files` | `{"peer": "...", "path": "/srv/outbox/report.pdf", "replyTo": "<messageId>"}` sends a file on this host; `replyTo` is optional | `{"messageId": "..."}` |
+| `POST /v1/downloads` | `{"peer": "...", "messageId": "...", "path": "/srv/inbox/report.pdf"}` fetches a file the peer sent into a path on this host | `{"messageId": "...", "path": "..."}` |
+| `GET /v1/transfers` | every file transfer since the account opened | `{"transfers": [...]}`, each a transfer |
+| `GET /v1/transfers/{messageId}?peer=` | how far one transfer has got | a transfer (*Files*) |
+| `DELETE /v1/transfers/{messageId}?peer=` | stops a transfer under way | `{"cancelled": "<messageId>"}` |
+| `POST /v1/menu` | `{"peer": "...", "items": [{"title": "Balance", "command": "balance"}]}` sets the commands this account offers that contact; `[]` takes them away | `{"sent": true}` or `{"sent": false}` |
+| `POST /v1/forward` | `{"from": "<fingerprint>", "messageId": "...", "to": "<fingerprint>"}` sends a text message on, marked forwarded | `{"messageId": "<the new message>"}` |
+| `POST /v1/messages/{id}` | `{"peer": "...", "text": "...", "keyboard": [...]}` revises a message this account sent; `keyboard` is optional (*Editing a message*) | `{"edited": "<id>"}` |
+| `DELETE /v1/messages/{id}?peer=` | takes a message this account sent back, on both sides | `{"deleted": "<id>"}` |
+| `POST /v1/reactions` | `{"peer": "...", "messageId": "...", "emoji": "👍"}`; an empty emoji takes it back | `{"ok": true}` |
+| `POST /v1/receipts` | `{"peer": "...", "messageId": "..."}` tells the peer their message was read, and every earlier one with it | `{"ok": true}` |
+| `POST /v1/chats/{fingerprint}/clear` | `{"everyone": true}` drops the conversation on both sides, `{"everyone": false}` only here | `{"cleared": "<fingerprint>"}` |
+| `GET /v1/chats/{fingerprint}/timer` | the conversation's auto-delete timer; `0` is off | `{"seconds": 3600}` |
+| `POST /v1/chats/{fingerprint}/timer` | `{"seconds": 86400}` sets the timer on both sides, `{"seconds": 0}` turns it off | `{"seconds": 86400}` |
+| `GET /v1/storage` | the size of the account's database, `fileBytes`, and how much of it is free pages, `freeBytes` | `{"fileBytes": ..., "freeBytes": ...}` |
+| `POST /v1/storage/compact` | rewrites the database without its free pages | like `GET /v1/storage` |
+| `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds | `{"events": [...], "lastEventId": ...}` |
+| `POST /v1/posts` | `{"text": "..."}` posts in a group as the group itself; group accounts only | `{"id": "..."}` |
 
 A group account answers `/v1/status`, `POST /v1/posts` and `/v1/storage` and
-refuses every other route with `409`: its members' posts it relays itself.
+refuses every other route with `409`: its members' posts it relays itself. A bot
+account refuses `POST /v1/posts` with `409`.
 
 ### Switching the account off
 
@@ -246,9 +261,15 @@ curl -s "http://127.0.0.1:8440/v1/events?since=$LAST&wait=60" \
 ```
 
 The daemon holds the request open until there is something after `since` or the
-wait is up, so a loop over this neither spins nor lags. Pass the `lastEventId`
+wait is up, so a loop over this neither spins nor lags. `wait` is 30 seconds when
+it is not given and at most 60; `0` answers at once. Pass the `lastEventId`
 you were given as the next `since`; start at `0` to be handed everything the
-daemon remembers.
+daemon remembers: every event of an account that keeps its history, a day of them
+for one that does not (*An account without history*). One answer carries at most
+500 events, oldest first; the next poll gets the rest at once.
+
+The daemon holds at most 64 polls open, across all its accounts; one more is
+refused with `429`. A poll the account's closing ends is answered with `503`.
 
 An event says what happened, and to which message:
 
@@ -258,8 +279,12 @@ An event says what happened, and to which message:
  "actor": "<fingerprint>", "sentAt": 1787932486147}
 ```
 
-For a `message`, `type` is the line's type, and `actor` is the peer when the line came
-from them; a line this account sent has no `actor`.
+An event carries `id`, `kind` and `peer`, and, where the kind has them,
+`messageId`, `type`, `text`, `actor` and `sentAt`; a `timer` carries `seconds`
+in place of `text`. For a `message`, `type` is the line's type, `sentAt` is when
+it was sent in Unix milliseconds, and `actor` is the peer when the line came
+from them; a line this account sent has no `actor`. An event carries no
+`replyTo`: what a `bot.callback` pressed is on its line.
 
 `kind` is one of `message`, `edit`, `delete`, `reaction`, `receipt`, `status`,
 `transfer`, `timer` or `chat-cleared`. Only a `message` is a new line; the others are about a line that is already there,
@@ -275,13 +300,49 @@ been edited:
 A reaction's `reactor` is `me` for this account's own, and the peer's
 fingerprint for theirs.
 
-A letter from a contact that could not be read leaves a line of its own, a
-`message` event with the text "A message could not be read".
+### Lines
 
-A line's `type` is the end-to-end content type - `text`, `image`, `audio`,
-`file`, `contact.request`, `bot.command`, `bot.callback`. A bot answering commands watches for
-`bot.command` and for text beginning with a slash, which the protocol says are
-two spellings of one thing.
+`GET /v1/messages` reads a conversation newest first: `limit` lines, 50 when it is
+not given and at most 500, and with `before` only the lines whose `id` is below
+it, so the `id` of the last line of one page is the `before` of the next.
+
+```json
+{"id": 12, "peer": "<fingerprint>", "outgoing": true, "type": "text", "text": "Pick one:",
+ "sentAt": 1787932486147, "edited": false, "status": "delivered",
+ "messageId": "5373671a07d8b517", "keyboard": [[{"text": "Ping", "data": "ping"}]]}
+```
+
+| Field | What it is |
+|---|---|
+| `id` | the line's place in this account's store; `before` takes it |
+| `peer` | the contact the conversation is with |
+| `outgoing` | true for a line this account sent |
+| `type` | the line's type, below |
+| `text` | the text; for a `file`, its name |
+| `sentAt` | when it was sent, in Unix milliseconds |
+| `edited` | whether it was revised |
+| `status` | on a line this account sent: `sending`, `delivered`, `read` or `failed` (*Sending in bulk*) |
+| `messageId` | the end-to-end id the other routes name the message by |
+| `replyTo` | the `messageId` the line answers; on a `bot.callback`, the message whose keyboard was pressed |
+| `keyboard` | the inline keyboard it carries |
+| `reactions` | `[{"reactor": ..., "emoji": ...}]` |
+| `file` | on a `file`: `name`, `size`, `mime`, `sha256` and `path`, where it was sent from or downloaded to |
+
+A field with nothing in it is left out, except `id`, `peer`, `outgoing`, `type`,
+`text`, `sentAt` and `edited`.
+
+| Type | The line |
+|---|---|
+| `text` | a text message |
+| `image`, `audio`, `file` | a picture, a voice note, a file |
+| `contact.request` | a contact request, with the text that came with it |
+| `bot.command` | a command: `text` is `/` and its name, then a space and its arguments when there are any, as in `/balance usd` |
+| `bot.callback` | a press on a keyboard button: `text` is the button's `data`, `replyTo` the `messageId` of the message the keyboard is on |
+| `system` | a note of the account's own: a letter from the peer that could not be read ("A message could not be read"), an accepted contact request, a cleared chat, a timer change |
+| `unsupported` | a message of a type this daemon does not know; `text` names the type |
+
+A bot answering commands watches for `bot.command` and for text beginning with a
+slash, which the protocol says are two spellings of one thing.
 
 ## A bot in ten lines
 
@@ -345,6 +406,27 @@ the outbox. A change to `delivered` or `failed` is an event of kind
 one is an event of kind `receipt`, so a long poll sees both without re-reading
 the conversation.
 
+## Editing a message
+
+`POST /v1/messages/{id}` with `{"peer": "<fingerprint>", "text": "..."}` replaces
+the text of a message this account sent, on both sides, and marks it edited. The
+keyboard goes with the edit: `keyboard` given as rows replaces it, `[]` removes
+it, and a message edited with no `keyboard` keeps the one it has. A bot answers
+a `bot.callback` by editing the message the callback's `replyTo` names:
+
+```bash
+curl -s -X POST http://127.0.0.1:8440/v1/messages/5373671a07d8b517 \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"peer": "<fingerprint>", "text": "Pinged.", "keyboard": []}'
+```
+
+```json
+{"edited": "5373671a07d8b517"}
+```
+
+When the peer edits one of theirs, it arrives as an event of kind `edit` naming
+the `messageId`, with the new text.
+
 ## Taking things back
 
 `DELETE /v1/messages/{id}?peer=<fingerprint>` removes a message this account
@@ -379,6 +461,17 @@ message from the peer, that many seconds after `POST /v1/receipts` marks it read
 The account's upkeep removes them (`Design.md`, The API), and each deleted
 message is an event of kind `delete` with its `messageId`. The timer deletes only here: the peer's copy follows
 the peer's own timer.
+
+## An account without history
+
+An account keeps its conversations unless its entry in `settings.json`, in the
+daemon's state directory, says `"history": false`; the daemon reads it when it
+starts. Such an account keeps a line only until its event is in the feed:
+`GET /v1/messages` and `GET /v1/chats` answer nothing, and the routes that find a
+message by its `messageId` - an edit, a delete, a forward, a download - do not
+find it. The callback's `replyTo` is on its line, so this account does not learn
+which message a press was on. The feed is kept for a day, and a message that
+arrives twice is recognised by it.
 
 ## The size of the database
 

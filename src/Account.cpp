@@ -1,5 +1,6 @@
 // Bazarish project (c) 2026
 #include "Account.hpp"
+#include "KeyboardRules.hpp"
 #include "MenuRules.hpp"
 
 #include <ApiClient.hpp>
@@ -8,11 +9,8 @@
 
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Clock.hpp>
-#include <bazarish/JsonRead.hpp>
 #include <bazarish/Log.hpp>
 #include <bazarish/PathText.hpp>
-
-#include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <filesystem>
@@ -856,17 +854,8 @@ std::string Account::forward(
 }
 
 std::string Account::sendKeyboard(
-    const std::string& peer, const std::string& text, const std::string& keyboardJson)
+    const std::string& peer, const std::string& text, const client::InlineKeyboard& keyboard)
 {
-    client::InlineKeyboard keyboard;
-    for (const nlohmann::json& row : bazarish::parseJson(keyboardJson)) {
-        std::vector<client::InlineButton> buttons;
-        for (const nlohmann::json& button : row) {
-            buttons.push_back({button.value("text", std::string()),
-                button.value("data", std::string()), button.value("command", std::string())});
-        }
-        keyboard.push_back(std::move(buttons));
-    }
     Line line;
     line.peer = peer;
     line.type = client::kTypeText;
@@ -1219,16 +1208,19 @@ void Account::runAliasErrand(const client::Session::AliasErrandContext& context)
     }
 }
 
-void Account::editMessage(
-    const std::string& peer, const std::string& messageId, const std::string& text)
+void Account::editMessage(const std::string& peer, const std::string& messageId,
+    const std::string& text, const std::optional<client::InlineKeyboard>& keyboard)
 {
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        if (!transcript_->applyEdit(peer, messageId, text, {}, true)) {
+        const std::optional<Line> held = transcript_->find(peer, messageId);
+        const client::InlineKeyboard edited
+            = editedKeyboard(keyboard, held.has_value() ? held->keyboard : std::string());
+        if (!transcript_->applyEdit(peer, messageId, text, storedKeyboard(edited), true)) {
             throw std::runtime_error("no message of ours by that id in this conversation");
         }
-        session.sendEdit(peer, messageId, text);
+        session.sendEdit(peer, messageId, text, edited);
     }
     wakeup_->wake();
 }

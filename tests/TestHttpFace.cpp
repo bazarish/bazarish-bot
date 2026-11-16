@@ -97,6 +97,12 @@ try {
         CHECK(says(call(port, "POST", base + "/messages/" + kMessageId, cookie,
                        R"({"text":"hi"})"),
             kBadRequest, "names whose conversation the message is in"));
+        CHECK(says(call(port, "POST", base + "/messages/" + kMessageId, cookie,
+                       R"({"peer":"p","text":"hi","keyboard":"ping"})"),
+            kBadRequest, "array of rows"));
+        CHECK(says(call(port, "POST", base + "/messages", cookie,
+                       R"({"peer":"p","text":"hi","keyboard":[["ping"]]})"),
+            kBadRequest, "a button is"));
         CHECK(says(call(port, "DELETE", base + "/messages/" + kMessageId, cookie), kBadRequest,
             "names whose conversation the message is in"));
         CHECK(says(call(port, "POST", base + "/reactions", cookie, R"({"peer":"p"})"),

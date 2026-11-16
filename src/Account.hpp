@@ -98,7 +98,7 @@ public:
     std::string forward(const std::string& fromPeer, const std::string& messageId,
         const std::string& toPeer);
     std::string sendKeyboard(
-        const std::string& peer, const std::string& text, const std::string& keyboardJson);
+        const std::string& peer, const std::string& text, const client::InlineKeyboard& keyboard);
     std::string sendPicture(const std::string& peer, const Bytes& bytes, const std::string& name,
         const std::string& mime, const std::string& replyTo = {});
     std::string sendFile(
@@ -109,8 +109,8 @@ public:
     std::optional<Transfer> transfer(const std::string& peer, const std::string& messageId) const;
     bool cancelTransfer(const std::string& peer, const std::string& messageId);
     bool setMenu(const std::string& peer, std::vector<client::BotMenuItem> items);
-    void editMessage(
-        const std::string& peer, const std::string& messageId, const std::string& text);
+    void editMessage(const std::string& peer, const std::string& messageId,
+        const std::string& text, const std::optional<client::InlineKeyboard>& keyboard);
     void deleteMessage(const std::string& peer, const std::string& messageId);
     void react(
         const std::string& peer, const std::string& messageId, const std::string& emoji);
