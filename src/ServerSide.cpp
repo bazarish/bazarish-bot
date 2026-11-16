@@ -88,12 +88,6 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy,
     accountOptions.version = kBuildVersion;
     accountOptions.settings = nodeSettings_;
     accountOptions.logins = std::make_shared<service::LoginMailbox>();
-    accountOptions.forgetMailbox = [this](const std::string& user) {
-        nodeCards_->forget(user);
-        destinations_->forget(user);
-        storage_->forgetUser(user);
-        return true;
-    };
     accountOptions.admitsUser = [this](const std::string& user) {
         const std::lock_guard<std::mutex> lock(ownMutex_);
         return own_.count(user) != 0;
@@ -115,6 +109,13 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy,
                 [this](const std::string& user) {
                     nodeCards_->forget(user);
                     destinations_->forget(user);
+                    return service::PushOutcome::eDelivered;
+                },
+            .forget =
+                [this](const std::string& user) {
+                    nodeCards_->forget(user);
+                    destinations_->forget(user);
+                    storage_->forgetUser(user);
                     return service::PushOutcome::eDelivered;
                 }});
     accounts_ = std::make_unique<service::AccountApi>(*subscriptions_, *grants_, accountOptions);
