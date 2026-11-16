@@ -275,6 +275,9 @@ been edited:
 A reaction's `reactor` is `me` for this account's own, and the peer's
 fingerprint for theirs.
 
+A letter from a contact that could not be read leaves a line of its own, a
+`message` event with the text "A message could not be read".
+
 A line's `type` is the end-to-end content type - `text`, `image`, `audio`,
 `file`, `contact.request`, `bot.command`, `bot.callback`. A bot answering commands watches for
 `bot.command` and for text beginning with a slash, which the protocol says are
@@ -373,8 +376,8 @@ Either side's change arrives as an event of kind `timer`, with the new value in
 
 A message this account sends is deleted that many seconds after it was sent; a
 message from the peer, that many seconds after `POST /v1/receipts` marks it read.
-The daemon checks every few seconds, and each deleted message is an event of kind
-`delete` with its `messageId`. The timer deletes only here: the peer's copy follows
+The account's upkeep removes them (`Design.md`, The API), and each deleted
+message is an event of kind `delete` with its `messageId`. The timer deletes only here: the peer's copy follows
 the peer's own timer.
 
 ## The size of the database

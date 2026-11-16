@@ -143,9 +143,15 @@ Mail reaches the account the way it reaches every client: the account keeps one
 `events` request open to its own mailbox and reads the mailbox when that request
 says something is waiting, and once when the account comes up. What it reads goes
 into the transcript, and a bot's waiting poll is answered from there at once.
-A wait that fails is asked again. Upkeep - renewing the delegation, the routing fan-out after a new
-address, the alias status, re-issuing the card - runs on its own five-second
-turn and never reads the mailbox. Stopping an account releases its open request
+A wait that fails is asked again. A pass that cannot write what it read to the
+account's database stops that account's receiving, with an error in the log, and
+leaves the mail unacknowledged on the server. Upkeep never reads the mailbox. It
+sleeps until its next deadline - the client core's own duties, the next message
+the auto-delete timer removes, the delegation renewal and the alias errand - and
+wakes early for an event: news from the outbox, a line written to the
+transcript. The renewal and the alias errand go at most once an hour; a new
+address re-issues the card and repoints the aliases at once. A duty that fails
+is tried again on the next event. Stopping an account releases its open request
 at once.
 
 Authentication is a bearer token, issued in the web interface under a name and
@@ -172,8 +178,9 @@ signature goes out. The API has no such route, because a token is for one
 bot's conversations and not for speaking as it elsewhere.
 
 The aliases are serviced the way the desktop client services them: the
-account asks the registry what it holds when it comes up, once a minute until
-the registry has answered, and after that whenever something is due. It points
+account asks the registry what it holds when it comes up, at most once an hour
+until the registry has answered, and after that whenever something is due, at
+most once an hour. It points
 the aliases it wants pointing at its current address, and repoints them after
 a new address. The ask runs off the account's lock, so a registry that does not
 answer holds up nothing else; stopping the daemon waits for an ask in flight to
@@ -194,7 +201,8 @@ An account can keep no history (`"history": false` in its entry in
 `settings.json`). A line then lives only until its event is in the feed, together
 with its picture or voice note. The feed is kept for a day, and a message that
 arrives twice is recognised by it. A deleted row leaves free pages
-behind; compacting the database rewrites the file without them.
+behind; compacting the database hands them back to the disk through SQLite's
+incremental vacuum (`client-qt/docs/AccountStorage.md`, Compacting).
 
 ## Backing up the whole host
 
