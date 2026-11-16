@@ -302,6 +302,12 @@ bool Transcript::sweepExpired(const std::int64_t nowMs)
     return swept;
 }
 
+std::optional<std::int64_t> Transcript::nextExpiryAt() const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return store_.nextExpiryAt();
+}
+
 void Transcript::setMenu(const std::string& peer, const client::BotMenu& menu)
 {
     const std::lock_guard<std::mutex> lock(mutex_);

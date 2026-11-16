@@ -276,6 +276,7 @@ int main()
         CHECK(transcript.conversation("hana", 0, 10).size() == 1);
 
         CHECK(transcript.append(lineFor("hana", "gone in an hour", "o1", true, kSentAt)) != 0);
+        CHECK(transcript.nextExpiryAt() == kSentAt + kHour * kMsPerSecond);
         CHECK(!transcript.sweepExpired(kSentAt + kHour * kMsPerSecond - 1));
         CHECK(transcript.sweepExpired(kSentAt + kHour * kMsPerSecond));
         const Event gone = transcript.since(transcript.lastEventId() - 1).back();

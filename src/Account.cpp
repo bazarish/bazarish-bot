@@ -4,6 +4,7 @@
 
 #include <ApiClient.hpp>
 #include <KeyedDatabase.hpp>
+#include <ServiceSchedule.hpp>
 
 #include <bazarish/Bytes.hpp>
 #include <bazarish/Clock.hpp>
@@ -15,7 +16,9 @@
 
 #include <chrono>
 #include <filesystem>
+#include <optional>
 #include <stdexcept>
+#include <string_view>
 #include <utility>
 
 namespace bazarish::bot {
@@ -24,13 +27,11 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr int kMaintenanceSeconds = 5;
-constexpr std::int64_t kAliasServiceSeconds = 60;
-constexpr std::int64_t kRegistryRetrySeconds = 10;
 constexpr int kMaxWaitSeconds = 60;
 constexpr const char* kClosed = "closed";
 constexpr const char* kStarting = "starting";
 constexpr const char* kRunning = "running";
+constexpr std::string_view kFailedPrefix = "failed: ";
 constexpr const char* kNotLeftStatus = "failed: this message did not leave this device";
 
 client::TransferEventFn transferHandler(const std::shared_ptr<Transfers>& transfers,
@@ -76,7 +77,12 @@ bool Account::running() const
 void Account::awaitRunning(const std::stop_token& stop) const
 {
     std::unique_lock<std::mutex> lock(stateMutex_);
-    statusChanged_.wait(lock, stop, [this]() { return status_ == kRunning; });
+    statusChanged_.wait(lock, stop,
+        [this]() { return status_ == kRunning || status_.starts_with(kFailedPrefix); });
+    if (status_.starts_with(kFailedPrefix)) {
+        throw std::runtime_error("account " + id_ + " did not come up: "
+            + status_.substr(kFailedPrefix.size()));
+    }
 }
 
 bool Account::live() const
@@ -111,8 +117,11 @@ void Account::open()
             bringUp();
         } catch (const std::exception& error) {
             log::error("account {}: cannot bring it up: {}", id_, error.what());
-            const std::lock_guard<std::mutex> lock(stateMutex_);
-            status_ = std::string("failed: ") + error.what();
+            {
+                const std::lock_guard<std::mutex> lock(stateMutex_);
+                status_ = std::string(kFailedPrefix) + error.what();
+            }
+            statusChanged_.notify_all();
         }
     });
 }
@@ -154,6 +163,7 @@ void Account::bringUp()
     session->setFileSource(files_);
     session->setTransferHandler(transferHandler(transfers, transcript, wakeup_));
     session->onServerAnswered([this]() { mailGate_.serverAnswered(); });
+    session->onCourierNews([wakeup = wakeup_]() { wakeup->wake(); });
     session->openOutboxWhenAnswered(mailGate_);
     std::shared_ptr<GroupEngine> group;
     if (settings_.kind(id_) == Settings::AccountKind::eGroup) {
@@ -169,7 +179,8 @@ void Account::bringUp()
             });
     }
 
-    lastAliasErrand_ = 0;
+    lastAliasErrandMs_ = 0;
+    lastRenewalMs_ = 0;
     aliasesAnswered_ = false;
     {
         const std::lock_guard<std::mutex> lock(stateMutex_);
@@ -431,6 +442,9 @@ void Account::newAddress()
     log::info("account {}: address replaced, card re-issued with {}", id_, address);
     if (moved) {
         session.announceNewRouting();
+        if (session.aliasServicingDue()) {
+            startAliasErrand(session.aliasErrandContext(), false);
+        }
     }
 }
 
@@ -438,7 +452,17 @@ void Account::maintain()
 {
     const std::string fingerprint = this->fingerprint();
     while (!stopping_) {
-        if (mailbox_->get().destinationNeedsRenewal(fingerprint, bazarish::nowSeconds())) {
+        std::uint64_t seen = 0;
+        {
+            const std::lock_guard<std::mutex> lock(wakeup_->mutex);
+            seen = wakeup_->events;
+        }
+
+        const std::optional<std::int64_t> renewalAt
+            = client::cadencedAtMs(client::secondToMs(mailbox_->get().destinationRenewalAt(fingerprint)),
+                lastRenewalMs_);
+        if (renewalAt.has_value() && nowMillis() >= *renewalAt) {
+            lastRenewalMs_ = nowMillis();
             try {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
                 if (session_ != nullptr) {
@@ -451,13 +475,16 @@ void Account::maintain()
             }
         }
 
+        bool flushFailed = false;
         try {
             const std::lock_guard<std::mutex> lock(sessionMutex_);
             if (session_ != nullptr) {
                 session_->flushPendingEchoes();
             }
         } catch (const std::exception& error) {
-            log::warn("account {}: echoes not flushed: {}", id_, error.what());
+            log::warn("account {}: echoes not flushed, next try on the next event: {}", id_,
+                error.what());
+            flushFailed = true;
         }
 
         {
@@ -467,6 +494,7 @@ void Account::maintain()
             }
         }
 
+        bool sweepFailed = false;
         try {
             bool swept = false;
             {
@@ -477,23 +505,18 @@ void Account::maintain()
                 wakeup_->wake();
             }
         } catch (const std::exception& error) {
-            log::warn("account {}: expired messages not removed: {}", id_, error.what());
+            log::warn("account {}: expired messages not removed, next try on the next event: {}",
+                id_, error.what());
+            sweepFailed = true;
         }
 
         try {
             std::optional<client::Session::AliasErrandContext> errand;
             {
                 const std::lock_guard<std::mutex> lock(sessionMutex_);
-                if (session_ != nullptr) {
-                    const std::int64_t every = session_->routingFanout().registry
-                        ? kRegistryRetrySeconds
-                        : kAliasServiceSeconds;
-                    const std::int64_t now = bazarish::nowSeconds();
-                    const bool due = !aliasesAnswered_ || session_->aliasServicingDue();
-                    if (due && (lastAliasErrand_ == 0 || now - lastAliasErrand_ >= every)) {
-                        lastAliasErrand_ = now;
-                        errand = session_->aliasErrandContext();
-                    }
+                const std::optional<std::int64_t> aliasAt = aliasAttemptAtMs();
+                if (aliasAt.has_value() && nowMillis() >= *aliasAt) {
+                    errand = session_->aliasErrandContext();
                 }
             }
             if (errand) {
@@ -503,10 +526,40 @@ void Account::maintain()
             log::warn("account {}: alias servicing not started: {}", id_, error.what());
         }
 
+        std::optional<std::chrono::milliseconds> wait;
+        {
+            const std::lock_guard<std::mutex> lock(sessionMutex_);
+            const std::int64_t now = nowMillis();
+            wait = client::waitForSoonest(now,
+                {flushFailed || session_ == nullptr
+                        ? std::nullopt
+                        : client::atMsAfter(now, session_->untilNextDue()),
+                    sweepFailed || transcript_ == nullptr ? std::nullopt
+                                                          : transcript_->nextExpiryAt(),
+                    client::cadencedAtMs(
+                        client::secondToMs(mailbox_->get().destinationRenewalAt(fingerprint)),
+                        lastRenewalMs_),
+                    aliasAttemptAtMs()});
+        }
+        const auto woken = [this, seen]() { return stopping_.load() || wakeup_->events != seen; };
         std::unique_lock<std::mutex> lock(wakeup_->mutex);
-        wakeup_->changed.wait_for(lock, std::chrono::seconds(kMaintenanceSeconds),
-            [this]() { return stopping_.load(); });
+        if (wait.has_value()) {
+            wakeup_->changed.wait_for(lock, *wait, woken);
+        } else {
+            wakeup_->changed.wait(lock, woken);
+        }
     }
+}
+
+std::optional<std::int64_t> Account::aliasAttemptAtMs() const
+{
+    if (session_ == nullptr) {
+        return std::nullopt;
+    }
+    const std::optional<std::int64_t> dueAtMs = aliasesAnswered_
+        ? client::secondToMs(session_->aliasServiceDueAt())
+        : std::optional<std::int64_t>(0);
+    return client::cadencedAtMs(dueAtMs, lastAliasErrandMs_);
 }
 
 Account::PendingRouting Account::pendingRouting() const
@@ -1112,6 +1165,7 @@ void Account::startAliasErrand(client::Session::AliasErrandContext context, cons
         aliasErrand_.join();
     }
     aliasErrandRunning_ = true;
+    lastAliasErrandMs_ = nowMillis();
     {
         const std::lock_guard<std::mutex> held(stateMutex_);
         aliases_.checking = true;

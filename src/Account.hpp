@@ -161,6 +161,7 @@ public:
 
 private:
     void maintain();
+    std::optional<std::int64_t> aliasAttemptAtMs() const;
     void waitForEvents(const client::Session::ContactFetchContext& context);
     bool drainMailbox();
     void registerAgain();
@@ -208,7 +209,8 @@ private:
     std::thread eventWaiter_;
     client::MailWaitGate mailGate_;
     std::atomic<bool> stopping_{false};
-    std::int64_t lastAliasErrand_ = 0;
+    std::atomic<std::int64_t> lastAliasErrandMs_{0};
+    std::int64_t lastRenewalMs_ = 0;
     std::mutex errandMutex_;
     std::thread aliasErrand_;
     bool aliasErrandRunning_ = false;

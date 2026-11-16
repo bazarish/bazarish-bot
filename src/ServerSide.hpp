@@ -49,7 +49,7 @@ public:
     const std::string& fingerprint() const { return fingerprint_; }
 
     std::string serveDestinationFor(const std::string& account, const client::AddressKeys& keys);
-    bool destinationNeedsRenewal(const std::string& account, std::int64_t now) const;
+    std::optional<std::int64_t> destinationRenewalAt(const std::string& account) const;
     std::string replaceDestinationFor(const std::string& account, const client::AddressKeys& keys);
     std::string destination(const std::string& account) const;
     void forget(const std::string& account);

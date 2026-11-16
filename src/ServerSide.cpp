@@ -34,11 +34,16 @@ constexpr const char* kMailboxHost = "127.0.0.1";
 constexpr int kOwnDelegationDays = static_cast<int>(bazarish::kMaxDelegationDays);
 constexpr std::uint64_t kOwnQuotaBytes = 4ULL * 1024 * 1024 * 1024;
 
-bool renewalDue(const std::int64_t expires, const std::int64_t now)
+std::int64_t renewalFrom(const std::int64_t expires)
 {
     const std::int64_t term = kOwnDelegationDays * bazarish::kSecondsPerDay;
-    return now > expires
+    return expires
         - static_cast<std::int64_t>(static_cast<double>(term) * bazarish::kDelegationRenewAtFraction);
+}
+
+bool renewalDue(const std::int64_t expires, const std::int64_t now)
+{
+    return now > renewalFrom(expires);
 }
 
 }  // namespace
@@ -244,18 +249,14 @@ std::string ServerSide::serveDestinationFor(
     return destinations_->assignmentFor(account, nowSeconds()).dest;
 }
 
-bool ServerSide::destinationNeedsRenewal(const std::string& account, const std::int64_t now) const
+std::optional<std::int64_t> ServerSide::destinationRenewalAt(const std::string& account) const
 {
-    std::int64_t expires = 0;
-    {
-        const std::lock_guard<std::mutex> lock(expiresMutex_);
-        const auto found = destinationExpires_.find(account);
-        if (found == destinationExpires_.end()) {
-            return false;
-        }
-        expires = found->second;
+    const std::lock_guard<std::mutex> lock(expiresMutex_);
+    const auto found = destinationExpires_.find(account);
+    if (found == destinationExpires_.end()) {
+        return std::nullopt;
     }
-    return renewalDue(expires, now);
+    return renewalFrom(found->second) + 1;
 }
 
 std::string ServerSide::replaceDestinationFor(

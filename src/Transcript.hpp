@@ -91,6 +91,7 @@ public:
     std::int64_t timer(const std::string& peer) const;
     void markRead(const std::string& peer, const std::string& messageId);
     bool sweepExpired(std::int64_t nowMs);
+    std::optional<std::int64_t> nextExpiryAt() const;
     void setMenu(const std::string& peer, const client::BotMenu& menu);
     std::optional<client::BotMenu> menu(const std::string& peer) const;
 
