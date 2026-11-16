@@ -7,14 +7,21 @@
 #include <bazarish/Descriptor.hpp>
 #include <bazarish/KeyedSeal.hpp>
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <limits>
 #include <map>
+#include <mutex>
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <thread>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -28,6 +35,10 @@ constexpr int kPumpRounds = 8;
 constexpr const char* kAskName = "Choose your name in this chat.";
 // The minute the engine once waited before it sent a refused relay again.
 constexpr std::int64_t kOldRetryMs = 60 * 1000;
+constexpr std::chrono::seconds kRelayWait{10};
+constexpr std::chrono::milliseconds kSettle{200};
+// Longer than the second a started engine once slept between looks at its clock.
+constexpr std::chrono::milliseconds kIdleWatch{1500};
 
 struct Sent {
     std::string kind;
@@ -709,6 +720,57 @@ int main()
             CHECK(caught[0].id == "r1");
             CHECK(caught[1].id == "r2");
         }
+    }
+
+    {
+        Fake started;
+        std::mutex guard;
+        std::condition_variable relayed;
+        std::atomic<int> clockReads{0};
+        GroupLink link = linkFor(started);
+        const auto locked = [&guard](auto call) {
+            return [&guard, call](auto&&... args) {
+                const std::lock_guard<std::mutex> lock(guard);
+                return call(std::forward<decltype(args)>(args)...);
+            };
+        };
+        link.accept = locked(link.accept);
+        link.tell = locked(link.tell);
+        link.retell = locked(link.retell);
+        link.state = locked(link.state);
+        link.receipt = locked(link.receipt);
+        link.name = locked(link.name);
+        link.relay = [&guard, &relayed, relay = link.relay](const std::string& peer,
+                         const std::vector<client::RelayedPost>& posts,
+                         const client::DeliveryWatch& watch) {
+            {
+                const std::lock_guard<std::mutex> lock(guard);
+                relay(peer, posts, watch);
+            }
+            relayed.notify_all();
+        };
+        GroupEngine engine(dir / "started.db", std::move(link), [&clockReads, &now]() {
+            ++clockReads;
+            return now;
+        });
+        const std::string ray = member();
+        join(engine, started, ray, "Ray");
+        engine.start();
+        engine.hostPost("h1", "posted while the engine runs");
+        {
+            std::unique_lock<std::mutex> lock(guard);
+            CHECK(relayed.wait_for(lock, kRelayWait, [&started, &ray]() {
+                return std::any_of(
+                    started.sent.begin(), started.sent.end(), [&ray](const Sent& sent) {
+                        return sent.kind == "relay" && sent.peer == ray && sent.id == "h1";
+                    });
+            }));
+        }
+        std::this_thread::sleep_for(kSettle);
+        const int settled = clockReads.load();
+        std::this_thread::sleep_for(kIdleWatch);
+        CHECK(clockReads.load() == settled);
+        engine.stop();
     }
 
     fs::remove_all(dir);

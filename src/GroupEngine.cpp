@@ -17,7 +17,6 @@ namespace bazarish::bot {
 
 namespace {
 
-constexpr std::int64_t kPumpIdleMs = 1000;
 constexpr std::int64_t kLogBatch = 64;
 constexpr std::size_t kMaxUtf8Bytes = 4;
 constexpr const char* kDeliveryRejected = "DELIVERY_REJECTED";
@@ -59,6 +58,7 @@ GroupEngine::GroupEngine(const std::filesystem::path& file, GroupLink link, Cloc
     const std::int64_t now = clock_();
     countedAt_ = now;
     sweptAt_ = now;
+    mediaStale_ = true;
     memberCount_ = static_cast<std::int64_t>(std::count_if(members_.begin(), members_.end(),
         [](const auto& entry) { return entry.second.state == MemberState::eMember; }));
 }
@@ -98,18 +98,13 @@ void GroupEngine::nudge()
 
 void GroupEngine::loop()
 {
-    while (true) {
-        bool countDue = false;
-        bool sweepDue = false;
-        {
-            const std::lock_guard<std::mutex> lock(mutex_);
-            if (stopping_) {
-                return;
-            }
-            const std::int64_t now = clock_();
-            countDue = now - countedAt_ >= kMemberCountPeriodMs;
-            sweepDue = now - sweptAt_ >= kMediaSweepMs;
-        }
+    std::unique_lock<std::mutex> lock(mutex_);
+    while (!stopping_) {
+        nudged_ = false;
+        const std::int64_t now = clock_();
+        const bool countDue = countStale_ && now - countedAt_ >= kMemberCountPeriodMs;
+        const bool sweepDue = mediaStale_ && now - sweptAt_ >= kMediaSweepMs;
+        lock.unlock();
         if (countDue) {
             refreshMemberCount();
         }
@@ -117,11 +112,34 @@ void GroupEngine::loop()
             dropSpentMedia();
         }
         pumpOnce();
-        std::unique_lock<std::mutex> lock(mutex_);
-        wake_.wait_for(lock, std::chrono::milliseconds(kPumpIdleMs),
-            [this]() { return stopping_ || nudged_; });
-        nudged_ = false;
+        lock.lock();
+        const auto woken = [this]() { return stopping_ || nudged_; };
+        if (const std::optional<std::int64_t> waitMs = untilDueLocked(); waitMs.has_value()) {
+            wake_.wait_for(lock, std::chrono::milliseconds(*waitMs), woken);
+        } else {
+            wake_.wait(lock, woken);
+        }
     }
+}
+
+std::optional<std::int64_t> GroupEngine::untilDueLocked() const
+{
+    std::optional<std::int64_t> dueAt;
+    const auto sooner = [&dueAt](const std::int64_t at) {
+        if (!dueAt.has_value() || at < *dueAt) {
+            dueAt = at;
+        }
+    };
+    if (countStale_) {
+        sooner(countedAt_ + kMemberCountPeriodMs);
+    }
+    if (mediaStale_) {
+        sooner(sweptAt_ + kMediaSweepMs);
+    }
+    if (!dueAt.has_value()) {
+        return std::nullopt;
+    }
+    return std::max<std::int64_t>(0, *dueAt - clock_());
 }
 
 void GroupEngine::run(Actions& actions)
@@ -144,6 +162,15 @@ void GroupEngine::saveLocked(const Member& member)
 {
     members_[member.fingerprint] = member;
     store_.putMember(member);
+    markStaleLocked(true);
+}
+
+void GroupEngine::markStaleLocked(const bool members)
+{
+    countStale_ = countStale_ || members;
+    mediaStale_ = true;
+    nudged_ = true;
+    wake_.notify_all();
 }
 
 bool GroupEngine::writesLocked(const Member& member) const
@@ -530,6 +557,7 @@ void GroupEngine::postLocked(Member& member, const client::IncomingMessage& mess
         post.durationMs = message.attachmentDurationMs;
     }
     (void)store_.addPost(std::move(post));
+    markStaleLocked(false);
 }
 
 void GroupEngine::commandLocked(Member& member, const std::string& line, Actions& actions)
@@ -970,6 +998,7 @@ void GroupEngine::dropSpentMedia()
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     sweptAt_ = clock_();
+    mediaStale_ = false;
     std::int64_t oldest = store_.seqBeforeLastPosts(config_.historySize);
     for (const auto& [fingerprint, member] : members_) {
         if (member.state == MemberState::eMember) {
@@ -985,6 +1014,7 @@ void GroupEngine::refreshMemberCount()
     memberCount_ = static_cast<std::int64_t>(std::count_if(members_.begin(), members_.end(),
         [](const auto& entry) { return entry.second.state == MemberState::eMember; }));
     countedAt_ = clock_();
+    countStale_ = false;
 }
 
 GroupConfig GroupEngine::config() const
@@ -1005,6 +1035,7 @@ void GroupEngine::setConfig(const GroupConfig& config)
         const bool kindChanged = config.kind != config_.kind;
         store_.setConfig(config);
         config_ = config;
+        markStaleLocked(false);
         if (kindChanged) {
             for (const auto& [fingerprint, member] : members_) {
                 if (member.state == MemberState::eMember && !member.admin) {
@@ -1131,6 +1162,7 @@ void GroupEngine::hostPost(const std::string& id, const std::string& text)
         post.text = text;
         post.sentAt = clock_();
         (void)store_.addPost(std::move(post));
+        markStaleLocked(false);
     }
     nudge();
 }

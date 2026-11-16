@@ -134,6 +134,9 @@ private:
     client::RelayedPost relayedLocked(const Post& post) const;
     void run(Actions& actions);
     void nudge();
+    void markStaleLocked(bool members);
+    // Until the member count or the media sweep is due; none while neither has changed.
+    std::optional<std::int64_t> untilDueLocked() const;
     void loop();
 
     GroupStore store_;
@@ -151,6 +154,8 @@ private:
     std::int64_t memberCount_ = 0;
     std::int64_t countedAt_ = 0;
     std::int64_t sweptAt_ = 0;
+    bool countStale_ = false;
+    bool mediaStale_ = false;
 
     mutable std::mutex mutex_;
     std::condition_variable wake_;
