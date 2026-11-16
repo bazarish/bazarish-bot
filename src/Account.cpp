@@ -73,6 +73,12 @@ bool Account::running() const
     return status_ == kRunning;
 }
 
+void Account::awaitRunning(const std::stop_token& stop) const
+{
+    std::unique_lock<std::mutex> lock(stateMutex_);
+    statusChanged_.wait(lock, stop, [this]() { return status_ == kRunning; });
+}
+
 bool Account::live() const
 {
     const std::lock_guard<std::mutex> lock(stateMutex_);
@@ -195,6 +201,7 @@ void Account::bringUp()
             status_ = kRunning;
         }
     }
+    statusChanged_.notify_all();
     maintainer_ = std::thread([this]() { maintain(); });
     eventWaiter_ = std::thread([this, waiterContext]() { waitForEvents(waiterContext); });
 }

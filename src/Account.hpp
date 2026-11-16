@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stop_token>
 #include <string>
 #include <thread>
 #include <vector>
@@ -50,6 +51,7 @@ public:
 
     const std::string& id() const { return id_; }
     bool running() const;
+    void awaitRunning(const std::stop_token& stop) const;
     bool live() const;
     std::string status() const;
 
@@ -193,6 +195,7 @@ private:
 
     std::mutex lifecycleMutex_;
     mutable std::mutex stateMutex_;
+    mutable std::condition_variable_any statusChanged_;
     std::string fingerprint_;
     std::string name_;
     std::string status_;
