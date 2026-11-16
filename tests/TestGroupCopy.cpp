@@ -10,7 +10,7 @@
 using namespace bazarish::bot;
 
 int main()
-{
+try {
     for (const char* const language : kGroupLanguages) {
         for (int key = 0; key <= static_cast<int>(Copy::eBlocked); ++key) {
             CHECK(!copyText(language, static_cast<Copy>(key)).empty());
@@ -33,4 +33,6 @@ int main()
     CHECK(refused);
     std::printf("TestGroupCopy passed\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

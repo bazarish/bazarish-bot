@@ -32,8 +32,9 @@ Line lineFor(const std::string& peer, const std::string& text, const std::string
 }  // namespace
 
 int main()
-{
-    const fs::path dir = testutil::freshDir("bot-transcript");
+try {
+    const testutil::ScratchDir scratch("bot-transcript");
+    const fs::path& dir = scratch.path();
     const fs::path file = dir / "account.db";
     const std::string self = "selffingerprint";
 
@@ -294,7 +295,8 @@ int main()
         CHECK(transcript.timer("hana") == 0);
     }
 
-    fs::remove_all(dir);
     std::fprintf(stderr, "TestTranscript passed\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

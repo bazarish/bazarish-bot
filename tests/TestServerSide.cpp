@@ -21,8 +21,9 @@ namespace fs = std::filesystem;
 using namespace bazarish;
 
 int main()
-{
-    const fs::path state = testutil::freshDir("bot-test-server-side");
+try {
+    const testutil::ScratchDir scratch("bot-test-server-side");
+    const fs::path& state = scratch.path();
     setSelfHostedFacadeOnLoopback(true);
     {
         bot::ServerSide server(state, i2p::Privacy::eMiddle, std::nullopt);
@@ -73,7 +74,8 @@ int main()
         CHECK(misled.linkFailure() == client::LinkFailure::eServerRefused);
         server.stop();
     }
-    fs::remove_all(state);
     std::printf("TestServerSide OK\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

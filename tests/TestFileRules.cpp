@@ -11,8 +11,9 @@ namespace fs = std::filesystem;
 using namespace bazarish::bot;
 
 int main()
-{
-    const fs::path root = testutil::freshDir("bot-file-rules-test");
+try {
+    const testutil::ScratchDir scratch("bot-file-rules-test");
+    const fs::path& root = scratch.path();
     fs::create_directories(root / "dir");
     { std::ofstream(root / "kept.txt") << "the operator's data\n"; }
     fs::create_symlink(root / "nowhere", root / "dangling");
@@ -30,7 +31,8 @@ int main()
     CHECK(checkTarget((root / "dangling").string()).refusal == kFileInTheWay);
     CHECK(checkTarget((root / "no-such-dir" / "fresh.bin").string()).refusal == kFileMissing);
 
-    fs::remove_all(root);
     std::printf("TestFileRules OK\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

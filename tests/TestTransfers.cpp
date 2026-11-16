@@ -28,7 +28,7 @@ TransferEvent event(const TransferState state, const TransferStage stage,
 }  // namespace
 
 int main()
-{
+try {
     Transfers transfers;
     transfers.expect(kPeer, kFile, "/srv/in/report.pdf");
     CHECK(transfers.active(kPeer, kFile));
@@ -74,4 +74,6 @@ int main()
 
     std::printf("TestTransfers OK\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

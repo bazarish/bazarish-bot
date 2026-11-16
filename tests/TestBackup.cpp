@@ -39,8 +39,9 @@ Bytes bytesOf(const std::string& text)
 }  // namespace
 
 int main()
-{
-    const fs::path root = testutil::freshDir("bot-backup-test");
+try {
+    const testutil::ScratchDir scratch("bot-backup-test");
+    const fs::path& root = scratch.path();
     const fs::path from = root / "from";
     const fs::path to = root / "to";
     const fs::path config = root / "bot.json";
@@ -95,7 +96,8 @@ int main()
         {{"bazarish-bot-backup.json", manifest}, {"state//etc/passwd", bytesOf("x")}})));
     checkBackup(zipStored({{"bazarish-bot-backup.json", manifest}, {"state/ok", bytesOf("x")}}));
 
-    fs::remove_all(root);
     std::fprintf(stderr, "TestBackup passed\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

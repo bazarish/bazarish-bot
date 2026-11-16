@@ -21,8 +21,9 @@ using bazarish::bot::OperatorAuth;
 using bazarish::client::signLoginChallenge;
 
 int main()
-{
-    const fs::path dir = testutil::freshDir("bot-operator");
+try {
+    const testutil::ScratchDir scratch("bot-operator");
+    const fs::path& dir = scratch.path();
     const fs::path config = dir / "operator.json";
     {
         std::ofstream out(config);
@@ -63,7 +64,8 @@ int main()
         CHECK_THROWS(auth.signIn(other, signLoginChallenge(second, other), now));
     }
 
-    fs::remove_all(dir);
     std::fprintf(stderr, "TestOperatorAuth passed\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

@@ -12,8 +12,9 @@ namespace fs = std::filesystem;
 using bazarish::bot::Settings;
 
 int main()
-{
-    const fs::path dir = testutil::freshDir("bot-settings");
+try {
+    const testutil::ScratchDir scratch("bot-settings");
+    const fs::path& dir = scratch.path();
     const fs::path file = dir / "settings.json";
 
     const std::string first = "0123456789abcdef";
@@ -101,7 +102,8 @@ int main()
         CHECK(settings.tokens(first).size() == 1);
     }
 
-    fs::remove_all(dir);
     std::fprintf(stderr, "TestSettings passed\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

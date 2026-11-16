@@ -212,8 +212,9 @@ std::string member()
 }  // namespace
 
 int main()
-{
-    const fs::path dir = fs::temp_directory_path() / ("bz-group-" + toHex(randomBytes(8)));
+try {
+    const testutil::ScratchDir scratch("group");
+    const fs::path& dir = scratch.path();
     std::int64_t now = 1000;
     Fake fake;
     const std::string ann = Identity::generate().fingerprint();
@@ -773,7 +774,8 @@ int main()
         engine.stop();
     }
 
-    fs::remove_all(dir);
     std::printf("TestGroupEngine passed\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

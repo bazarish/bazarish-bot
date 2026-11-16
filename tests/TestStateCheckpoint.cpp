@@ -16,8 +16,9 @@ namespace fs = std::filesystem;
 using namespace bazarish;
 
 int main()
-{
-    const fs::path root = testutil::freshDir("bot-checkpoint");
+try {
+    const testutil::ScratchDir scratch("bot-checkpoint");
+    const fs::path& root = scratch.path();
     const fs::path live = root / "live";
     const fs::path account = live / "accounts" / "a1.db";
     fs::create_directories(live / "server");
@@ -65,7 +66,8 @@ int main()
     CHECK(!bot::isCheckpointScratch(account.string() + "-wal"));
 
     store.close();
-    fs::remove_all(root);
     std::fprintf(stderr, "TestStateCheckpoint passed\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

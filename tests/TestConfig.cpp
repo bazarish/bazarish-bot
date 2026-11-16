@@ -15,9 +15,10 @@ using bazarish::bot::readConfig;
 
 namespace {
 
-fs::path write(const std::string& name, const std::string& text)
+fs::path write(
+    const testutil::ScratchDir& scratch, const std::string& name, const std::string& text)
 {
-    const fs::path path = fs::temp_directory_path() / name;
+    const fs::path path = scratch.path() / name;
     std::ofstream out(path);
     out << text;
     return path;
@@ -26,9 +27,10 @@ fs::path write(const std::string& name, const std::string& text)
 }  // namespace
 
 int main()
-{
+try {
+    const testutil::ScratchDir scratch("bot-config");
     {
-        const fs::path path = write("bz-bot-full.json", R"({
+        const fs::path path = write(scratch, "full.json", R"({
             // where everything lives
             "state": "/var/lib/bazarish/bot",
             "listen": {"host": "0.0.0.0", "port": 9000},
@@ -46,11 +48,10 @@ int main()
         CHECK(config.consumer.name == "Weather bots");
         CHECK(config.consumer.place == std::vector<std::string>{"https://bots.example"});
         CHECK(config.consumer.role == "Owner");
-        fs::remove(path);
     }
 
     {
-        const fs::path path = write("bz-bot-min.json", R"({
+        const fs::path path = write(scratch, "min.json", R"({
             "state": "/tmp/bz"
         })");
         const auto config = readConfig(path);
@@ -61,22 +62,19 @@ int main()
         CHECK(config.consumer.name == "Bazarish bot");
         CHECK(config.consumer.place == std::vector<std::string>{"http://127.0.0.1:8440"});
         CHECK(config.consumer.role == "Operator");
-        fs::remove(path);
     }
 
     {
-        const fs::path noState = write("bz-bot-nostate.json", R"({
+        const fs::path noState = write(scratch, "nostate.json", R"({
             "listen": {"host": "127.0.0.1", "port": 8440}
         })");
         CHECK_THROWS(readConfig(noState));
-        fs::remove(noState);
 
-        const fs::path noPort = write("bz-bot-noport.json", R"({
+        const fs::path noPort = write(scratch, "noport.json", R"({
             "state": "/tmp/bz",
             "listen": {"host": "127.0.0.1", "port": 0}
         })");
         CHECK_THROWS(readConfig(noPort));
-        fs::remove(noPort);
     }
 
     {
@@ -86,8 +84,10 @@ int main()
         CHECK(shipped.operatorFingerprint.empty());
     }
 
-    CHECK_THROWS(readConfig(fs::temp_directory_path() / "bz-bot-missing.json"));
+    CHECK_THROWS(readConfig(scratch.path() / "missing.json"));
 
     std::fprintf(stderr, "TestConfig passed\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

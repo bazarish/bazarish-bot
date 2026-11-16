@@ -24,7 +24,7 @@ client::IncomingMessage from(const std::string& type, const std::optional<std::i
 }  // namespace
 
 int main()
-{
+try {
     const std::vector<client::BotMenuItem> items = {{"Баланс", "balance"}, {"Help", "help"}};
     const std::optional<client::BotMenu> first = replacingMenu(std::nullopt, items);
     CHECK(first && first->items == items);
@@ -58,4 +58,6 @@ int main()
 
     std::printf("TestMenuRules: all checks passed\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

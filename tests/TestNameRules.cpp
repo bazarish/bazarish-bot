@@ -11,7 +11,7 @@ using bazarish::bot::kMaxNameCodepoints;
 using bazarish::bot::NameCheck;
 
 int main()
-{
+try {
     const NameCheck ann = checkName("  Ann ");
     CHECK(ann.allowed);
     CHECK(ann.name == "Ann");
@@ -41,4 +41,6 @@ int main()
 
     std::printf("TestNameRules passed\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

@@ -22,7 +22,6 @@ using bazarish::bot::Settings;
 
 namespace {
 
-constexpr std::size_t kUniqueBytes = 8;
 constexpr std::chrono::seconds kBringUpPatience{30};
 
 void checkFailedBringUpIsTold(const fs::path& root, Settings& settings)
@@ -50,10 +49,9 @@ void checkFailedBringUpIsTold(const fs::path& root, Settings& settings)
 }  // namespace
 
 int main()
-{
-    const std::string unique = bazarish::toHex(bazarish::randomBytes(kUniqueBytes));
-    const fs::path root = fs::temp_directory_path() / ("bz-bot-account-" + unique);
-    fs::create_directories(root);
+try {
+    const testutil::ScratchDir scratch("bot-account");
+    const fs::path& root = scratch.path();
     Settings settings(root / "settings.json");
     Account never("never", root / "never.db", settings, {});
 
@@ -67,7 +65,8 @@ int main()
 
     checkFailedBringUpIsTold(root, settings);
 
-    fs::remove_all(root);
     std::printf("TestBotAccount ok\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

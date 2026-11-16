@@ -23,7 +23,7 @@ Bytes png(const std::size_t size)
 }  // namespace
 
 int main()
-{
+try {
     const PictureCheck accepted = checkPicture(toBase64(png(64)), "qr.png");
     CHECK(accepted.accepted && accepted.mime == "image/png" && accepted.name == "qr.png");
     CHECK(accepted.bytes == png(64));
@@ -50,4 +50,6 @@ int main()
 
     std::printf("TestPictureRules: all checks passed\n");
     return 0;
+} catch (...) {
+    return testutil::failed();
 }

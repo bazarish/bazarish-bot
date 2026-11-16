@@ -55,8 +55,9 @@ bool says(const http::ClientResponse& response, const int status, const std::str
 }  // namespace
 
 int main()
-{
-    const fs::path dir = testutil::freshDir("bot-face");
+try {
+    const testutil::ScratchDir scratch("bot-face");
+    const fs::path& dir = scratch.path();
     bazarish::bot::Config config;
     config.path = dir / "bot.json";
     {
@@ -106,6 +107,7 @@ int main()
 
         face.stop();
     }
-    fs::remove_all(dir);
     return 0;
+} catch (...) {
+    return testutil::failed();
 }
