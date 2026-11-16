@@ -52,7 +52,7 @@ int main()
         CHECK(api.get("/v1/account/i2p-status").json().at("approval") == "none");
         bool unknownToMailbox = false;
         try {
-            (void)api.get("/v1/messaging/storage-usage");
+            (void)api.get("/v1/messaging/overview");
         } catch (const client::ApiError& error) {
             unknownToMailbox = error.code == ErrorCode::eAccountUnknown;
         }

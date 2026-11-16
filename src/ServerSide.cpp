@@ -148,7 +148,7 @@ void ServerSide::start()
         = [this](const std::string& user) -> server::DestinationAssignment {
         const server::PerUserDestinations::Assignment assigned
             = destinations_->assignmentFor(user, nowSeconds());
-        return {assigned.dest, assigned.state};
+        return {assigned.dest, assigned.state, assigned.transientExpires};
     };
     nodeCards_ = std::make_shared<server::NodeCards>(
         server::NodeAddress{host_, nodePort_, true, credential.pin}, identity_);
@@ -160,6 +160,7 @@ void ServerSide::start()
     options.accountDevices
         = [cards = nodeCards_](const std::string& user) { return cards->devices(user); };
     api_ = std::make_unique<server::HttpApi>(*storage_, *gate_, options);
+    destinations_->watchUsers(api_->overviewChanged());
     mailboxPort_ = api_->bind(host_, 0);
     if (mailboxPort_ <= 0) {
         throw std::runtime_error("the mailbox cannot take a port on " + host_);
