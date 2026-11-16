@@ -540,8 +540,8 @@ void Transcript::rebuild()
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     std::string reason;
-    if (!store_.rebuild(reason)) {
-        throw std::runtime_error("the database was not rewritten: " + reason);
+    if (!store_.compact(reason)) {
+        throw std::runtime_error("the database was not compacted: " + reason);
     }
 }
 
