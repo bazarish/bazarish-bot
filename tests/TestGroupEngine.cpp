@@ -129,6 +129,10 @@ GroupLink linkFor(Fake& fake)
             case client::RelayKind::eReactions:
                 fake.sent.push_back({"reactions", peer, {}, {}, {}, {}, post.reactions, false});
                 break;
+            case client::RelayKind::eMembers:
+                fake.sent.push_back({"members", peer, {}, {}, {}, {},
+                    client::memberListToJson(post.members), false});
+                break;
             }
         }
         if (fake.away.count(peer) != 0) {
@@ -207,6 +211,155 @@ void join(GroupEngine& engine, Fake& fake, const std::string& peer, const std::s
 std::string member()
 {
     return Identity::generate().fingerprint();
+}
+
+constexpr std::size_t kCrowdMembers = client::kMaxMemberNamesPerLetter + 1;
+constexpr int kCrowdNameDigits = 4;
+
+nlohmann::json onlyLetter(Fake& fake, const std::string& peer)
+{
+    const std::vector<Sent> letters = fake.take("members", peer);
+    CHECK(letters.size() == 1);
+    return letters.at(0).reactions;
+}
+
+std::vector<std::string> namesIn(const nlohmann::json& letter)
+{
+    return letter.at("names").get<std::vector<std::string>>();
+}
+
+void checkMemberList(const fs::path& dir)
+{
+    std::int64_t now = 1000;
+    Fake fake;
+    GroupEngine engine(dir / "roster.db", linkFor(fake), [&now]() { return now; });
+    const std::string ann = "fp-ann";
+    const std::string bea = "fp-bea";
+    const std::string cal = "fp-cal";
+
+    join(engine, fake, ann, "Ann");
+    pump(engine);
+    nlohmann::json letter = onlyLetter(fake, ann);
+    CHECK(letter.at("op") == "full");
+    CHECK(letter.at("part") == 1 && letter.at("parts") == 1 && letter.at("total") == 1);
+    CHECK(namesIn(letter) == std::vector<std::string>{"Ann"});
+    CHECK(letter.at("you") == "Ann");
+
+    join(engine, fake, bea, "Anna Maria");
+    pump(engine);
+    letter = onlyLetter(fake, ann);
+    CHECK(letter.at("op") == "added");
+    CHECK(namesIn(letter) == std::vector<std::string>{"Anna Maria"});
+    CHECK(letter.at("total") == 2);
+    CHECK(!letter.contains("you"));
+    letter = onlyLetter(fake, bea);
+    CHECK(letter.at("op") == "full" && letter.at("total") == 2);
+    CHECK(letter.at("you") == "Anna Maria");
+
+    join(engine, fake, cal, "anna_maria");
+    CHECK(fake.take("tell", cal).back().text == "The name anna_maria is taken. Choose another.");
+    engine.onIncoming(textFrom(cal, "Cal"));
+    pump(engine);
+    CHECK(onlyLetter(fake, ann).at("total") == 3);
+    CHECK(onlyLetter(fake, bea).at("total") == 3);
+    fake.forget();
+
+    engine.onIncoming(commandFrom(bea, "rename", ""));
+    engine.onIncoming(textFrom(bea, "Bea"));
+    pump(engine);
+    std::vector<Sent> renamed = fake.take("members", ann);
+    CHECK(renamed.size() == 2);
+    CHECK(renamed[0].reactions.at("op") == "removed");
+    CHECK(namesIn(renamed[0].reactions) == std::vector<std::string>{"Anna Maria"});
+    CHECK(renamed[0].reactions.at("total") == 2);
+    CHECK(renamed[1].reactions.at("op") == "added");
+    CHECK(renamed[1].reactions.at("total") == 3);
+    CHECK(!renamed[1].reactions.contains("you"));
+    renamed = fake.take("members", bea);
+    CHECK(renamed.size() == 2);
+    CHECK(renamed[1].reactions.at("you") == "Bea");
+
+    engine.onIncoming(textFrom(ann, "@Bea look", "m1"));
+    pump(engine);
+    const std::vector<Sent> relayed = fake.take("relay", bea);
+    CHECK(relayed.size() == 1 && relayed[0].text == "@Bea look");
+    fake.forget();
+
+    engine.onIncoming(incoming(ann, "group.members.ask"));
+    pump(engine);
+    letter = onlyLetter(fake, ann);
+    CHECK(letter.at("op") == "full" && letter.at("total") == 3);
+    std::vector<std::string> everyone = namesIn(letter);
+    std::sort(everyone.begin(), everyone.end());
+    CHECK(everyone == (std::vector<std::string>{"Ann", "Bea", "Cal"}));
+    CHECK(letter.at("you") == "Ann");
+    CHECK(fake.take("members", bea).empty());
+
+    engine.exclude(cal);
+    pump(engine);
+    letter = onlyLetter(fake, ann);
+    CHECK(letter.at("op") == "removed" && letter.at("total") == 2);
+    CHECK(fake.take("members", cal).empty());
+    engine.onIncoming(incoming(cal, "group.members.ask"));
+    pump(engine);
+    CHECK(fake.take("members", cal).empty());
+    fake.forget();
+
+    GroupConfig config = engine.config();
+    config.kind = client::GroupKind::eChannel;
+    engine.setConfig(config);
+    pump(engine);
+    CHECK(onlyLetter(fake, ann).at("op") == "none");
+    CHECK(onlyLetter(fake, bea).at("op") == "none");
+    engine.onIncoming(commandFrom(bea, "rename", ""));
+    engine.onIncoming(textFrom(bea, "Bee"));
+    engine.onIncoming(incoming(ann, "group.members.ask"));
+    pump(engine);
+    letter = onlyLetter(fake, ann);
+    CHECK(letter.at("op") == "none");
+    CHECK(!letter.contains("names"));
+    CHECK(fake.take("members", bea).empty());
+}
+
+std::string crowdName(const std::size_t number)
+{
+    std::string digits = std::to_string(number);
+    digits.insert(0, static_cast<std::size_t>(kCrowdNameDigits) - digits.size(), '0');
+    std::string name = "M";
+    name += digits;
+    return name;
+}
+
+void checkListInParts(const fs::path& dir)
+{
+    std::int64_t now = 1000;
+    Fake fake;
+    GroupEngine engine(dir / "parts.db", linkFor(fake), [&now]() { return now; });
+    const std::string first = "a-first";
+    join(engine, fake, first, "First");
+    for (std::size_t number = 1; number < kCrowdMembers; ++number) {
+        std::string peer = "m-";
+        peer += crowdName(number);
+        join(engine, fake, peer, crowdName(number));
+    }
+    engine.onIncoming(incoming(first, "group.members.ask"));
+    engine.pumpOnce();
+    const std::vector<Sent> parts = fake.take("members", first);
+    CHECK(parts.size() == 2);
+    std::size_t names = 0;
+    bool you = false;
+    for (std::size_t at = 0; at < parts.size(); ++at) {
+        const nlohmann::json& part = parts[at].reactions;
+        CHECK(part.at("op") == "full");
+        CHECK(part.at("part") == static_cast<std::int64_t>(at + 1));
+        CHECK(part.at("parts") == 2);
+        CHECK(part.at("total") == static_cast<std::int64_t>(kCrowdMembers));
+        CHECK(namesIn(part).size() <= client::kMaxMemberNamesPerLetter);
+        names += namesIn(part).size();
+        you = you || (part.contains("you") && part.at("you") == "First");
+    }
+    CHECK(names == kCrowdMembers);
+    CHECK(you);
 }
 
 }  // namespace
@@ -774,6 +927,8 @@ try {
         engine.stop();
     }
 
+    checkMemberList(dir);
+    checkListInParts(dir);
     std::printf("TestGroupEngine passed\n");
     return 0;
 } catch (...) {

@@ -130,6 +130,9 @@ private:
     GroupLink::Outcome watchRefusal(const std::string& peer);
     void refusedLocked(const std::string& fingerprint);
     void goneLocked(const std::string& fingerprint);
+    void noteRosterLocked(const Member& before, const Member& after);
+    std::int64_t memberTotalLocked() const;
+    void queueListLocked(const std::string& peer);
     std::optional<std::function<void()>> nextRelayLocked(Member& member);
     client::RelayedPost relayedLocked(const Post& post) const;
     void run(Actions& actions);
@@ -151,6 +154,9 @@ private:
     std::set<std::string> waiting_;
     std::set<std::string> renaming_;
     std::map<std::string, std::string> joinRequests_;
+    // Member list letters waiting for the member's next relay, and the log seq they reflect.
+    std::map<std::string, std::vector<client::RelayedPost>> listOut_;
+    std::map<std::string, std::int64_t> listThrough_;
     std::int64_t memberCount_ = 0;
     std::int64_t countedAt_ = 0;
     std::int64_t sweptAt_ = 0;

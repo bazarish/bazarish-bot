@@ -37,6 +37,7 @@ enum class LogKind {
     eEdit,
     eDelete,
     eReactions,
+    eRoster,
 };
 
 struct GroupConfig {
@@ -82,6 +83,13 @@ struct LogEntry {
     std::string postId;
 };
 
+struct RosterChange {
+    bool added = false;
+    std::string name;
+    std::string fingerprint;
+    std::int64_t total = 0;
+};
+
 struct JoinRequest {
     std::int64_t number = 0;
     std::string fingerprint;
@@ -119,6 +127,9 @@ public:
     std::vector<LogEntry> logAfter(std::int64_t seq, std::int64_t limit) const;
     std::int64_t lastSeq() const;
     std::int64_t seqBeforeLastPosts(std::int64_t count) const;
+
+    std::int64_t appendRoster(const RosterChange& change);
+    std::optional<RosterChange> roster(std::int64_t seq) const;
 
     void setReaction(const std::string& postId, const std::string& member, const std::string& emoji);
     std::map<std::string, std::int64_t> reactionCounts(

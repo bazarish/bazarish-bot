@@ -15,6 +15,9 @@ namespace bazarish::bot {
 
 namespace {
 
+constexpr UChar32 kSpace = 0x20;
+constexpr char16_t kSpaceText[] = u" ";
+constexpr char16_t kSpaceInMention[] = u"_";
 
 struct SpoofCloser {
     void operator()(USpoofChecker* checker) const { uspoof_close(checker); }
@@ -42,7 +45,7 @@ bool forbiddenCharacter(const UChar32 point)
 {
     const std::int8_t type = u_charType(point);
     return type == U_CONTROL_CHAR || type == U_FORMAT_CHAR || type == U_LINE_SEPARATOR
-        || type == U_PARAGRAPH_SEPARATOR;
+        || type == U_PARAGRAPH_SEPARATOR || (u_isUWhiteSpace(point) && point != kSpace);
 }
 
 }  // namespace
@@ -67,7 +70,7 @@ NameCheck checkName(const std::string& typed)
     if (U_FAILURE(status)) {
         throw std::runtime_error(std::string("name rules: ") + u_errorName(status));
     }
-    const icu::UnicodeString folded = folding->normalize(name, status);
+    icu::UnicodeString folded = folding->normalize(name, status);
     if (U_FAILURE(status)) {
         throw std::runtime_error(std::string("name rules: ") + u_errorName(status));
     }
@@ -88,6 +91,7 @@ NameCheck checkName(const std::string& typed)
     if (U_FAILURE(status)) {
         throw std::runtime_error(std::string("name rules: ") + u_errorName(status));
     }
+    folded.findAndReplace(icu::UnicodeString(kSpaceText), icu::UnicodeString(kSpaceInMention));
     icu::UnicodeString skeleton;
     uspoof_getSkeletonUnicodeString(checker.get(), 0, folded, skeleton, &status);
     if (U_FAILURE(status)) {

@@ -28,7 +28,7 @@ constexpr Named kStateNames[] = {
     {MemberState::eBanned, "banned"},
 };
 
-constexpr const char* kLogKindNames[] = {"post", "edit", "delete", "reactions"};
+constexpr const char* kLogKindNames[] = {"post", "edit", "delete", "reactions", "roster"};
 
 MemberState memberStateFromName(const std::string& name)
 {
@@ -152,6 +152,9 @@ GroupStore::GroupStore(const std::filesystem::path& file)
                   " deleted INTEGER NOT NULL, seq INTEGER NOT NULL)");
     database_.run("CREATE TABLE IF NOT EXISTS hosted_log (seq INTEGER PRIMARY KEY AUTOINCREMENT,"
                   " kind TEXT NOT NULL, postId TEXT NOT NULL)");
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_roster (seq INTEGER PRIMARY KEY,"
+                  " added INTEGER NOT NULL, name TEXT NOT NULL, fingerprint TEXT NOT NULL,"
+                  " total INTEGER NOT NULL)");
     database_.run("CREATE TABLE IF NOT EXISTS hosted_reactions (postId TEXT NOT NULL, member TEXT NOT NULL,"
                   " emoji TEXT NOT NULL, PRIMARY KEY (postId, member))");
     database_.run("CREATE TABLE IF NOT EXISTS hosted_requests (number INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -334,6 +337,31 @@ std::int64_t GroupStore::seqBeforeLastPosts(const std::int64_t count) const
         return 0;
     }
     return query.number(0) - 1;
+}
+
+std::int64_t GroupStore::appendRoster(const RosterChange& change)
+{
+    const std::int64_t seq = appendLog(LogKind::eRoster, {});
+    Statement insert(database_,
+        "INSERT INTO hosted_roster (seq, added, name, fingerprint, total) VALUES (?, ?, ?, ?, ?)");
+    insert.bind(1, seq);
+    insert.bind(2, flag(change.added));
+    insert.bind(3, change.name);
+    insert.bind(4, change.fingerprint);
+    insert.bind(5, change.total);
+    (void)insert.step();
+    return seq;
+}
+
+std::optional<RosterChange> GroupStore::roster(const std::int64_t seq) const
+{
+    Statement query(
+        database_, "SELECT added, name, fingerprint, total FROM hosted_roster WHERE seq = ?");
+    query.bind(1, seq);
+    if (!query.step()) {
+        return std::nullopt;
+    }
+    return RosterChange{query.number(0) != 0, query.text(1), query.text(2), query.number(3)};
 }
 
 void GroupStore::setReaction(

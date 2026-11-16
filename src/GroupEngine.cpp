@@ -29,6 +29,7 @@ constexpr const char* kRenameCommand = "rename";
 constexpr const char* kTypeText = "text";
 constexpr const char* kTypeImage = "image";
 constexpr const char* kTypeAudio = "audio";
+constexpr const char* kTypeMembersAsk = "group.members.ask";
 
 bool isPost(const std::string& type)
 {
@@ -160,9 +161,80 @@ std::string GroupEngine::text(const Copy key, const std::vector<std::string>& va
 
 void GroupEngine::saveLocked(const Member& member)
 {
+    const auto found = members_.find(member.fingerprint);
+    const Member before = found == members_.end() ? Member{} : found->second;
     members_[member.fingerprint] = member;
     store_.putMember(member);
+    noteRosterLocked(before, member);
     markStaleLocked(true);
+}
+
+std::int64_t GroupEngine::memberTotalLocked() const
+{
+    return static_cast<std::int64_t>(std::count_if(members_.begin(), members_.end(),
+        [](const auto& entry) { return entry.second.state == MemberState::eMember; }));
+}
+
+void GroupEngine::noteRosterLocked(const Member& before, const Member& after)
+{
+    if (config_.kind != client::GroupKind::eGroup) {
+        return;
+    }
+    const bool was = before.state == MemberState::eMember;
+    const bool is = after.state == MemberState::eMember;
+    if (was && is && before.name == after.name) {
+        return;
+    }
+    const std::int64_t total = memberTotalLocked();
+    if (was) {
+        (void)store_.appendRoster({false, before.name, before.fingerprint, is ? total - 1 : total});
+    }
+    if (is) {
+        (void)store_.appendRoster({true, after.name, after.fingerprint, total});
+    }
+}
+
+void GroupEngine::queueListLocked(const std::string& peer)
+{
+    std::vector<client::RelayedPost> letters;
+    const auto letter = [](client::MemberListLetter members) {
+        client::RelayedPost post;
+        post.kind = client::RelayKind::eMembers;
+        post.id = client::newMessageId();
+        post.members = std::move(members);
+        return post;
+    };
+    if (config_.kind != client::GroupKind::eGroup) {
+        letters.push_back(letter({}));
+    } else {
+        std::vector<std::pair<std::string, bool>> in;
+        for (const auto& [fingerprint, member] : members_) {
+            if (member.state == MemberState::eMember) {
+                in.emplace_back(member.name, fingerprint == peer);
+            }
+        }
+        const std::size_t perPart = client::kMaxMemberNamesPerLetter;
+        const std::size_t partCount = std::max<std::size_t>(1, (in.size() + perPart - 1) / perPart);
+        const auto parts = static_cast<std::int64_t>(partCount);
+        for (std::int64_t part = 0; part < parts; ++part) {
+            client::MemberListLetter full;
+            full.op = client::MemberListOp::eFull;
+            full.part = part + 1;
+            full.parts = parts;
+            full.total = static_cast<std::int64_t>(in.size());
+            const std::size_t from = static_cast<std::size_t>(part) * perPart;
+            for (std::size_t at = from; at < in.size() && at < from + perPart; ++at) {
+                full.names.push_back(in[at].first);
+                if (in[at].second) {
+                    full.you = in[at].first;
+                }
+            }
+            letters.push_back(letter(std::move(full)));
+        }
+    }
+    listOut_[peer] = std::move(letters);
+    listThrough_[peer] = store_.lastSeq();
+    markStaleLocked(false);
 }
 
 void GroupEngine::markStaleLocked(const bool members)
@@ -398,6 +470,10 @@ void GroupEngine::handleLocked(
         break;
     }
 
+    if (message.contentType == kTypeMembersAsk) {
+        queueListLocked(peer);
+        return;
+    }
     if (isPost(message.contentType) && renaming_.count(peer) != 0) {
         renameLocked(member, message, actions);
         return;
@@ -491,6 +567,7 @@ void GroupEngine::admitLocked(Member& member)
     member.cursor = store_.seqBeforeLastPosts(config_.historySize);
     member.historyFrom = member.cursor;
     saveLocked(member);
+    queueListLocked(member.fingerprint);
 }
 
 void GroupEngine::decideLocked(
@@ -828,7 +905,32 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
         item.ref = ref;
         return item;
     };
+    const std::int64_t listThrough = listThrough_[peer];
+    const auto rosterEntry = [&](const LogEntry& entry) {
+        const std::optional<RosterChange> change = store_.roster(entry.seq);
+        if (!change || entry.seq <= listThrough || entry.seq <= member.historyFrom) {
+            return;
+        }
+        client::RelayedPost letter = about(client::RelayKind::eMembers, {});
+        letter.members.op
+            = change->added ? client::MemberListOp::eAdded : client::MemberListOp::eRemoved;
+        letter.members.names = {change->name};
+        letter.members.total = change->total;
+        if (change->added && change->fingerprint == peer) {
+            letter.members.you = change->name;
+        }
+        add(std::move(letter), entry.seq);
+    };
+    const std::vector<client::RelayedPost>& waitingList = listOut_[peer];
+    const std::size_t listed = waitingList.size();
+    for (const client::RelayedPost& letter : waitingList) {
+        add(letter, sentThrough);
+    }
     const auto relayEntry = [&](const LogEntry& entry) {
+        if (entry.kind == LogKind::eRoster) {
+            rosterEntry(entry);
+            return;
+        }
         const std::optional<Post> post = store_.post(entry.postId);
         if (!post || post->seq <= member.historyFrom) {
             return;
@@ -852,6 +954,8 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
             if (!own && post->seq <= sentThrough) {
                 add(about(client::RelayKind::eDelete, post->id), entry.seq);
             }
+            break;
+        case LogKind::eRoster:
             break;
         case LogKind::eReactions:
             if (!post->deleted && counted.insert(post->id).second) {
@@ -886,6 +990,9 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
         throw std::runtime_error("a group log entry does not fit an envelope by itself");
     }
     items.resize(fit);
+    std::vector<client::RelayedPost>& sentList = listOut_[peer];
+    sentList.erase(
+        sentList.begin(), sentList.begin() + static_cast<std::ptrdiff_t>(std::min(fit, listed)));
     return guarded([this, peer, items, watch = done(seqs[fit - 1])]() {
         link_.relay(peer, items, watch);
     });
@@ -1037,6 +1144,11 @@ void GroupEngine::setConfig(const GroupConfig& config)
         config_ = config;
         markStaleLocked(false);
         if (kindChanged) {
+            for (const auto& [fingerprint, member] : members_) {
+                if (member.state == MemberState::eMember) {
+                    queueListLocked(fingerprint);
+                }
+            }
             for (const auto& [fingerprint, member] : members_) {
                 if (member.state == MemberState::eMember && !member.admin) {
                     actions.push_back(

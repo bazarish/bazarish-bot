@@ -36,6 +36,10 @@ try {
     CHECK(!checkName(std::string(kMaxNameCodepoints + 1, 'a')).allowed);
     CHECK(!checkName("An​n").allowed);
     CHECK(!checkName("A\tnn").allowed);
+    CHECK(checkName("Anna Maria").key == checkName("anna_maria").key);
+    CHECK(checkName("Anna Maria").name == "Anna Maria");
+    CHECK(!checkName("Anna\xC2\xA0Maria").allowed);
+    CHECK(!checkName("Anna\xE3\x80\x80Maria").allowed);
     CHECK(!checkName("bazarish://invite").allowed);
     CHECK(!checkName("https://bazari.sh/#invite").allowed);
 
