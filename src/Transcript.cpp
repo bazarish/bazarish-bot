@@ -434,6 +434,18 @@ void Transcript::clearPeer(const std::string& peer)
     (void)noteLocked("chat-cleared", peer, {}, {}, {}, 0);
 }
 
+std::int64_t Transcript::trimChat(const std::string& peer, const int keep)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return store_.pruneToLatest(peer, keep);
+}
+
+std::int64_t Transcript::trimEveryChat(const int keep)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return store_.pruneEveryChatToLatest(keep);
+}
+
 void Transcript::setStatus(
     const std::string& peer, const std::string& messageId, const std::string& status)
 {

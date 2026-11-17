@@ -11,7 +11,9 @@
 #include <chrono>
 #include <exception>
 #include <filesystem>
+#include <functional>
 #include <future>
+#include <limits>
 #include <stop_token>
 #include <string>
 #include <thread>
@@ -23,6 +25,18 @@ using bazarish::bot::Settings;
 namespace {
 
 constexpr std::chrono::seconds kBringUpPatience{30};
+constexpr std::int64_t kWithinKeptBound = std::numeric_limits<int>::max();
+constexpr std::int64_t kPastKeptBound = kWithinKeptBound + 1;
+
+bool trimSays(const std::function<void()>& trim, const std::string& words)
+{
+    try {
+        trim();
+    } catch (const std::exception& error) {
+        return std::string(error.what()).find(words) != std::string::npos;
+    }
+    return false;
+}
 
 void checkFailedBringUpIsTold(const fs::path& root, Settings& settings)
 {
@@ -56,6 +70,10 @@ try {
     Account never("never", root / "never.db", settings, {});
 
     CHECK_THROWS(never.setMenu(std::string(52, 'p'), {}));
+    CHECK(trimSays([&never]() { never.trimChat("peer", -1); }, "from 0 to"));
+    CHECK(trimSays([&never]() { never.trimEveryChat(kPastKeptBound); }, "from 0 to"));
+    CHECK(trimSays([&never]() { never.trimChat("peer", 0); }, "not open"));
+    CHECK(trimSays([&never]() { never.trimEveryChat(kWithinKeptBound); }, "not open"));
 
     std::thread other([&never]() { never.close(); });
     never.close();

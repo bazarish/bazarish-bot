@@ -29,7 +29,7 @@ Every refusal is `{"error": "<what was wrong>"}` under one of these codes:
 
 | Code | When |
 |---|---|
-| `400` | the body or a parameter is not what the route takes, or the account cannot do what it names, such as an edit of a message it did not send |
+| `400` | the body or a parameter is not what the route takes, such as a `keep` that is not a whole number from 0 to 2147483647, or the account cannot do what it names, such as an edit of a message it did not send |
 | `401` | no token, or a token that does not open the API |
 | `404` | no such file, path or transfer |
 | `409` | a route the account's kind does not take; a download onto a path that is taken, or of a file already on its way |
@@ -68,11 +68,14 @@ Every refusal is `{"error": "<what was wrong>"}` under one of these codes:
 | `POST /v1/chats/{fingerprint}/timer` | `{"seconds": 86400}` sets the timer on both sides, `{"seconds": 0}` turns it off | `{"seconds": 86400}` |
 | `GET /v1/storage` | the size of the account's database, `fileBytes`, and how much of it is free pages, `freeBytes` | `{"fileBytes": ..., "freeBytes": ...}` |
 | `POST /v1/storage/compact` | rewrites the database without its free pages | like `GET /v1/storage` |
+| `POST /v1/chats/{fingerprint}/trim` | `{"keep": 100}` keeps the newest 100 lines of the conversation and deletes the rest, here only | `{"removed": <lines deleted>}` |
+| `POST /v1/storage/trim` | `{"keep": 100}` does the same in every conversation | `{"removed": <lines deleted in all>}` |
 | `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds | `{"events": [...], "lastEventId": ...}` |
 | `POST /v1/posts` | `{"text": "..."}` posts in a group as the group itself; group accounts only | `{"id": "..."}` |
 
-A group account answers `/v1/status`, `POST /v1/posts` and `/v1/storage` and
-refuses every other route with `409`: its members' posts it relays itself. A bot
+A group account answers `/v1/status`, `POST /v1/posts` and the `/v1/storage`
+routes, `POST /v1/storage/trim` among them, and refuses every other route with
+`409`, `POST /v1/chats/{fingerprint}/trim` too: its members' posts it relays itself. A bot
 account refuses `POST /v1/posts` with `409`.
 
 ### Switching the account off
@@ -469,9 +472,26 @@ daemon's state directory, says `"history": false`; the daemon reads it when it
 starts. Such an account keeps a line only until its event is in the feed:
 `GET /v1/messages` and `GET /v1/chats` answer nothing, and the routes that find a
 message by its `messageId` - an edit, a delete, a forward, a download - do not
-find it. The callback's `replyTo` is on its line, so this account does not learn
-which message a press was on. The feed is kept for a day, and a message that
+find it. A bot that edits its own messages needs history. The callback's
+`replyTo` is on its line, so this account does not learn which message a press
+was on. The feed is kept for a day, and a message that
 arrives twice is recognised by it.
+
+## Trimming the history
+
+`POST /v1/chats/{fingerprint}/trim` with `{"keep": 100}` keeps the newest 100
+lines of that conversation and deletes the older ones with their pictures,
+voice notes and reactions; `{"keep": 0}` deletes them all. `POST /v1/storage/trim`
+does the same in every conversation. Both delete here only, the peer's copy
+stays, and no event is written. `keep` is a whole number from 0 to 2147483647.
+The answer counts the lines deleted:
+
+```json
+{"removed": 412}
+```
+
+Trimming leaves free pages; `POST /v1/storage/compact` afterwards gives the
+space back to the disk.
 
 ## The size of the database
 

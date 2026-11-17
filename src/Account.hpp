@@ -121,6 +121,8 @@ public:
     std::int64_t chatTimer(const std::string& peer) const;
     client::DatabaseFootprint storage() const;
     client::DatabaseFootprint compact();
+    std::int64_t trimChat(const std::string& peer, std::int64_t keep);
+    std::int64_t trimEveryChat(std::int64_t keep);
 
     void acceptContact(const std::string& peer);
     void removeContact(const std::string& peer);

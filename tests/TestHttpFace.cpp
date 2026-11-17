@@ -81,6 +81,10 @@ try {
         CHECK(call(port, "GET", "/v1/messages?peer=x").status == kUnauthorized);
         CHECK(says(call(port, "GET", "/v1/messages?peer=x", bearer), kUnavailable, "not open"));
         CHECK(says(call(port, "POST", "/v1/storage/compact", bearer), kUnavailable, "not open"));
+        CHECK(says(call(port, "POST", "/v1/storage/trim", bearer, R"({"keep":1})"), kUnavailable,
+            "not open"));
+        CHECK(says(call(port, "POST", "/v1/chats/p/trim", bearer, R"({"keep":1})"), kUnavailable,
+            "not open"));
         CHECK(says(call(port, "DELETE", std::string("/v1/messages/") + kMessageId, bearer),
             kUnavailable, "not open"));
 

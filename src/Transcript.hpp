@@ -80,6 +80,8 @@ public:
     void applyReaction(const std::string& peer, const std::string& messageId,
         const std::string& reactor, const std::string& emoji);
     void clearPeer(const std::string& peer);
+    std::int64_t trimChat(const std::string& peer, int keep);
+    std::int64_t trimEveryChat(int keep);
     std::vector<client::UnsentRow> unfinished();
     void setStatus(
         const std::string& peer, const std::string& messageId, const std::string& status);

@@ -151,6 +151,15 @@ nlohmann::json storageJson(const client::DatabaseFootprint& footprint)
     return {{"fileBytes", footprint.fileBytes}, {"freeBytes", footprint.freeBytes}};
 }
 
+std::int64_t keepOf(const http::Request& request)
+{
+    const nlohmann::json body = bazarish::parseJson(request.body);
+    if (!body.contains("keep") || !body.at("keep").is_number_integer()) {
+        throw std::invalid_argument("\"keep\" is how many of the newest lines stay");
+    }
+    return body.at("keep").get<std::int64_t>();
+}
+
 bool clearsForEveryone(const http::Request& request)
 {
     const nlohmann::json body = bazarish::parseJson(request.body);
@@ -835,6 +844,19 @@ void HttpFace::apiRoutes()
             const std::int64_t seconds = body.at("seconds").get<std::int64_t>();
             account.setChatTimer(call.captures.at(0), seconds);
             return http::jsonResponse({{"seconds", seconds}});
+        });
+    });
+
+    server_->post("/v1/chats/{b32}/trim", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            return http::jsonResponse(
+                {{"removed", account.trimChat(call.captures.at(0), keepOf(call))}});
+        });
+    });
+
+    server_->post("/v1/storage/trim", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            return http::jsonResponse({{"removed", account.trimEveryChat(keepOf(call))}});
         });
     });
 

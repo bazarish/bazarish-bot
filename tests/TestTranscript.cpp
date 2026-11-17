@@ -295,6 +295,39 @@ try {
         CHECK(transcript.timer("hana") == 0);
     }
 
+    {
+        constexpr int kAliceLines = 5;
+        constexpr int kBobLines = 3;
+        constexpr int kKeptInChat = 2;
+        constexpr int kKeptEverywhere = 1;
+        Transcript transcript(dir / "trim.db", self, true);
+        for (int i = 0; i < kAliceLines; ++i) {
+            const std::string n = std::to_string(i);
+            CHECK(transcript.append(lineFor("alice", "a" + n, "a" + n, i % 2 == 0, i + 1)) != 0);
+        }
+        for (int i = 0; i < kBobLines; ++i) {
+            const std::string n = std::to_string(i);
+            CHECK(transcript.append(lineFor("bob", "b" + n, "b" + n, false, i + 1)) != 0);
+        }
+
+        CHECK(transcript.trimChat("alice", kKeptInChat) == kAliceLines - kKeptInChat);
+        const std::vector<Line> alice = transcript.conversation("alice", 0, kAliceLines);
+        CHECK(alice.size() == kKeptInChat);
+        CHECK(alice.front().text == "a4" && alice.back().text == "a3");
+        CHECK(transcript.conversation("bob", 0, kBobLines).size() == kBobLines);
+        CHECK(transcript.trimChat("alice", kKeptInChat) == 0);
+        CHECK(transcript.trimChat("nobody", 0) == 0);
+
+        CHECK(transcript.trimEveryChat(kKeptEverywhere)
+            == (kKeptInChat - kKeptEverywhere) + (kBobLines - kKeptEverywhere));
+        const std::vector<Line> bob = transcript.conversation("bob", 0, kBobLines);
+        CHECK(bob.size() == kKeptEverywhere && bob.front().text == "b2");
+        CHECK(transcript.conversation("alice", 0, kAliceLines).front().text == "a4");
+
+        CHECK(transcript.trimEveryChat(0) == 2 * kKeptEverywhere);
+        CHECK(transcript.latestPerPeer().empty());
+    }
+
     std::fprintf(stderr, "TestTranscript passed\n");
     return 0;
 } catch (...) {

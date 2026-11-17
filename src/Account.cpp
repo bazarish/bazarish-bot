@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string_view>
@@ -31,6 +32,17 @@ constexpr const char* kStarting = "starting";
 constexpr const char* kRunning = "running";
 constexpr std::string_view kFailedPrefix = "failed: ";
 constexpr const char* kNotLeftStatus = "failed: this message did not leave this device";
+constexpr std::int64_t kMaxKeptLines = std::numeric_limits<int>::max();
+
+int keptLines(const std::int64_t keep)
+{
+    if (keep < 0 || keep > kMaxKeptLines) {
+        std::string problem = "\"keep\" is a whole number from 0 to ";
+        problem += std::to_string(kMaxKeptLines);
+        throw std::invalid_argument(problem);
+    }
+    return static_cast<int>(keep);
+}
 
 client::TransferEventFn transferHandler(const std::shared_ptr<Transfers>& transfers,
     const std::shared_ptr<Transcript>& transcript,
@@ -1040,6 +1052,26 @@ client::DatabaseFootprint Account::compact()
     }
     transcript_->rebuild();
     return transcript_->footprint();
+}
+
+std::int64_t Account::trimChat(const std::string& peer, const std::int64_t keep)
+{
+    const int kept = keptLines(keep);
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    if (transcript_ == nullptr) {
+        throw std::runtime_error("the account is not open");
+    }
+    return transcript_->trimChat(peer, kept);
+}
+
+std::int64_t Account::trimEveryChat(const std::int64_t keep)
+{
+    const int kept = keptLines(keep);
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    if (transcript_ == nullptr) {
+        throw std::runtime_error("the account is not open");
+    }
+    return transcript_->trimEveryChat(kept);
 }
 
 void Account::acceptContact(const std::string& peer)
