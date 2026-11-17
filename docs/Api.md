@@ -13,8 +13,8 @@ Authorization: Bearer <token>
 
 Tokens are issued in the web interface, per account, under a name, and shown
 once. The routes below have no account in them: the token says which. A call
-with no token and a call with a token that is not one of this daemon's are told
-apart, because those are different mistakes:
+with no token and a call with a token that is not one of this daemon's get
+different errors:
 
 ```json
 {"error": "the API is opened by a token in the Authorization header"}
@@ -162,9 +162,9 @@ in the conversation has the type `image` and the name as its text.
 
 ### Files
 
-A file of at most 515207 bytes travels inside its message, like a picture. A larger one
-does not: the message announces it - name, size, type and SHA-256 - and the bytes go
-from one side to the other over a one-time I2P address when the receiver asks for them.
+A file of at most 515207 bytes travels inside its message, like a picture. A larger
+file is announced in the message by its name, size, type and SHA-256. Its bytes go from
+one side to the other over a one-time I2P address when the receiver asks for them.
 Either way a file of any size is sent by naming it, and the daemon picks the way by the
 size it reads:
 
@@ -223,10 +223,6 @@ encrypted, which is 1 to 16 bytes longer than its `size`. Each change of `state`
 carrying the new state, so a long poll waits for `done` without asking. A file this
 account sent shows the same while the peer fetches it, with the `direction` `send`.
 Transfers are remembered from the moment the account opens.
-
-Under the packaged unit the daemon does not see `/home` and writes only under
-`/var/lib/bazarish` and `/etc/bazarish`; a drop-in with `ReadWritePaths=` opens another
-directory for downloads.
 
 ### The menu
 
@@ -490,9 +486,6 @@ The answer counts the lines deleted:
 {"removed": 412}
 ```
 
-Trimming leaves free pages; `POST /v1/storage/compact` afterwards gives the
-space back to the disk.
-
 ## The size of the database
 
 What is deleted leaves free pages in the account's database, and the file does
@@ -527,7 +520,7 @@ and a bot writing for that audience can use them:
 | ```` ```text``` ```` | a block kept exactly as typed; pressing it copies it |
 | `!!text!!` | a pressable word; pressing it sends `text` back as an ordinary message |
 | `!name` | a pressable name that opens their add-a-contact form, filled in |
-| `http://...`, `https://...` | an address, opened only after a warning about what following it discloses |
+| `http://...`, `https://...` | an address |
 
 `!!/help!!` is therefore a command offered inside a sentence: the press arrives
 here as an ordinary incoming message whose text is `/help`, indistinguishable
@@ -539,6 +532,5 @@ Nothing between `!!` and `!!` is read as markup, so what is written there is wha
 comes back. A body meant to be shown as typed should avoid `*`, `~~` and `!!`;
 single markers that do not pair off are drawn as themselves.
 
-`client-qt/docs/Formatting.md` specifies the whole of it. The panel draws the
-same in its conversations, where the pressable forms work as they do in the
-client, and in a group's posts and the preview of a new one, where they do not.
+The panel draws the same in its conversations, in a group's posts and in the
+preview of a new post. The pressable forms work in its conversations.
