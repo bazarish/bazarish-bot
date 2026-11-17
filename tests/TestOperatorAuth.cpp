@@ -29,7 +29,7 @@ try {
         std::ofstream out(config);
         out << R"({"state": "/tmp/bz"})";
     }
-    const bazarish::service::LoginConsumer consumer{"Bazarish bot", {"http://127.0.0.1:8440"},
+    const bazarish::service::LoginConsumer consumer{"Bazarish bot", {"http://127.0.0.1:8450"},
         "Operator"};
     const std::int64_t now = static_cast<std::int64_t>(std::time(nullptr));
     const Identity first = Identity::generate();

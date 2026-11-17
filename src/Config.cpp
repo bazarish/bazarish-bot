@@ -10,7 +10,7 @@ namespace bazarish::bot {
 namespace {
 
 constexpr const char* kDefaultListenHost = "127.0.0.1";
-constexpr int kDefaultListenPort = 8440;
+constexpr int kDefaultListenPort = 8450;
 constexpr const char* kDefaultLogLevel = "info";
 constexpr const char* kDefaultConsumerName = "Bazarish bot";
 constexpr const char* kDefaultConsumerRole = "Operator";

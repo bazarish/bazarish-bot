@@ -6,7 +6,7 @@
   // transport, the accounts, the tokens that open the API - is set in that
   // interface, not here. Keep this on loopback unless something else terminates
   // TLS in front of it: what is served here opens the account.
-  "listen": {"host": "127.0.0.1", "port": 8440},
+  "listen": {"host": "127.0.0.1", "port": 8450},
 
   // The fingerprint of the key that signs in to the web interface. Left out, the
   // first key to sign in there becomes the operator and is written here.

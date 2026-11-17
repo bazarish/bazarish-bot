@@ -56,17 +56,17 @@ try {
         })");
         const auto config = readConfig(path);
         CHECK(config.listenHost == "127.0.0.1");
-        CHECK(config.listenPort == 8440);
+        CHECK(config.listenPort == 8450);
         CHECK(config.logLevel == "info");
         CHECK(config.operatorFingerprint.empty());
         CHECK(config.consumer.name == "Bazarish bot");
-        CHECK(config.consumer.place == std::vector<std::string>{"http://127.0.0.1:8440"});
+        CHECK(config.consumer.place == std::vector<std::string>{"http://127.0.0.1:8450"});
         CHECK(config.consumer.role == "Operator");
     }
 
     {
         const fs::path noState = write(scratch, "nostate.json", R"({
-            "listen": {"host": "127.0.0.1", "port": 8440}
+            "listen": {"host": "127.0.0.1", "port": 8450}
         })");
         CHECK_THROWS(readConfig(noState));
 
@@ -80,7 +80,7 @@ try {
     {
         const auto shipped = readConfig(fs::path(BAZARISH_BOT_SOURCE_DIR) / "config.example.json");
         CHECK(shipped.stateDir == "/var/lib/bazarish/bot");
-        CHECK(shipped.listenPort == 8440);
+        CHECK(shipped.listenPort == 8450);
         CHECK(shipped.operatorFingerprint.empty());
     }
 

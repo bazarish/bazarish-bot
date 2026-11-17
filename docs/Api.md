@@ -52,8 +52,8 @@ Every refusal is `{"error": "<what was wrong>"}` under one of these codes:
 | `GET /v1/messages?peer=&before=&limit=` | a conversation, newest first (*Lines*) | lines |
 | `POST /v1/messages` | `{"peer": "...", "text": "...", "replyTo": "<messageId>", "keyboard": [...]}`; `replyTo` and `keyboard` are optional, and a message with a keyboard takes no `replyTo` | `{"messageId": "..."}` |
 | `POST /v1/pictures` | `{"peer": "...", "data": "<base64>", "name": "qr.png", "replyTo": "<messageId>"}` sends a picture; `name` and `replyTo` are optional | `{"messageId": "..."}` |
-| `POST /v1/files` | `{"peer": "...", "path": "/srv/outbox/report.pdf", "replyTo": "<messageId>"}` sends a file on this host; `replyTo` is optional | `{"messageId": "..."}` |
-| `POST /v1/downloads` | `{"peer": "...", "messageId": "...", "path": "/srv/inbox/report.pdf"}` fetches a file the peer sent into a path on this host | `{"messageId": "...", "path": "..."}` |
+| `POST /v1/files` | `{"peer": "...", "path": "/var/lib/bazarish/bot-files/report.pdf", "replyTo": "<messageId>"}` sends a file on this host; `replyTo` is optional | `{"messageId": "..."}` |
+| `POST /v1/downloads` | `{"peer": "...", "messageId": "...", "path": "/var/lib/bazarish/bot-files/received.pdf"}` fetches a file the peer sent into a path on this host | `{"messageId": "...", "path": "..."}` |
 | `GET /v1/transfers` | every file transfer since the account opened | `{"transfers": [...]}`, each a transfer |
 | `GET /v1/transfers/{messageId}?peer=` | how far one transfer has got | a transfer (*Files*) |
 | `DELETE /v1/transfers/{messageId}?peer=` | stops a transfer under way | `{"cancelled": "<messageId>"}` |
@@ -82,7 +82,7 @@ account refuses `POST /v1/posts` with `409`.
 
 ```bash
 curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"enabled": false}' http://127.0.0.1:8440/v1/status
+  -d '{"enabled": false}' http://127.0.0.1:8450/v1/status
 ```
 
 ```json
@@ -103,7 +103,7 @@ router's SAM bridge answers.
 ### Posting in a group
 
 ```bash
-curl -s -X POST http://127.0.0.1:8440/v1/posts \
+curl -s -X POST http://127.0.0.1:8450/v1/posts \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"text": "**Tonight** at eight."}'
 ```
@@ -120,7 +120,7 @@ posts tab writes through the same path, with a preview.
 ### Sending
 
 ```bash
-curl -s -X POST http://127.0.0.1:8440/v1/messages \
+curl -s -X POST http://127.0.0.1:8450/v1/messages \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"peer": "<fingerprint>", "text": "hello"}'
 ```
@@ -140,7 +140,7 @@ An inline keyboard is rows of buttons, each with a `text` and either a `data`
 ### Sending a picture
 
 ```bash
-curl -s -X POST http://127.0.0.1:8440/v1/pictures \
+curl -s -X POST http://127.0.0.1:8450/v1/pictures \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"peer\": \"<fingerprint>\", \"name\": \"qr.png\", \"data\": \"$(base64 -w0 qr.png)\"}"
 ```
@@ -169,9 +169,9 @@ Either way a file of any size is sent by naming it, and the daemon picks the way
 size it reads:
 
 ```bash
-curl -s -X POST http://127.0.0.1:8440/v1/files \
+curl -s -X POST http://127.0.0.1:8450/v1/files \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"peer": "<fingerprint>", "path": "/srv/outbox/report.pdf"}'
+  -d '{"peer": "<fingerprint>", "path": "/var/lib/bazarish/bot-files/report.pdf"}'
 ```
 
 ```json
@@ -196,9 +196,9 @@ is already here and a download writes it out at once, its transfer `done` straig
 for an announced one nothing is fetched until it is asked for:
 
 ```bash
-curl -s -X POST http://127.0.0.1:8440/v1/downloads \
+curl -s -X POST http://127.0.0.1:8450/v1/downloads \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"peer": "<fingerprint>", "messageId": "4c2e81d07a5b9f13", "path": "/srv/inbox/report.pdf"}'
+  -d '{"peer": "<fingerprint>", "messageId": "4c2e81d07a5b9f13", "path": "/var/lib/bazarish/bot-files/received.pdf"}'
 ```
 
 The path is absolute, its directory exists and nothing is there yet: what is already
@@ -208,13 +208,13 @@ announced one; the line's `file` then carries that `path`. A download already un
 for the message is also `409`.
 
 ```bash
-curl -s "http://127.0.0.1:8440/v1/transfers/4c2e81d07a5b9f13?peer=<fingerprint>" \
+curl -s "http://127.0.0.1:8450/v1/transfers/4c2e81d07a5b9f13?peer=<fingerprint>" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
 ```json
 {"peer": "...", "messageId": "4c2e81d07a5b9f13", "direction": "receive", "state": "running",
- "stage": "receiving", "bytes": 1048576, "total": 3145728, "path": "/srv/inbox/report.pdf"}
+ "stage": "receiving", "bytes": 1048576, "total": 3145728, "path": "/var/lib/bazarish/bot-files/received.pdf"}
 ```
 
 `state` is `requested`, `running`, `done` or `failed`, the last with an `error`; `stage`
@@ -227,7 +227,7 @@ Transfers are remembered from the moment the account opens.
 ### The menu
 
 ```bash
-curl -s -X POST http://127.0.0.1:8440/v1/menu \
+curl -s -X POST http://127.0.0.1:8450/v1/menu \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"peer": "<fingerprint>", "items": [{"title": "Balance", "command": "balance"}]}'
 ```
@@ -251,7 +251,7 @@ reaches the event stream, and logs it; a bot does nothing for that.
 ### Waiting for something to happen
 
 ```bash
-curl -s "http://127.0.0.1:8440/v1/events?since=$LAST&wait=60" \
+curl -s "http://127.0.0.1:8450/v1/events?since=$LAST&wait=60" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -348,13 +348,13 @@ slash, which the protocol says are two spellings of one thing.
 ```bash
 TOKEN=...; SINCE=0
 while :; do
-  ANSWER=$(curl -s "http://127.0.0.1:8440/v1/events?since=$SINCE&wait=60" \
+  ANSWER=$(curl -s "http://127.0.0.1:8450/v1/events?since=$SINCE&wait=60" \
            -H "Authorization: Bearer $TOKEN")
   SINCE=$(echo "$ANSWER" | jq -r .lastEventId)
   echo "$ANSWER" | jq -c '.events[] | select(.kind == "message" and .actor == .peer)
                           | {peer, text: ("you said: " + .text)}' |
   while read -r REPLY; do
-    curl -s -X POST http://127.0.0.1:8440/v1/messages \
+    curl -s -X POST http://127.0.0.1:8450/v1/messages \
       -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
       -d "$REPLY" > /dev/null
   done
@@ -414,7 +414,7 @@ it, and a message edited with no `keyboard` keeps the one it has. A bot answers
 a `bot.callback` by editing the message the callback's `replyTo` names:
 
 ```bash
-curl -s -X POST http://127.0.0.1:8440/v1/messages/5373671a07d8b517 \
+curl -s -X POST http://127.0.0.1:8450/v1/messages/5373671a07d8b517 \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"peer": "<fingerprint>", "text": "Pinged.", "keyboard": []}'
 ```

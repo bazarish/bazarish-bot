@@ -14,6 +14,9 @@ if [ "$1" = "configure" ]; then
         install -o bazarish -g bazarish -m 0600 /usr/share/bazarish-bot/bot.json \
             /etc/bazarish/bot.json
     fi
+    if [ ! -d /var/lib/bazarish/bot-files ]; then
+        install -d -o bazarish -g bazarish -m 0750 /var/lib/bazarish/bot-files
+    fi
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload
         systemctl enable bazarish-bot.service >/dev/null
