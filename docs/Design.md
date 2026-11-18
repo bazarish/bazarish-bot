@@ -41,7 +41,7 @@ ten minutes without a delivery.
 ## The group host
 
 A group account runs the protocol of `docs-main/Groups.md` itself; of the REST
-API it answers only `GET /v1/status` and `POST /v1/posts`. Its
+API it answers `/v1/status`, `/v1/storage` and the `/v1/group` routes. Its
 state - settings, members, posts, the relay log, reactions, requests - lives in
 the account's database in `hosted_` tables, apart from the conversations: a post
 is relayed under its author's id to everyone, which the conversations'
@@ -60,7 +60,7 @@ one-id-one-row rule would not hold.
   whose server does not answer keeps their relay in the
   outbox, which does not hold one of the pump's slots, and goes on the offline
   list; after 30 days on it they leave and the relay is withdrawn.
-- **The host's own posts.** A post from the panel or `POST /v1/posts` is a row
+- **The host's own posts.** A post from the panel or `POST /v1/group/posts` is a row
   with no author: it goes to every member, admins included, marked `fromHost`,
   so a channel needs no member account behind it.
 - **History is a cursor.** A newcomer's cursor starts N posts back, so the last

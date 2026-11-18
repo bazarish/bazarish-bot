@@ -45,6 +45,7 @@ constexpr int kTooManyRequests = 429;
 constexpr int kDefaultPage = 50;
 constexpr const char* kAccountPath = "/ui/accounts/{hex}";
 constexpr const char* kStoragePath = "/v1/storage";
+constexpr const char* kGroupPath = "/v1/group";
 constexpr const char* kAvatarName = "avatar";
 constexpr const char* kStatusPath = "/v1/status";
 constexpr const char* kTimerEvent = "timer";
@@ -564,6 +565,106 @@ std::vector<SharedRoute> sharedRoutes()
                 account.react(peer, messageId, body.value("emoji", std::string()));
                 return http::jsonResponse({{"ok", true}});
             }},
+        {Verb::eGet, "/group",
+            [](Account& account, const http::Request&, std::size_t) {
+                const std::shared_ptr<GroupEngine> group = account.group();
+                nlohmann::json states = nlohmann::json::object();
+                for (const Member& member : group->members()) {
+                    states[memberStateName(member.state)]
+                        = states.value(memberStateName(member.state), 0) + 1;
+                }
+                return http::jsonResponse({{"config", groupConfigJson(group->config())},
+                    {"states", states}, {"requests", group->requests().size()}});
+            }},
+        {Verb::ePost, "/group",
+            [](Account& account, const http::Request& call, std::size_t) {
+                const nlohmann::json body = bazarish::parseJson(call.body);
+                const std::shared_ptr<GroupEngine> group = account.group();
+                GroupConfig config = group->config();
+                if (body.contains("kind")) {
+                    config.kind = groupKindFromName(body.at("kind").get<std::string>());
+                }
+                if (body.contains("joinMode")) {
+                    config.joinMode = joinModeFromName(body.at("joinMode").get<std::string>());
+                }
+                if (body.contains("historySize")) {
+                    config.historySize = body.at("historySize").get<std::int64_t>();
+                }
+                if (body.contains("contactRequests")) {
+                    config.contactRequests = body.at("contactRequests").get<bool>();
+                }
+                if (body.contains("language")) {
+                    config.language = body.at("language").get<std::string>();
+                }
+                group->setConfig(config);
+                return http::jsonResponse(groupConfigJson(group->config()));
+            }},
+        {Verb::eGet, "/group/members",
+            [](Account& account, const http::Request&, std::size_t) {
+                return http::jsonResponse(membersJson(account.group()->members()));
+            }},
+        {Verb::ePost, "/group/members",
+            [](Account& account, const http::Request& call, std::size_t) {
+                const nlohmann::json body = bazarish::parseJson(call.body);
+                const std::string fingerprint = body.value("fingerprint", std::string());
+                const std::string action = body.value("action", std::string());
+                const std::shared_ptr<GroupEngine> group = account.group();
+                if (action == "admin" || action == "unadmin") {
+                    group->setAdmin(fingerprint, action == "admin");
+                } else if (action == "exclude") {
+                    group->exclude(fingerprint);
+                } else if (action == "block") {
+                    group->block(fingerprint);
+                } else if (action == "unblock") {
+                    group->unblock(fingerprint);
+                } else {
+                    return failure(400, "the action is admin, unadmin, exclude, block or unblock");
+                }
+                return http::jsonResponse(membersJson(group->members()));
+            }},
+        {Verb::eGet, "/group/requests",
+            [](Account& account, const http::Request&, std::size_t) {
+                const std::shared_ptr<GroupEngine> group = account.group();
+                const std::vector<Member> members = group->members();
+                nlohmann::json rows = nlohmann::json::array();
+                for (const JoinRequest& asked : group->requests()) {
+                    rows.push_back({{"number", asked.number}, {"fingerprint", asked.fingerprint},
+                        {"name", nameOf(members, asked.fingerprint)}, {"at", asked.at}});
+                }
+                return http::jsonResponse(rows);
+            }},
+        {Verb::ePost, "/group/requests",
+            [](Account& account, const http::Request& call, std::size_t) {
+                const nlohmann::json body = bazarish::parseJson(call.body);
+                account.group()->decide(
+                    body.at("number").get<std::int64_t>(), body.at("allow").get<bool>());
+                return http::jsonResponse({{"ok", true}});
+            }},
+        {Verb::eGet, "/group/posts",
+            [](Account& account, const http::Request& call, std::size_t) {
+                const std::shared_ptr<GroupEngine> group = account.group();
+                const std::vector<Member> members = group->members();
+                nlohmann::json rows = nlohmann::json::array();
+                for (const Post& post : group->posts(intParam(call, "limit", kDefaultPage))) {
+                    rows.push_back({{"id", post.id},
+                        {"authorName", nameOf(members, post.author)}, {"type", post.type},
+                        {"text", post.text}, {"sentAt", post.sentAt}, {"edited", post.edited},
+                        {"deleted", post.deleted}, {"fromHost", post.author.empty()},
+                        {"reactions", group->reactionCounts(post.id)}});
+                }
+                return http::jsonResponse(rows);
+            }},
+        {Verb::ePost, "/group/posts",
+            [](Account& account, const http::Request& call, std::size_t) {
+                const nlohmann::json body = bazarish::parseJson(call.body);
+                return http::jsonResponse(
+                    {{"id", account.postToGroup(body.value("text", std::string()))}});
+            }},
+        {Verb::eDelete, "/group/posts/{segment}",
+            [](Account& account, const http::Request& call, const std::size_t first) {
+                account.group()->deletePost(call.captures.at(first));
+                return http::jsonResponse({{"ok", true}});
+            }},
     };
 }
 
@@ -642,12 +743,16 @@ void HttpFace::apiRoutes()
         if (account == nullptr) {
             return tokenRefused(request);
         }
+        const bool groupPath = request.path.starts_with(kGroupPath);
+        if (account->kind() == Settings::AccountKind::eGroup && request.path != kStatusPath
+            && !groupPath && !request.path.starts_with(kStoragePath)) {
+            return failure(409, "a group answers /v1/status, /v1/storage and /v1/group only");
+        }
+        if (account->kind() != Settings::AccountKind::eGroup && groupPath) {
+            return failure(409, "only a group account has /v1/group");
+        }
         if (!account->running() && request.path != kStatusPath) {
             return failure(503, "the account is not open: " + account->status());
-        }
-        if (account->kind() == Settings::AccountKind::eGroup && request.path != kStatusPath
-            && request.path != "/v1/posts" && !request.path.starts_with(kStoragePath)) {
-            return failure(409, "a group takes its own posts at /v1/posts and nothing else");
         }
         try {
             return handler(*account, request);
@@ -685,16 +790,6 @@ void HttpFace::apiRoutes()
             }
             runtime_.setEnabled(account.id(), body.at("enabled").get<bool>());
             return statusOf(account);
-        });
-    });
-
-    server_->post("/v1/posts", [guarded](const http::Request& request) {
-        return guarded(request, [](Account& account, const http::Request& call) {
-            if (account.kind() != Settings::AccountKind::eGroup) {
-                return failure(409, "only a group takes posts; a bot writes with /v1/messages");
-            }
-            const nlohmann::json body = bazarish::parseJson(call.body);
-            return http::jsonResponse({{"id", account.postToGroup(body.value("text", std::string()))}});
         });
     });
 
@@ -889,12 +984,12 @@ void HttpFace::apiRoutes()
             if (account == nullptr) {
                 return tokenRefused(request);
             }
-            if (!account->running()) {
-                return failure(503, "the account is not open: " + account->status());
-            }
             if (account->kind() == Settings::AccountKind::eGroup) {
                 return failure(
                     409, "a group relays its members itself; the API does not write for it");
+            }
+            if (!account->running()) {
+                return failure(503, "the account is not open: " + account->status());
             }
             return answerEvents(account, request, std::move(respond));
         });
@@ -1330,122 +1425,6 @@ void HttpFace::accountRoutes()
             }
             return failure(400, "\"check\" asks the registry; \"alias\" with \"resolving\" "
                                 "points one here or nowhere");
-        });
-    });
-
-    server_->get(base + "/group", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request&) {
-            const std::shared_ptr<GroupEngine> group = account.group();
-            nlohmann::json states = nlohmann::json::object();
-            for (const Member& member : group->members()) {
-                states[memberStateName(member.state)]
-                    = states.value(memberStateName(member.state), 0) + 1;
-            }
-            return http::jsonResponse({{"config", groupConfigJson(group->config())}, {"states", states},
-                {"requests", group->requests().size()}});
-        });
-    });
-
-    server_->post(base + "/group", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = bazarish::parseJson(call.body);
-            const std::shared_ptr<GroupEngine> group = account.group();
-            GroupConfig config = group->config();
-            if (body.contains("kind")) {
-                config.kind = groupKindFromName(body.at("kind").get<std::string>());
-            }
-            if (body.contains("joinMode")) {
-                config.joinMode = joinModeFromName(body.at("joinMode").get<std::string>());
-            }
-            if (body.contains("historySize")) {
-                config.historySize = body.at("historySize").get<std::int64_t>();
-            }
-            if (body.contains("contactRequests")) {
-                config.contactRequests = body.at("contactRequests").get<bool>();
-            }
-            if (body.contains("language")) {
-                config.language = body.at("language").get<std::string>();
-            }
-            group->setConfig(config);
-            return http::jsonResponse(groupConfigJson(group->config()));
-        });
-    });
-
-    server_->get(base + "/group/members", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request&) {
-            return http::jsonResponse(membersJson(account.group()->members()));
-        });
-    });
-
-    server_->post(base + "/group/members", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = bazarish::parseJson(call.body);
-            const std::string fingerprint = body.value("fingerprint", std::string());
-            const std::string action = body.value("action", std::string());
-            const std::shared_ptr<GroupEngine> group = account.group();
-            if (action == "admin" || action == "unadmin") {
-                group->setAdmin(fingerprint, action == "admin");
-            } else if (action == "exclude") {
-                group->exclude(fingerprint);
-            } else if (action == "block") {
-                group->block(fingerprint);
-            } else if (action == "unblock") {
-                group->unblock(fingerprint);
-            } else {
-                return failure(400, "the action is admin, unadmin, exclude, block or unblock");
-            }
-            return http::jsonResponse(membersJson(group->members()));
-        });
-    });
-
-    server_->get(base + "/group/requests", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request&) {
-            const std::shared_ptr<GroupEngine> group = account.group();
-            const std::vector<Member> members = group->members();
-            nlohmann::json rows = nlohmann::json::array();
-            for (const JoinRequest& asked : group->requests()) {
-                rows.push_back({{"number", asked.number}, {"fingerprint", asked.fingerprint},
-                    {"name", nameOf(members, asked.fingerprint)}, {"at", asked.at}});
-            }
-            return http::jsonResponse(rows);
-        });
-    });
-
-    server_->post(base + "/group/requests", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = bazarish::parseJson(call.body);
-            account.group()->decide(body.at("number").get<std::int64_t>(), body.at("allow").get<bool>());
-            return http::jsonResponse({{"ok", true}});
-        });
-    });
-
-    server_->get(base + "/group/posts", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request& call) {
-            const std::shared_ptr<GroupEngine> group = account.group();
-            const std::vector<Member> members = group->members();
-            nlohmann::json rows = nlohmann::json::array();
-            for (const Post& post : group->posts(intParam(call, "limit", kDefaultPage))) {
-                rows.push_back({{"id", post.id},
-                    {"authorName", nameOf(members, post.author)}, {"type", post.type},
-                    {"text", post.text}, {"sentAt", post.sentAt}, {"edited", post.edited},
-                    {"deleted", post.deleted}, {"fromHost", post.author.empty()},
-                    {"reactions", group->reactionCounts(post.id)}});
-            }
-            return http::jsonResponse(rows);
-        });
-    });
-
-    server_->post(base + "/group/posts", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = bazarish::parseJson(call.body);
-            return http::jsonResponse({{"id", account.postToGroup(body.value("text", std::string()))}});
-        });
-    });
-
-    server_->del(base + "/group/posts/{segment}", [forAccount](const http::Request& request) {
-        return forAccount(request, [](Account& account, const http::Request& call) {
-            account.group()->deletePost(call.captures.at(1));
-            return http::jsonResponse({{"ok", true}});
         });
     });
 

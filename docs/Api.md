@@ -71,12 +71,11 @@ Every refusal is `{"error": "<what was wrong>"}` under one of these codes:
 | `POST /v1/chats/{fingerprint}/trim` | `{"keep": 100}` keeps the newest 100 lines of the conversation and deletes the rest, here only | `{"removed": <lines deleted>}` |
 | `POST /v1/storage/trim` | `{"keep": 100}` does the same in every conversation | `{"removed": <lines deleted in all>}` |
 | `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds | `{"events": [...], "lastEventId": ...}` |
-| `POST /v1/posts` | `{"text": "..."}` posts in a group as the group itself; group accounts only | `{"id": "..."}` |
 
-A group account answers `/v1/status`, `POST /v1/posts` and the `/v1/storage`
-routes, `POST /v1/storage/trim` among them, and refuses every other route with
-`409`, `POST /v1/chats/{fingerprint}/trim` too: its members' posts it relays itself. A bot
-account refuses `POST /v1/posts` with `409`.
+A group account answers `/v1/status`, the `/v1/storage` routes and the
+`/v1/group` routes (*Groups*), and refuses every other route with `409`: its
+members' posts it relays itself. A bot account refuses the `/v1/group` routes
+with `409`.
 
 ### Switching the account off
 
@@ -99,23 +98,6 @@ while it is off. Switched on, it comes back at the same address.
 is `embedded` or `sam`. `online` with the embedded router means it knows other
 routers and holds outbound tunnels. `online` with `sam` means the external
 router's SAM bridge answers.
-
-### Posting in a group
-
-```bash
-curl -s -X POST http://127.0.0.1:8450/v1/posts \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"text": "**Tonight** at eight."}'
-```
-
-```json
-{"id": "5373671a07d8b517"}
-```
-
-The post goes to every member, admins included, and members see it with no
-author above it: the group itself is speaking. It takes the markup below. A
-post that does not fit one message is refused with `400`. The panel's group
-posts tab writes through the same path, with a preview.
 
 ### Sending
 
@@ -342,6 +324,67 @@ A field with nothing in it is left out, except `id`, `peer`, `outgoing`, `type`,
 
 A bot answering commands watches for `bot.command` and for text beginning with a
 slash, which the protocol says are two spellings of one thing.
+
+## Groups
+
+A group is an account of its own kind, made in the web interface. A token
+issued for it opens the routes below; the web interface's group tabs call the
+same ones.
+
+| Route | What it does | Answer |
+|---|---|---|
+| `GET /v1/group` | the settings, how many members are in each state, and how many requests to join wait | `{"config": {...}, "states": {"member": 12, ...}, "requests": 2}` |
+| `POST /v1/group` | changes the settings named in the body, any of them | the settings |
+| `GET /v1/group/members` | every member | `[{"fingerprint", "name", "state", "admin", "joinedAt", "offlineSince"}]` |
+| `POST /v1/group/members` | `{"fingerprint": "...", "action": "..."}`, the action one of `admin`, `unadmin`, `exclude`, `block`, `unblock` | every member |
+| `GET /v1/group/requests` | the requests to join that wait for a decision | `[{"number", "fingerprint", "name", "at"}]` |
+| `POST /v1/group/requests` | `{"number": 3, "allow": true}` lets the applicant in, `"allow": false` turns them away | `{"ok": true}` |
+| `GET /v1/group/posts?limit=` | the newest posts, newest first | `[{"id", "authorName", "type", "text", "sentAt", "edited", "deleted", "fromHost", "reactions"}]` |
+| `POST /v1/group/posts` | `{"text": "..."}` posts as the group itself | `{"id": "..."}` |
+| `DELETE /v1/group/posts/{id}` | deletes a post for every member | `{"ok": true}` |
+
+The settings:
+
+| Field | Values |
+|---|---|
+| `kind` | `group`: every member posts; `channel`: only admins post |
+| `joinMode` | `open`: anyone who adds the group joins; `approval`: an admin lets each applicant in |
+| `historySize` | how many recent posts a newcomer receives, `0` or more |
+| `contactRequests` | `true` lets members ask each other to be contacts |
+| `language` | the language of the texts the group sends its members: `en`, `ru`, `es`, `zh` or `ar` |
+
+A member's `state` is `naming` while they choose a name, `pending` while their
+request to join waits, `member`, `left` (left or excluded; writing to the group
+brings them back) or `banned` (blocked; `unblock` makes them `left`). An
+admin is a member with `admin` true. A request is decided once: by this route,
+in the web interface, or by an admin's buttons in the chat, whichever comes
+first.
+
+A post from `POST /v1/group/posts` goes to every member, admins included, and
+members see it with no author above it: the group itself is speaking.
+`fromHost` marks such posts in the list. It takes the markup below. A post
+that does not fit one message is refused with `400`.
+
+```bash
+curl -s -X POST http://127.0.0.1:8450/v1/group/posts \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"text": "**Tonight** at eight."}'
+```
+
+```json
+{"id": "5373671a07d8b517"}
+```
+
+```bash
+curl -s -X POST http://127.0.0.1:8450/v1/group \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"joinMode": "approval", "historySize": 20}'
+```
+
+```json
+{"kind": "group", "joinMode": "approval", "historySize": 20,
+ "contactRequests": true, "language": "en"}
+```
 
 ## A bot in ten lines
 

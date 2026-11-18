@@ -1,6 +1,7 @@
 // Bazarish project (c) 2026
 #include "HttpFace.hpp"
 #include "Runtime.hpp"
+#include "Settings.hpp"
 #include "HttpTestUtil.hpp"
 #include "TestUtil.hpp"
 
@@ -18,6 +19,8 @@
 #include <fstream>
 #include <map>
 #include <string>
+#include <tuple>
+#include <vector>
 
 namespace fs = std::filesystem;
 namespace http = bazarish::http;
@@ -30,6 +33,8 @@ using testutil::call;
 constexpr int kOk = 200;
 constexpr int kBadRequest = 400;
 constexpr int kUnauthorized = 401;
+constexpr int kNotFound = 404;
+constexpr int kConflict = 409;
 constexpr int kUnavailable = 503;
 constexpr char kMessageId[] = "00112233445566778899aabbccddeeff";
 
@@ -70,6 +75,9 @@ try {
     const std::string id = bazarish::client::AccountManager(config.stateDir / "accounts")
                                .create("Face", bazarish::AccountKind::eBot)
                                .id;
+    const std::string groupId = bazarish::client::AccountManager(config.stateDir / "accounts")
+                                    .create("Club", bazarish::AccountKind::eChat)
+                                    .id;
     const bazarish::Identity operatorKey = bazarish::Identity::generate();
     {
         bazarish::bot::Runtime runtime(config);
@@ -87,6 +95,31 @@ try {
             "not open"));
         CHECK(says(call(port, "DELETE", std::string("/v1/messages/") + kMessageId, bearer),
             kUnavailable, "not open"));
+
+        CHECK(says(call(port, "GET", "/v1/group", bearer), kConflict, "only a group account"));
+        CHECK(says(call(port, "POST", "/v1/group/posts", bearer, R"({"text":"hi"})"), kConflict,
+            "only a group account"));
+        runtime.settings().rememberAccount(
+            groupId, "fp-club", bazarish::bot::Settings::AccountKind::eGroup);
+        const Headers groupBearer
+            = {{"Authorization", "Bearer " + runtime.settings().issueToken(groupId, "g").secret}};
+        CHECK(says(call(port, "GET", "/v1/messages?peer=x", groupBearer), kConflict,
+            "a group answers"));
+        CHECK(says(call(port, "GET", "/v1/events?since=0", groupBearer), kConflict, "a group"));
+        for (const auto& [verb, path, body] : std::vector<std::tuple<std::string, std::string,
+                 std::string>>{{"GET", "/v1/group", ""},
+                 {"POST", "/v1/group", R"({"joinMode":"open"})"},
+                 {"GET", "/v1/group/members", ""},
+                 {"POST", "/v1/group/members", R"({"fingerprint":"f","action":"admin"})"},
+                 {"GET", "/v1/group/requests", ""},
+                 {"POST", "/v1/group/requests", R"({"number":1,"allow":true})"},
+                 {"GET", "/v1/group/posts", ""},
+                 {"POST", "/v1/group/posts", R"({"text":"hi"})"},
+                 {"DELETE", "/v1/group/posts/p", ""}}) {
+            CHECK(says(call(port, verb, path, groupBearer, body), kUnavailable, "not open"));
+        }
+        CHECK(call(port, "POST", "/v1/posts", groupBearer, R"({"text":"hi"})").status
+            == kNotFound);
 
         const std::string base = "/ui/accounts/" + id;
         CHECK(call(port, "GET", base + "/contacts").status == kUnauthorized);
