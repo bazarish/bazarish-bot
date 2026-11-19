@@ -94,6 +94,7 @@ struct JoinRequest {
     std::int64_t number = 0;
     std::string fingerprint;
     std::int64_t at = 0;
+    std::string intro;
 };
 
 struct RequestCard {
@@ -135,11 +136,14 @@ public:
     std::map<std::string, std::int64_t> reactionCounts(
         const std::string& postId, const std::string& leavingOut) const;
 
-    std::int64_t addRequest(const std::string& fingerprint, std::int64_t at);
+    void setIntro(const std::string& fingerprint, const std::string& text);
+    void forgetIntro(const std::string& fingerprint);
+    JoinRequest addRequest(const std::string& fingerprint, std::int64_t at);
     std::optional<JoinRequest> request(std::int64_t number) const;
     std::optional<JoinRequest> requestOf(const std::string& fingerprint) const;
     std::vector<JoinRequest> requests() const;
     void removeRequest(std::int64_t number);
+    void dropRequestOf(const std::string& fingerprint);
     void addCard(std::int64_t number, const std::string& admin, const std::string& messageId);
     std::vector<RequestCard> cards(std::int64_t number) const;
 

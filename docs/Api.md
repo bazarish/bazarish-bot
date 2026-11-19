@@ -337,7 +337,7 @@ same ones.
 | `POST /v1/group` | changes the settings named in the body, any of them | the settings |
 | `GET /v1/group/members` | every member | `[{"fingerprint", "name", "state", "admin", "joinedAt", "offlineSince"}]` |
 | `POST /v1/group/members` | `{"fingerprint": "...", "action": "..."}`, the action one of `admin`, `unadmin`, `exclude`, `block`, `unblock` | every member |
-| `GET /v1/group/requests` | the requests to join that wait for a decision | `[{"number", "fingerprint", "name", "at"}]` |
+| `GET /v1/group/requests` | the requests to join that wait for a decision, each with the text that came with it | `[{"number", "fingerprint", "name", "intro", "at"}]` |
 | `POST /v1/group/requests` | `{"number": 3, "allow": true}` lets the applicant in, `"allow": false` turns them away | `{"ok": true}` |
 | `GET /v1/group/posts?limit=` | the newest posts, newest first | `[{"id", "authorName", "type", "text", "sentAt", "edited", "deleted", "fromHost", "reactions"}]` |
 | `POST /v1/group/posts` | `{"text": "..."}` posts as the group itself | `{"id": "..."}` |

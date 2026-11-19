@@ -629,7 +629,8 @@ std::vector<SharedRoute> sharedRoutes()
                 nlohmann::json rows = nlohmann::json::array();
                 for (const JoinRequest& asked : group->requests()) {
                     rows.push_back({{"number", asked.number}, {"fingerprint", asked.fingerprint},
-                        {"name", nameOf(members, asked.fingerprint)}, {"at", asked.at}});
+                        {"name", nameOf(members, asked.fingerprint)}, {"intro", asked.intro},
+                        {"at", asked.at}});
                 }
                 return http::jsonResponse(rows);
             }},

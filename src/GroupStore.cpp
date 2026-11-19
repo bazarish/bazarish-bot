@@ -14,6 +14,9 @@ constexpr const char* kMemberColumns = "fingerprint, name, nameKey, state, admin
                                        " cursor, historyFrom, joinedAt";
 constexpr const char* kPostColumns = "id, author, type, text, mediaName, mime, media, durationMs,"
                                      " replyTo, sentAt, edited, deleted, seq";
+constexpr const char* kRequestRows = "SELECT number, hosted_requests.fingerprint, at,"
+                                     " COALESCE(text, '') FROM hosted_requests"
+                                     " LEFT JOIN hosted_intros USING (fingerprint)";
 
 struct Named {
     MemberState state;
@@ -159,6 +162,8 @@ GroupStore::GroupStore(const std::filesystem::path& file)
                   " emoji TEXT NOT NULL, PRIMARY KEY (postId, member))");
     database_.run("CREATE TABLE IF NOT EXISTS hosted_requests (number INTEGER PRIMARY KEY AUTOINCREMENT,"
                   " fingerprint TEXT NOT NULL UNIQUE, at INTEGER NOT NULL)");
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_intros (fingerprint TEXT PRIMARY KEY,"
+                  " text TEXT NOT NULL)");
     database_.run("CREATE TABLE IF NOT EXISTS hosted_cards (number INTEGER NOT NULL, admin TEXT NOT NULL,"
                   " messageId TEXT NOT NULL, PRIMARY KEY (number, admin))");
     database_.run("CREATE TABLE IF NOT EXISTS hosted_asks (requester TEXT NOT NULL, author TEXT NOT NULL,"
@@ -396,7 +401,27 @@ std::map<std::string, std::int64_t> GroupStore::reactionCounts(
     return counts;
 }
 
-std::int64_t GroupStore::addRequest(const std::string& fingerprint, const std::int64_t at)
+void GroupStore::setIntro(const std::string& fingerprint, const std::string& text)
+{
+    if (text.empty()) {
+        forgetIntro(fingerprint);
+        return;
+    }
+    Statement upsert(database_, "INSERT INTO hosted_intros (fingerprint, text) VALUES (?, ?)"
+                                " ON CONFLICT (fingerprint) DO UPDATE SET text = excluded.text");
+    upsert.bind(1, fingerprint);
+    upsert.bind(2, text);
+    (void)upsert.step();
+}
+
+void GroupStore::forgetIntro(const std::string& fingerprint)
+{
+    Statement remove(database_, "DELETE FROM hosted_intros WHERE fingerprint = ?");
+    remove.bind(1, fingerprint);
+    (void)remove.step();
+}
+
+JoinRequest GroupStore::addRequest(const std::string& fingerprint, const std::int64_t at)
 {
     Statement insert(database_, "INSERT OR IGNORE INTO hosted_requests (fingerprint, at) VALUES (?, ?)");
     insert.bind(1, fingerprint);
@@ -406,47 +431,59 @@ std::int64_t GroupStore::addRequest(const std::string& fingerprint, const std::i
     if (!held) {
         throw std::runtime_error("group store: a request was not recorded");
     }
-    return held->number;
+    return *held;
 }
 
 std::optional<JoinRequest> GroupStore::request(const std::int64_t number) const
 {
-    Statement query(database_, "SELECT number, fingerprint, at FROM hosted_requests WHERE number = ?");
+    Statement query(database_, std::string(kRequestRows) + " WHERE number = ?");
     query.bind(1, number);
     if (!query.step()) {
         return std::nullopt;
     }
-    return JoinRequest{query.number(0), query.text(1), query.number(2)};
+    return JoinRequest{query.number(0), query.text(1), query.number(2), query.text(3)};
 }
 
 std::optional<JoinRequest> GroupStore::requestOf(const std::string& fingerprint) const
 {
-    Statement query(database_, "SELECT number, fingerprint, at FROM hosted_requests WHERE fingerprint = ?");
+    Statement query(database_, std::string(kRequestRows) + " WHERE hosted_requests.fingerprint = ?");
     query.bind(1, fingerprint);
     if (!query.step()) {
         return std::nullopt;
     }
-    return JoinRequest{query.number(0), query.text(1), query.number(2)};
+    return JoinRequest{query.number(0), query.text(1), query.number(2), query.text(3)};
 }
 
 std::vector<JoinRequest> GroupStore::requests() const
 {
-    Statement query(database_, "SELECT number, fingerprint, at FROM hosted_requests ORDER BY number");
+    Statement query(database_, std::string(kRequestRows) + " ORDER BY number");
     std::vector<JoinRequest> requests;
     while (query.step()) {
-        requests.push_back({query.number(0), query.text(1), query.number(2)});
+        requests.push_back({query.number(0), query.text(1), query.number(2), query.text(3)});
     }
     return requests;
 }
 
 void GroupStore::removeRequest(const std::int64_t number)
 {
+    Statement intro(database_, "DELETE FROM hosted_intros WHERE fingerprint ="
+                               " (SELECT fingerprint FROM hosted_requests WHERE number = ?)");
+    intro.bind(1, number);
+    (void)intro.step();
     Statement remove(database_, "DELETE FROM hosted_requests WHERE number = ?");
     remove.bind(1, number);
     (void)remove.step();
     Statement cards(database_, "DELETE FROM hosted_cards WHERE number = ?");
     cards.bind(1, number);
     (void)cards.step();
+}
+
+void GroupStore::dropRequestOf(const std::string& fingerprint)
+{
+    if (const std::optional<JoinRequest> held = requestOf(fingerprint)) {
+        removeRequest(held->number);
+    }
+    forgetIntro(fingerprint);
 }
 
 void GroupStore::addCard(

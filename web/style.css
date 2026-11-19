@@ -445,6 +445,13 @@ body.centred {
     font-size: 0.68rem;
 }
 
+.row-intro {
+    display: block;
+    margin-top: 0.35rem;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
 .row-tags {
     display: flex;
     flex-wrap: wrap;

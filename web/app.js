@@ -1927,6 +1927,9 @@ async function viewRequests() {
             const fingerprint = node("span", "row-dest", shortFingerprint(request.fingerprint));
             fingerprint.dataset.copy = request.fingerprint;
             keys.append(fingerprint);
+            if (request.intro) {
+                keys.append(node("span", "row-intro", request.intro));
+            }
             const tags = node("span", "row-tags");
             tags.append(node("span", "row-dest", when(request.at)));
             const actions = node("span", "row-actions");

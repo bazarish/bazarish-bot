@@ -17,6 +17,7 @@
 #include <limits>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -375,6 +376,8 @@ try {
     const std::string cid = Identity::generate().fingerprint();
     const std::string dan = Identity::generate().fingerprint();
     const std::string eve = Identity::generate().fingerprint();
+    const std::string ivy = Identity::generate().fingerprint();
+    const std::string kIvyIntro = "Hello, I am Ivy.\nA friend sent me.";
 
     {
         GroupEngine engine(dir / "group.db", linkFor(fake), [&now]() { return now; });
@@ -623,6 +626,7 @@ try {
         const std::vector<Sent> card = fake.take("tell", bob);
         CHECK(card.size() == 1);
         CHECK(card[0].text.find("Fay wants to join.") == 0);
+        CHECK(card[0].text.find("\n\n") == std::string::npos);
         CHECK(card[0].keyboard.at(0).size() == 2);
         CHECK(engine.requests().size() == 1);
         client::IncomingMessage approve = incoming(bob, "bot.callback");
@@ -633,6 +637,12 @@ try {
         CHECK(settled[0].text == "Fay: allowed by Bob.");
         CHECK(fake.take("tell", fay).empty());
         CHECK(engine.requests().empty());
+
+        client::IncomingMessage ivyAsks = incoming(ivy, "contact.request");
+        ivyAsks.text = kIvyIntro;
+        engine.onIncoming(ivyAsks);
+        CHECK(fake.take("tell", ivy).back().text == "Choose your name in this chat.");
+        CHECK(fake.take("tell", bob).empty());
 
         fake.forget();
         fake.refuse[dan] = "DELIVERY_REJECTED";
@@ -692,6 +702,33 @@ try {
         GroupEngine engine(dir / "group.db", linkFor(fake), [&now]() { return now; });
         CHECK(engine.config().joinMode == JoinMode::eApproval);
         CHECK(engine.blockFor(ann).members == 4);
+
+        fake.forget();
+        engine.onIncoming(textFrom(ivy, "Ivy", "p-ivy"));
+        const auto ivyRequest = [&engine, &ivy]() {
+            for (const JoinRequest& asked : engine.requests()) {
+                if (asked.fingerprint == ivy) {
+                    return std::optional<JoinRequest>(asked);
+                }
+            }
+            return std::optional<JoinRequest>();
+        };
+        const std::vector<Sent> ivyCard = fake.take("tell", bob);
+        CHECK(ivyCard.size() == 1);
+        CHECK(ivyCard[0].text.find("Ivy wants to join.") == 0);
+        CHECK(ivyCard[0].text.size() > kIvyIntro.size());
+        CHECK(ivyCard[0].text.compare(ivyCard[0].text.size() - kIvyIntro.size(), kIvyIntro.size(),
+                  kIvyIntro) == 0);
+        CHECK(ivyRequest() && ivyRequest()->intro == kIvyIntro);
+        engine.decide(ivyRequest()->number, false);
+        CHECK(!ivyRequest());
+        fake.forget();
+        engine.onIncoming(textFrom(ivy, "again", "p-ivy-again"));
+        CHECK(ivyRequest() && ivyRequest()->intro.empty());
+        const std::vector<Sent> bareCard = fake.take("tell", bob);
+        CHECK(bareCard.size() == 1);
+        CHECK(bareCard[0].text.find(kIvyIntro) == std::string::npos);
+        engine.decide(ivyRequest()->number, false);
 
         GroupConfig open = engine.config();
         open.joinMode = JoinMode::eOpen;

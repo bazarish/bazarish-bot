@@ -414,6 +414,7 @@ void GroupEngine::handleLocked(
         if (again) {
             return;
         }
+        store_.setIntro(peer, message.text);
         if (found == members_.end() || found->second.name.empty()) {
             Member member = found == members_.end() ? Member{} : found->second;
             member.fingerprint = peer;
@@ -538,22 +539,25 @@ void GroupEngine::joinLocked(Member& member, Actions& actions)
     }
     member.state = MemberState::ePending;
     saveLocked(member);
-    const std::int64_t number = store_.addRequest(member.fingerprint, clock_());
+    const JoinRequest request = store_.addRequest(member.fingerprint, clock_());
     tellLocked(member.fingerprint, Copy::eAwaitingApproval, {}, actions);
     const client::InlineKeyboard keyboard{{
-        {text(Copy::eButtonAllow), kApprove + std::to_string(number), {}},
-        {text(Copy::eButtonDecline), kDecline + std::to_string(number), {}},
+        {text(Copy::eButtonAllow), kApprove + std::to_string(request.number), {}},
+        {text(Copy::eButtonDecline), kDecline + std::to_string(request.number), {}},
     }};
     for (const auto& [fingerprint, admin] : members_) {
         if (!admin.admin || admin.state != MemberState::eMember) {
             continue;
         }
-        actions.push_back([this, admin = fingerprint, applicant = member, number, keyboard]() {
-            const std::string card = copyText(config().language, Copy::eWantsToJoin,
+        actions.push_back([this, admin = fingerprint, applicant = member, request, keyboard]() {
+            std::string card = copyText(config().language, Copy::eWantsToJoin,
                 {applicant.name, chatDescriptor(applicant)});
+            if (!request.intro.empty()) {
+                card += "\n\n" + request.intro;
+            }
             const std::string id = link_.tell(admin, card, keyboard, watchRefusal(admin));
             const std::lock_guard<std::mutex> lock(mutex_);
-            store_.addCard(number, admin, id);
+            store_.addCard(request.number, admin, id);
         });
     }
 }
@@ -561,6 +565,7 @@ void GroupEngine::joinLocked(Member& member, Actions& actions)
 void GroupEngine::admitLocked(Member& member)
 {
     member.state = MemberState::eMember;
+    store_.forgetIntro(member.fingerprint);
     if (member.joinedAt == 0) {
         member.joinedAt = clock_();
     }
@@ -749,9 +754,7 @@ void GroupEngine::excludeLocked(const std::string& fingerprint, Actions& actions
     member.admin = false;
     renaming_.erase(fingerprint);
     saveLocked(member);
-    if (const std::optional<JoinRequest> request = store_.requestOf(fingerprint)) {
-        store_.removeRequest(request->number);
-    }
+    store_.dropRequestOf(fingerprint);
     tellLocked(fingerprint, Copy::eExcluded, {}, actions);
 }
 
@@ -766,9 +769,7 @@ void GroupEngine::blockLocked(const std::string& fingerprint, Actions& actions)
     member.admin = false;
     renaming_.erase(fingerprint);
     saveLocked(member);
-    if (const std::optional<JoinRequest> request = store_.requestOf(fingerprint)) {
-        store_.removeRequest(request->number);
-    }
+    store_.dropRequestOf(fingerprint);
     tellLocked(fingerprint, Copy::eBlocked, {}, actions);
     actions.push_back([this, fingerprint]() { link_.forget(fingerprint); });
 }
@@ -1080,9 +1081,7 @@ void GroupEngine::goneLocked(const std::string& fingerprint)
     member.admin = false;
     renaming_.erase(fingerprint);
     saveLocked(member);
-    if (const std::optional<JoinRequest> request = store_.requestOf(fingerprint)) {
-        store_.removeRequest(request->number);
-    }
+    store_.dropRequestOf(fingerprint);
     log::info("group: {} took no delivery for {} days, so they left",
         log::redact(fingerprint), kDeadAfterDays);
 }
