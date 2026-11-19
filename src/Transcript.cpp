@@ -97,7 +97,7 @@ Transcript::Transcript(
         "CREATE TABLE IF NOT EXISTS events ("
         "id INTEGER PRIMARY KEY AUTOINCREMENT,"
         "kind TEXT NOT NULL, peer TEXT NOT NULL, messageId TEXT, type TEXT, text TEXT,"
-        " actor TEXT, at INTEGER, noted INTEGER NOT NULL)");
+        " actor TEXT, at INTEGER, noted INTEGER NOT NULL, author TEXT, fromHost INTEGER)");
     ledger_.run("CREATE INDEX IF NOT EXISTS events_noted ON events (noted)");
     ledger_.run("CREATE INDEX IF NOT EXISTS events_message ON events (peer, messageId)");
     ledger_.run("CREATE TABLE IF NOT EXISTS issued_menus ("
@@ -175,8 +175,8 @@ public:
         if (timerNote_) {
             timerNote_ = false;
         } else {
-            (void)owner_.noteLocked(
-                "message", peer, line.e2eId, line.text, actor(), line.sentAt, line.type);
+            (void)owner_.noteLocked("message", peer, line.e2eId, line.text, actor(), line.sentAt,
+                line.type, line.author, line.fromHost);
         }
         if (!owner_.keepsHistory_) {
             owner_.require(owner_.store_.removeById(id));
@@ -256,6 +256,8 @@ Line Transcript::lineOf(const client::StoredMessage& row) const
     line.sentAt = row.ts;
     line.edited = row.edited;
     line.status = statusOf(row.status);
+    line.author = row.author;
+    line.fromHost = row.fromHost;
     if (row.type == client::kTypeFile) {
         if (line.text.empty()) {
             line.text = row.attName;
@@ -345,12 +347,12 @@ std::optional<client::BotMenu> Transcript::menu(const std::string& peer) const
 
 std::int64_t Transcript::noteLocked(const std::string& kind, const std::string& peer,
     const std::string& messageId, const std::string& text, const std::string& actor,
-    const std::int64_t at, const std::string& type)
+    const std::int64_t at, const std::string& type, const std::string& author, const bool fromHost)
 {
     const std::int64_t now = nowMillis();
     Statement insert(ledger_,
-        "INSERT INTO events (kind, peer, messageId, type, text, actor, at, noted)"
-        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+        "INSERT INTO events (kind, peer, messageId, type, text, actor, at, noted, author, fromHost)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
     insert.bind(1, kind);
     insert.bind(2, peer);
     insert.bind(3, messageId);
@@ -359,6 +361,8 @@ std::int64_t Transcript::noteLocked(const std::string& kind, const std::string& 
     insert.bind(6, actor);
     insert.bind(7, at);
     insert.bind(8, now);
+    insert.bind(9, author);
+    insert.bind(10, static_cast<std::int64_t>(fromHost ? 1 : 0));
     (void)insert.step();
     const std::int64_t id = ledger_.lastInsertId();
     if (!keepsHistory_) {
@@ -533,7 +537,7 @@ std::vector<Event> Transcript::since(const std::int64_t id) const
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     Statement query(ledger_,
-        "SELECT id, kind, peer, messageId, type, text, actor, at FROM events"
+        "SELECT id, kind, peer, messageId, type, text, actor, at, author, fromHost FROM events"
         " WHERE id > ? ORDER BY id LIMIT ?");
     query.bind(1, id);
     query.bind(2, static_cast<std::int64_t>(kMaxPage));
@@ -548,6 +552,8 @@ std::vector<Event> Transcript::since(const std::int64_t id) const
         event.text = query.text(5);
         event.actor = query.text(6);
         event.at = query.number(7);
+        event.author = query.text(8);
+        event.fromHost = query.number(9) != 0;
         events.push_back(std::move(event));
     }
     return events;

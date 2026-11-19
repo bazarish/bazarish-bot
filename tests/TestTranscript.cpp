@@ -131,11 +131,41 @@ try {
         CHECK(states["d1"] == "read");
         CHECK(states["d2"] == "read");
         CHECK(states["d3"] == "sending");
+
+        bazarish::client::IncomingMessage post;
+        post.contentType = bazarish::client::kTypeText;
+        post.fromFingerprint = "group";
+        post.e2eId = "gp1";
+        post.text = "hello all";
+        post.sentAt = 70;
+        post.group = bazarish::client::GroupBlock{};
+        post.author = "Ann";
+        CHECK(transcript.takeIn(post).added);
+        const Event posted = transcript.since(transcript.lastEventId() - 1).back();
+        CHECK(posted.kind == "message");
+        CHECK(posted.author == "Ann");
+        CHECK(!posted.fromHost);
+        bazarish::client::IncomingMessage hostPost = post;
+        hostPost.e2eId = "gp2";
+        hostPost.author.clear();
+        hostPost.fromHost = true;
+        CHECK(transcript.takeIn(hostPost).added);
+        const Event announced = transcript.since(transcript.lastEventId() - 1).back();
+        CHECK(announced.author.empty());
+        CHECK(announced.fromHost);
+        std::map<std::string, Line> inGroup;
+        for (const Line& line : transcript.conversation("group", 0, 10)) {
+            inGroup[line.e2eId] = line;
+        }
+        CHECK(inGroup["gp1"].author == "Ann");
+        CHECK(!inGroup["gp1"].fromHost);
+        CHECK(inGroup["gp2"].author.empty());
+        CHECK(inGroup["gp2"].fromHost);
     }
 
     {
         Transcript transcript(file, self, true);
-        CHECK(transcript.latestPerPeer().size() == 4);
+        CHECK(transcript.latestPerPeer().size() == 5);
         CHECK(transcript.conversation("bob", 0, 10).size() == 1);
         CHECK(!transcript.menu("bob"));
         transcript.setMenu("bob", {7, {{"Баланс", "balance"}}});

@@ -133,6 +133,12 @@ nlohmann::json lineJson(const Line& line)
         }
         item["reactions"] = reactions;
     }
+    if (!line.author.empty()) {
+        item["author"] = line.author;
+    }
+    if (line.fromHost) {
+        item["fromHost"] = true;
+    }
     if (line.file.has_value()) {
         nlohmann::json file = {{"name", line.file->name}, {"size", line.file->size}};
         for (const auto& [key, value] : {std::pair{"mime", std::cref(line.file->mime)},
@@ -213,6 +219,12 @@ nlohmann::json eventJson(const Event& event)
     }
     if (event.at != 0) {
         item["sentAt"] = event.at;
+    }
+    if (!event.author.empty()) {
+        item["author"] = event.author;
+    }
+    if (event.fromHost) {
+        item["fromHost"] = true;
     }
     return item;
 }

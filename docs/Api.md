@@ -261,10 +261,12 @@ An event says what happened, and to which message:
 ```
 
 An event carries `id`, `kind` and `peer`, and, where the kind has them,
-`messageId`, `type`, `text`, `actor` and `sentAt`; a `timer` carries `seconds`
-in place of `text`. For a `message`, `type` is the line's type, `sentAt` is when
-it was sent in Unix milliseconds, and `actor` is the peer when the line came
-from them; a line this account sent has no `actor`. An event carries no
+`messageId`, `type`, `text`, `actor`, `sentAt`, `author` and `fromHost`; a `timer`
+carries `seconds` in place of `text`. For a `message`, `type` is the line's type,
+`sentAt` is when it was sent in Unix milliseconds, and `actor` is the peer when the
+line came from them; a line this account sent has no `actor`. In a group the peer is
+the group, so a `message` from it names who wrote it: `author` is that member's
+name in the group, and `fromHost` is true when the group itself posted it. An event carries no
 `replyTo`: what a `bot.callback` pressed is on its line.
 
 `kind` is one of `message`, `edit`, `delete`, `reaction`, `receipt`, `status`,
@@ -308,6 +310,8 @@ it, so the `id` of the last line of one page is the `before` of the next.
 | `keyboard` | the inline keyboard it carries |
 | `reactions` | `[{"reactor": ..., "emoji": ...}]` |
 | `file` | on a `file`: `name`, `size`, `mime`, `sha256` and `path`, where it was sent from or downloaded to |
+| `author` | in a group: the name of the member who wrote the line |
+| `fromHost` | in a group: true when the group itself posted the line |
 
 A field with nothing in it is left out, except `id`, `peer`, `outgoing`, `type`,
 `text`, `sentAt` and `edited`.

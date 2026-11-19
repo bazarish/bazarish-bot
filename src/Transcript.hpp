@@ -45,6 +45,8 @@ struct Line {
     std::vector<Reaction> reactions;
     std::string status;
     std::optional<FileInfo> file;
+    std::string author;
+    bool fromHost = false;
 };
 
 struct Event {
@@ -56,6 +58,8 @@ struct Event {
     std::string text;
     std::string actor;
     std::int64_t at = 0;
+    std::string author;
+    bool fromHost = false;
 };
 
 class Transcript {
@@ -110,7 +114,8 @@ public:
 private:
     std::int64_t noteLocked(const std::string& kind, const std::string& peer,
         const std::string& messageId, const std::string& text, const std::string& actor,
-        std::int64_t at, const std::string& type = {});
+        std::int64_t at, const std::string& type = {}, const std::string& author = {},
+        bool fromHost = false);
     bool noted(const std::string& peer, const std::string& messageId) const;
     Line lineOf(const client::StoredMessage& row) const;
     void require(bool done) const;
