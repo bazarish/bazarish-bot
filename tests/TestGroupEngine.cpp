@@ -541,11 +541,11 @@ try {
         pump(engine);
         CHECK(fake.take("relay", zed).empty());
 
-        engine.refreshMemberCount();
         CHECK(engine.blockFor(ann).members == 6);
 
         config.kind = client::GroupKind::eChannel;
         engine.setConfig(config);
+        engine.refreshMemberCount();
         CHECK(fake.states.size() == 6);
         CHECK(!engine.blockFor(bob).write);
         engine.onIncoming(textFrom(bob, "closed", "p3"));
@@ -553,6 +553,7 @@ try {
         const std::string hal = member();
         join(engine, fake, hal, "Hal");
         CHECK(fake.take("tell", hal).empty());
+        CHECK(engine.blockFor(ann).members == 6);
         engine.exclude(hal);
         engine.setAdmin(bob, true);
         CHECK(engine.blockFor(bob).admin);

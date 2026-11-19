@@ -261,7 +261,8 @@ client::GroupBlock GroupEngine::blockFor(const std::string& peer) const
     const std::lock_guard<std::mutex> lock(mutex_);
     client::GroupBlock block;
     block.kind = config_.kind;
-    block.members = memberCount_;
+    // A group shows its member list, so its count hides no join; a channel's count stays hourly.
+    block.members = config_.kind == client::GroupKind::eGroup ? memberTotalLocked() : memberCount_;
     const auto found = members_.find(peer);
     if (found != members_.end()) {
         block.admin = found->second.admin;
