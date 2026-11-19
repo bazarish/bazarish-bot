@@ -150,12 +150,16 @@ public:
         return "A message of the type " + rawType + " this host does not know.";
     }
     std::string unreadable() const override { return "A message could not be read"; }
-    std::string callRecord(const std::string& outcome) const override
+    std::string callRecord(const bool incoming, const std::string& outcome) const override
     {
+        const std::string call = incoming ? "Incoming call " : "Outgoing call ";
         if (outcome == client::kCallMarkAnswered) {
-            return "Call";
+            return call + "answered";
         }
-        return outcome == client::kCallMarkDeclined ? "Call declined" : "Call not answered";
+        if (outcome == client::kCallMarkDeclined) {
+            return call + "declined";
+        }
+        return call + (incoming ? "missed" : "not answered");
     }
 
     void chatTimerChanged(const std::string& peer, const std::int64_t seconds) override
