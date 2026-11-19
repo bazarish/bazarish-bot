@@ -45,6 +45,7 @@ const kGroupViews = [
     ["posts", N_("Posts")],
     ["aliases", N_("Aliases")],
     ["sign", N_("Sign")],
+    ["api", N_("API")],
     ["account", N_("Account")],
 ];
 const kMemberFilters = [
@@ -1064,7 +1065,12 @@ async function viewSign() {
     return view;
 }
 
-const kBotDocs = "https://bazarish.org/docs/bots";
+const kSite = "https://bazarish.org/";
+const kBotApiPage = "bot-api.html";
+
+function botApiDocs() {
+    return kSite + (language === "en" ? "" : language + "/") + kBotApiPage;
+}
 
 function linkedText(text, href) {
     const holder = node("span");
@@ -1143,10 +1149,11 @@ async function viewApi() {
 
     const how = node("article", "panel-box");
     const howTitle = node("p", "block-title");
-    howTitle.append(linkedText(t("Example request, more in the [documentation]"), kBotDocs));
+    howTitle.append(linkedText(t("Example request, more in the [documentation]"), botApiDocs()));
     how.append(howTitle);
+    const example = account.kind === "group" ? "/v1/group" : "/v1/events?since=0\\&wait=60";
     how.append(node("pre", "copy",
-        "curl -s http://" + location.host + "/v1/events?since=0\\&wait=60 \\\n  -H \"Authorization: Bearer $TOKEN\""));
+        "curl -s http://" + location.host + example + " \\\n  -H \"Authorization: Bearer $TOKEN\""));
     view.append(how);
 
     const issued = node("section", "stack-section");
