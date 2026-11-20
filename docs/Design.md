@@ -94,6 +94,15 @@ ordinary identity, exactly as the protocol specifies a bot to be.
 The daemon carries its own mailbox and federates on its own destination. A bot
 that runs as a service already has the uptime a mailbox needs.
 
+A delivery between two accounts of this daemon stays on the host. Before it
+dials, the courier asks whether the destination is one this process serves; when
+it is, the sealed frame travels over a pipe in memory to the same code that
+answers a frame arriving from a tunnel. The body stays sealed, the
+acknowledgement is signed by the destination's own key, and the recipient is
+told the sending account's address, so what is counted per sending address is
+counted the same. A group and a bot that belong to one daemon reach each other
+this way.
+
 On a public server the account's serving destination is delegated: the user
 keeps the master key and hands the server a short-lived offline transient, so an
 operator who is not the user cannot become them. Inside one process the account,

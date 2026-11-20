@@ -161,6 +161,15 @@ void Account::bringUp()
     endpoint.facades.push_back(client::Facade{mailbox.host(), mailbox.port()});
     session->connectServer(endpoint);
     session->registerSelfHosted(destination);
+    client::Session::LocalRoutes routes;
+    routes.serves = [serverSide = serverSide_](const std::string& toDest) {
+        return serverSide().servesLocally(toDest);
+    };
+    routes.open = [serverSide = serverSide_, fingerprint](const std::string& toDest) {
+        ServerSide& side = serverSide();
+        return side.deliverLocally(toDest, side.destination(fingerprint));
+    };
+    session->setLocalRoutes(std::move(routes));
     session->setAcceptCalls(false);
     log::info("account {}: registered and up", id_);
     const client::Session::ContactFetchContext waiterContext = session->contactFetchContext();

@@ -18,6 +18,7 @@
 #include <SubscriptionStore.hpp>
 
 #include <Client.hpp>
+#include <OutboundCourier.hpp>
 
 #include <bazarish/Crypto.hpp>
 #include <bazarish/I2p.hpp>
@@ -55,6 +56,10 @@ public:
     void forget(const std::string& account);
     void takeDown(const std::string& account);
     void admit(const std::string& fingerprint);
+    // A destination this same process serves: its delivery never leaves the host.
+    bool servesLocally(const std::string& destination) const;
+    std::shared_ptr<client::DeliveryStream> deliverLocally(
+        const std::string& toDest, const std::string& fromDest);
     void endMailWait(const std::string& account);
 
 private:

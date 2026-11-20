@@ -1,6 +1,8 @@
 // Bazarish project (c) 2026
 #include "ServerSide.hpp"
 
+#include "LocalDelivery.hpp"
+
 #include <BuildVersion.hpp>
 #include <StateIdentity.hpp>
 
@@ -276,6 +278,32 @@ std::string ServerSide::destination(const std::string& account) const
         }
     }
     return destinations_->assignmentFor(account, nowSeconds()).dest;
+}
+
+bool ServerSide::servesLocally(const std::string& destination) const
+{
+    if (destination.empty() || destinations_ == nullptr) {
+        return false;
+    }
+    return destinations_->directTargetFor(destination).has_value();
+}
+
+std::shared_ptr<client::DeliveryStream> ServerSide::deliverLocally(
+    const std::string& toDest, const std::string& fromDest)
+{
+    const std::shared_ptr<LocalPipe> pipe = std::make_shared<LocalPipe>();
+    std::jthread serving([this, pipe, toDest, fromDest]() {
+        LocalServerEnd end(pipe);
+        try {
+            if (!destinations_->serveDirect(toDest, fromDest, end)) {
+                log::warn("a local delivery found no account serving {}", toDest);
+            }
+        } catch (const std::exception& error) {
+            log::warn("a local delivery to {} broke off: {}", toDest, error.what());
+        }
+        pipe->close();
+    });
+    return std::make_shared<LocalDeliveryStream>(pipe, std::move(serving));
 }
 
 void ServerSide::takeDown(const std::string& account)

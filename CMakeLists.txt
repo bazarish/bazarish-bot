@@ -38,6 +38,7 @@ add_library(bazarish_bot_lib STATIC
     src/NameRules.cpp
     src/PictureRules.cpp
     src/KeyboardRules.cpp
+    src/LocalDelivery.cpp
     src/MenuRules.cpp
     src/Transcript.cpp
     src/Transfers.cpp
@@ -87,6 +88,7 @@ bazarish_bot_add_test(TestKeyboardRules)
 bazarish_bot_add_test(TestGroupCopy)
 bazarish_bot_add_test(TestBackup)
 bazarish_bot_add_test(TestServerSide)
+bazarish_bot_add_test(TestLocalDelivery)
 bazarish_bot_add_test(TestStateCheckpoint)
 bazarish_bot_add_test(TestHttpFace)
 target_compile_definitions(TestHttpFace PRIVATE BAZARISH_BOT_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
