@@ -582,6 +582,14 @@ try {
         CHECK(fake.take("tell", ann).back().text == "Your contact request was sent to Bob.");
         engine.onIncoming(commandFrom(ann, "contact", "p2"));
         CHECK(fake.take("tell", bob).empty());
+        now += kContactAskEveryMs - 1;
+        engine.onIncoming(commandFrom(ann, "contact", "p2"));
+        CHECK(fake.take("tell", bob).empty());
+        now += 1;
+        engine.onIncoming(commandFrom(ann, "contact", "p2"));
+        const std::vector<Sent> askedAgain = fake.take("tell", bob);
+        CHECK(askedAgain.size() == 1);
+        CHECK(askedAgain[0].text.find("Ann asks you to write.") == 0);
 
         config.kind = client::GroupKind::eGroup;
         engine.setConfig(config);

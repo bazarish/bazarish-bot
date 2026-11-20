@@ -674,9 +674,13 @@ void GroupEngine::commandLocked(Member& member, const std::string& line, Actions
             tellLocked(member.fingerprint, Copy::eContactRefused, {author->second.name}, actions);
             return;
         }
-        if (!store_.noteContactAsk(member.fingerprint, post->author)) {
+        const std::int64_t now = clock_();
+        const std::optional<std::int64_t> asked
+            = store_.contactAskAt(member.fingerprint, post->author);
+        if (asked.has_value() && now - *asked < kContactAskEveryMs) {
             return;
         }
+        store_.noteContactAsk(member.fingerprint, post->author, now);
         actions.push_back([this, author = post->author, requester = member]() {
             const std::string words = copyText(config().language, Copy::eAsksYou,
                 {requester.name, chatDescriptor(requester)});

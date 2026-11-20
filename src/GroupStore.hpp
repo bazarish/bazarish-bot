@@ -147,7 +147,9 @@ public:
     void addCard(std::int64_t number, const std::string& admin, const std::string& messageId);
     std::vector<RequestCard> cards(std::int64_t number) const;
 
-    bool noteContactAsk(const std::string& requester, const std::string& author);
+    std::optional<std::int64_t> contactAskAt(
+        const std::string& requester, const std::string& author) const;
+    void noteContactAsk(const std::string& requester, const std::string& author, std::int64_t at);
 
     std::optional<std::int64_t> offlineSince(const std::string& fingerprint) const;
     void markOffline(const std::string& fingerprint, std::int64_t at);

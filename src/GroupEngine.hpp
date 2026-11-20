@@ -27,6 +27,7 @@ inline constexpr std::int64_t kMediaSweepMs = 30 * 1000;
 inline constexpr std::int64_t kDeadAfterDays = 30;
 inline constexpr std::int64_t kMsPerDay = 24 * 60 * 60 * 1000;
 inline constexpr std::int64_t kDeadAfterMs = kDeadAfterDays * kMsPerDay;
+inline constexpr std::int64_t kContactAskEveryMs = kMsPerDay;
 inline constexpr std::size_t kMaxRelaysInFlight = 16;
 
 struct GroupLink {

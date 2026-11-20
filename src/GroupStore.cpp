@@ -166,8 +166,8 @@ GroupStore::GroupStore(const std::filesystem::path& file)
                   " text TEXT NOT NULL)");
     database_.run("CREATE TABLE IF NOT EXISTS hosted_cards (number INTEGER NOT NULL, admin TEXT NOT NULL,"
                   " messageId TEXT NOT NULL, PRIMARY KEY (number, admin))");
-    database_.run("CREATE TABLE IF NOT EXISTS hosted_asks (requester TEXT NOT NULL, author TEXT NOT NULL,"
-                  " PRIMARY KEY (requester, author))");
+    database_.run("CREATE TABLE IF NOT EXISTS hosted_contact_asks (requester TEXT NOT NULL,"
+                  " author TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (requester, author))");
     database_.run("CREATE TABLE IF NOT EXISTS hosted_offline (fingerprint TEXT PRIMARY KEY,"
                   " since INTEGER NOT NULL)");
 
@@ -508,13 +508,28 @@ std::vector<RequestCard> GroupStore::cards(const std::int64_t number) const
     return cards;
 }
 
-bool GroupStore::noteContactAsk(const std::string& requester, const std::string& author)
+std::optional<std::int64_t> GroupStore::contactAskAt(
+    const std::string& requester, const std::string& author) const
 {
-    Statement insert(database_, "INSERT OR IGNORE INTO hosted_asks (requester, author) VALUES (?, ?)");
-    insert.bind(1, requester);
-    insert.bind(2, author);
-    (void)insert.step();
-    return database_.changes() > 0;
+    Statement query(
+        database_, "SELECT at FROM hosted_contact_asks WHERE requester = ? AND author = ?");
+    query.bind(1, requester);
+    query.bind(2, author);
+    if (!query.step()) {
+        return std::nullopt;
+    }
+    return query.number(0);
+}
+
+void GroupStore::noteContactAsk(
+    const std::string& requester, const std::string& author, const std::int64_t at)
+{
+    Statement upsert(database_,
+        "INSERT OR REPLACE INTO hosted_contact_asks (requester, author, at) VALUES (?, ?, ?)");
+    upsert.bind(1, requester);
+    upsert.bind(2, author);
+    upsert.bind(3, at);
+    (void)upsert.step();
 }
 
 std::optional<std::int64_t> GroupStore::offlineSince(const std::string& fingerprint) const
