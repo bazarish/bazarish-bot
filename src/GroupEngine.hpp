@@ -72,6 +72,7 @@ public:
     void setConfig(const GroupConfig& config);
     std::vector<Member> members() const;
     void setAdmin(const std::string& fingerprint, bool admin);
+    void setContactable(const std::string& fingerprint, bool contactable);
     void exclude(const std::string& fingerprint);
     void block(const std::string& fingerprint);
     void unblock(const std::string& fingerprint);

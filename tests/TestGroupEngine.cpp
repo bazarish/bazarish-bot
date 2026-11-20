@@ -595,6 +595,26 @@ try {
         const std::vector<Sent> notAccepting = fake.take("tell", ann);
         CHECK(notAccepting.size() == 1
             && notAccepting[0].text == "Ace does not accept contact requests.");
+        const auto contactableOf = [&](const std::string& peer) {
+            for (const Member& held : engine.members()) {
+                if (held.fingerprint == peer) {
+                    return held.contactable;
+                }
+            }
+            return false;
+        };
+        CHECK(!contactableOf(cid));
+        engine.setContactable(cid, true);
+        CHECK(contactableOf(cid));
+        engine.setContactable(cid, false);
+        CHECK(!contactableOf(cid));
+        CHECK_THROWS(engine.setContactable(Identity::generate().fingerprint(), false));
+        fake.forget();
+        engine.onIncoming(commandFrom(ann, "contact", "p5"));
+        CHECK(fake.take("tell", cid).empty());
+        const std::vector<Sent> refusedByHost = fake.take("tell", ann);
+        CHECK(refusedByHost.size() == 1
+            && refusedByHost[0].text == "Ace does not accept contact requests.");
         const auto stateOf = [&](const std::string& peer) {
             for (const Member& held : engine.members()) {
                 if (held.fingerprint == peer) {

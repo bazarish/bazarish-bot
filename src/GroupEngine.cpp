@@ -1191,6 +1191,21 @@ void GroupEngine::setAdmin(const std::string& fingerprint, const bool admin)
     run(actions);
 }
 
+void GroupEngine::setContactable(const std::string& fingerprint, const bool contactable)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = members_.find(fingerprint);
+    if (found == members_.end() || found->second.state != MemberState::eMember) {
+        throw std::runtime_error("only a member refuses or accepts contact requests");
+    }
+    Member member = found->second;
+    if (member.contactable == contactable) {
+        return;
+    }
+    member.contactable = contactable;
+    saveLocked(member);
+}
+
 void GroupEngine::exclude(const std::string& fingerprint)
 {
     Actions actions;

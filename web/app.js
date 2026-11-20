@@ -1847,6 +1847,8 @@ function memberRow(member, refresh) {
     if (member.state === "member") {
         act(member.admin ? N_("Remove administrator") : N_("Make administrator"),
             member.admin ? "unadmin" : "admin", false);
+        act(member.contactable ? N_("Refuse contact requests") : N_("Accept contact requests"),
+            member.contactable ? "uncontactable" : "contactable", false);
         if (!member.admin) {
             act(N_("Exclude"), "exclude", true);
         }

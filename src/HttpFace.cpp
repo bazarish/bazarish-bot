@@ -425,6 +425,7 @@ nlohmann::json membersJson(const std::vector<Member>& members)
             {"name", member.name},
             {"state", memberStateName(member.state)},
             {"admin", member.admin},
+            {"contactable", member.contactable},
             {"joinedAt", member.joinedAt},
             {"offlineSince", member.offlineSince},
         });
@@ -629,8 +630,12 @@ std::vector<SharedRoute> sharedRoutes()
                     group->block(fingerprint);
                 } else if (action == "unblock") {
                     group->unblock(fingerprint);
+                } else if (action == "contactable" || action == "uncontactable") {
+                    group->setContactable(fingerprint, action == "contactable");
                 } else {
-                    return failure(400, "the action is admin, unadmin, exclude, block or unblock");
+                    return failure(400,
+                        "the action is admin, unadmin, exclude, block, unblock, contactable or "
+                        "uncontactable");
                 }
                 return http::jsonResponse(membersJson(group->members()));
             }},
