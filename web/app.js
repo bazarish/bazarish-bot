@@ -1802,6 +1802,57 @@ function memberMatches(member) {
         || member.fingerprint.includes(asked);
 }
 
+const kSvgSpace = "http://www.w3.org/2000/svg";
+const kMenuIconSize = 24;
+const kMenuDotRadius = 2;
+const kMenuDots = [5, 12, 19];
+
+function rowMenu() {
+    const box = node("details", "row-menu");
+    const toggle = node("summary", "row-menu-toggle");
+    toggle.setAttribute("aria-label", t("Actions"));
+    toggle.title = t("Actions");
+    const dots = document.createElementNS(kSvgSpace, "svg");
+    dots.setAttribute("viewBox", `0 0 ${kMenuIconSize} ${kMenuIconSize}`);
+    dots.setAttribute("aria-hidden", "true");
+    for (const x of kMenuDots) {
+        const dot = document.createElementNS(kSvgSpace, "circle");
+        dot.setAttribute("cx", String(x));
+        dot.setAttribute("cy", String(kMenuIconSize / 2));
+        dot.setAttribute("r", String(kMenuDotRadius));
+        dots.append(dot);
+    }
+    toggle.append(dots);
+    const list = node("div", "row-menu-list");
+    box.append(toggle, list);
+    box.addEventListener("toggle", () => {
+        if (!box.open) {
+            return;
+        }
+        for (const other of document.querySelectorAll(".row-menu[open]")) {
+            if (other !== box) {
+                other.open = false;
+            }
+        }
+    });
+    return {box, list};
+}
+
+function closeRowMenus(except) {
+    for (const open of document.querySelectorAll(".row-menu[open]")) {
+        if (!except || !open.contains(except)) {
+            open.open = false;
+        }
+    }
+}
+
+document.addEventListener("click", (event) => closeRowMenus(event.target));
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+        closeRowMenus(null);
+    }
+});
+
 function memberRow(member, refresh) {
     const row = node("div", "row is-static");
     const keys = node("span", "row-keys");
@@ -1823,12 +1874,12 @@ function memberRow(member, refresh) {
     if (member.joinedAt) {
         tags.append(node("span", "row-dest", new Date(member.joinedAt).toLocaleDateString()));
     }
-    const actions = node("span", "row-actions");
+    const menu = rowMenu();
     const act = (label, action, danger, ask) => {
-        const button = node("button", "btn btn-small" + (danger ? " btn-danger" : " btn-quiet"),
-            t(label));
+        const button = node("button", "row-menu-item" + (danger ? " is-danger" : ""), t(label));
         button.type = "button";
         button.onclick = async () => {
+            menu.box.open = false;
             if (ask && !window.confirm(ask)) {
                 return;
             }
@@ -1840,9 +1891,10 @@ function memberRow(member, refresh) {
             } catch (error) {
                 button.disabled = false;
                 button.title = error.message;
+                menu.box.open = true;
             }
         };
-        actions.append(button);
+        menu.list.append(button);
     };
     if (member.state === "member") {
         act(member.admin ? N_("Remove administrator") : N_("Make administrator"),
@@ -1857,7 +1909,7 @@ function memberRow(member, refresh) {
     } else {
         act(N_("Block"), "block", true, t("Block %1? Returning will not be possible.", member.name));
     }
-    row.append(keys, tags, actions);
+    row.append(keys, tags, menu.box);
     return row;
 }
 

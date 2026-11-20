@@ -402,6 +402,10 @@ body.centred {
     overflow: hidden;
 }
 
+.rows:has(.row-menu[open]) {
+    overflow: visible;
+}
+
 .row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
@@ -1356,6 +1360,96 @@ textarea.field {
     margin-top: 0;
     padding: 0.35rem 0.75rem;
     font-size: 0.64rem;
+}
+
+.row-menu {
+    position: relative;
+    justify-self: end;
+}
+
+.row-menu[open] {
+    z-index: 4;
+}
+
+.row-menu-toggle {
+    display: grid;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border: 1px solid transparent;
+    border-radius: var(--bz-radius-sm);
+    color: var(--bz-ink-dim);
+    cursor: pointer;
+    list-style: none;
+}
+
+.row-menu-toggle::-webkit-details-marker {
+    display: none;
+}
+
+.row-menu-toggle svg {
+    width: 1.25rem;
+    height: 1.25rem;
+    fill: currentColor;
+}
+
+.row-menu-toggle:hover,
+.row-menu[open] .row-menu-toggle {
+    background: var(--bz-surface-2);
+    border-color: var(--bz-line-2);
+    color: var(--bz-ink);
+}
+
+.row-menu-toggle:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bz-bg), 0 0 0 4px var(--bz-key);
+}
+
+.row-menu-list {
+    position: absolute;
+    inset-inline-end: 0;
+    top: calc(100% + 0.3rem);
+    display: grid;
+    min-width: 12rem;
+    padding: 0.3rem;
+    background: var(--bz-surface-2);
+    border: 1px solid var(--bz-line-2);
+    border-radius: var(--bz-radius-sm);
+}
+
+.row-menu-item {
+    padding: 0.5rem 0.7rem;
+    background: transparent;
+    border: 0;
+    border-radius: var(--bz-radius-sm);
+    color: var(--bz-ink);
+    font: inherit;
+    font-size: 0.75rem;
+    text-align: start;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.row-menu-item:hover {
+    background: var(--bz-surface);
+}
+
+.row-menu-item:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--bz-surface-2), 0 0 0 4px var(--bz-key);
+}
+
+.row-menu-item.is-danger {
+    color: var(--bz-err);
+}
+
+.row-menu-item.is-danger:hover {
+    background: var(--bz-err-bg);
+}
+
+.row-menu-item:disabled {
+    color: var(--bz-ink-faint);
+    cursor: default;
 }
 
 .btn:disabled {
