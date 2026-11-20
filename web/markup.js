@@ -294,7 +294,7 @@
             const name = document.createElement("b");
             name.textContent = plate.name || contactLabel;
             const print = document.createElement("span");
-            print.textContent = plate.fingerprint.slice(0, kFingerprintShown) + "…";
+            print.textContent = plate.fingerprint.slice(0, kFingerprintShown) + "...";
             card.append(name, print);
             into.append(card);
         }

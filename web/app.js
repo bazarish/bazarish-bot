@@ -169,7 +169,7 @@ function base64Of(file) {
 }
 
 function nameOf(fingerprint) {
-    return names[fingerprint] || fingerprint.slice(0, 16) + "…";
+    return names[fingerprint] || fingerprint.slice(0, 16) + "...";
 }
 
 function when(milliseconds) {
@@ -314,7 +314,7 @@ async function viewOverview() {
     identity.append(head);
     identity.append(facts([
         [t("Fingerprint"), account.fingerprint],
-        [t("Address"), account.destination || t("building…")],
+        [t("Address"), account.destination || t("building...")],
     ]));
     cards.append(identity);
 
@@ -836,7 +836,7 @@ async function viewContacts() {
         const tags = node("span", "row-tags");
         if (contact.pending) {
             tags.append(node("span", "tag is-pending",
-                contact.accepting ? t("accepting…") : t("pending")));
+                contact.accepting ? t("accepting...") : t("pending")));
         }
         row.append(tags);
         const action = node("span", "row-quota", contact.pending
@@ -905,7 +905,7 @@ function aliasState(alias) {
     if (!alias.resolving) {
         return t("answers nobody");
     }
-    return alias.live ? aliasTerm(alias) : t("pointing it here…");
+    return alias.live ? aliasTerm(alias) : t("pointing it here...");
 }
 
 async function viewAliases() {
@@ -954,7 +954,7 @@ async function viewAliases() {
         note.textContent = state.aliases.length > 0 && !state.depositCovers
             ? t("The deposit will not cover the next renewal") : "";
         check.disabled = state.checking;
-        check.textContent = state.checking ? t("Asking…") : t("Check aliases");
+        check.textContent = state.checking ? t("Asking...") : t("Check aliases");
         if (state.checked) {
             outcome.textContent = state.checked.ok && state.aliases.length === 0
                 ? "" : state.checked.note;
@@ -1207,7 +1207,7 @@ async function viewAccount() {
         if (!window.confirm(t("The old address stops answering. Continue?"))) {
             return;
         }
-        keyResult.textContent = t("Creating a new address…");
+        keyResult.textContent = t("Creating a new address...");
         try {
             await call("POST", base(), {action: "new-address"});
             keyResult.textContent = t("Created. It is published once its tunnels are built.");
@@ -1232,7 +1232,7 @@ async function viewAccount() {
             const said = node("p", "hint");
             const again = node("button", "btn btn-quiet", t("Retry"));
             again.onclick = async () => {
-                said.textContent = t("Sending…");
+                said.textContent = t("Sending...");
                 try {
                     await call("POST", base(), {action: "retry-routing", peer: owedPeer});
                     said.textContent = t("Sent. The list clears on delivery.");
@@ -1493,7 +1493,7 @@ function storageCard() {
     const compact = node("button", "btn btn-quiet", t("Compact"));
     compact.onclick = async () => {
         compact.disabled = true;
-        said.textContent = t("Compacting…");
+        said.textContent = t("Compacting...");
         try {
             show(await call("POST", base() + "/storage/compact"));
             said.textContent = t("Compacted");
@@ -1701,7 +1701,7 @@ function tally(pairs) {
 }
 
 function shortFingerprint(fingerprint) {
-    return fingerprint.slice(0, 16) + "…";
+    return fingerprint.slice(0, 16) + "...";
 }
 
 async function viewGroup() {
@@ -2228,7 +2228,7 @@ function systemRestartCard() {
             state.textContent = (await asked.json()).error || asked.statusText;
             return;
         }
-        state.textContent = t("Restarting…");
+        state.textContent = t("Restarting...");
         await reloadWhenBack();
     };
     footer.append(restart);
@@ -2293,7 +2293,7 @@ function systemBackupCard() {
             state.textContent = (await committed.json()).error || committed.statusText;
             return;
         }
-        state.textContent = t("Restoring and restarting…");
+        state.textContent = t("Restoring and restarting...");
         await reloadWhenBack();
     };
     importFooter.append(restore);
