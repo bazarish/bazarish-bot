@@ -70,8 +70,7 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy,
     engine_ = std::make_unique<server::DeliveryEngine>(*storage_, engineOptions);
 
     card_ = ServerCard::issue(*identity_, ServerCard::Service::eMessaging,
-        Key::fromPublicDer(sealing_->publicDer()), nowSeconds());
-    writeFileAtomic(serverDir / "server-card.der", card_);
+        Key::fromPublicDer(sealing_->publicDer()));
 
     subscriptions_ = std::make_unique<service::SubscriptionStore>(serverDir / "node");
     grants_ = std::make_unique<service::GrantStore>(serverDir / "node");
@@ -86,10 +85,9 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy,
     const tls::Credential credential = tls::selfSigned(serverDir);
     service::AccountApiOptions accountOptions;
     accountOptions.serverFingerprint = fingerprint_;
-    accountOptions.serverCardDer = card_;
     accountOptions.sealingKey = nodeSealing;
     accountOptions.nodeCardDer = ServerCard::issue(*identity_, ServerCard::Service::eServiceNode,
-        Key::fromPublicDer(nodeSealing->publicDer()), nowSeconds());
+        Key::fromPublicDer(nodeSealing->publicDer()));
     accountOptions.tlsCertificate = credential.certificate.string();
     accountOptions.tlsKey = credential.key.string();
     accountOptions.version = kBuildVersion;
