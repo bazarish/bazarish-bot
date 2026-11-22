@@ -235,7 +235,7 @@ administrator.
 | From | What |
 |---|---|
 | `common-cpp` | the client core (accounts, session, courier, invites) and the crypto and I2P transport under it |
-| `bazarish-server` | `server-core` for the mailbox, the delivery engine and the federation this daemon serves to itself, `service-node` for the account it registers with itself, and `facade-http` in front of both |
+| `bazarish-server` | `server-core` for the mailbox, the delivery engine and the federation this daemon serves to itself, `server-service` for the account it registers with itself, and `facade-http` in front of both |
 
 The client core is shared with the desktop client, so both
 front-ends speak the protocol through exactly the same code.

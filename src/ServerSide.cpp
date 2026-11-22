@@ -86,7 +86,7 @@ ServerSide::ServerSide(fs::path stateDir, const i2p::Privacy privacy,
     service::AccountApiOptions accountOptions;
     accountOptions.serverFingerprint = fingerprint_;
     accountOptions.sealingKey = nodeSealing;
-    accountOptions.nodeCardDer = ServerCard::issue(*identity_, ServerCard::Service::eServiceNode,
+    accountOptions.nodeCardDer = ServerCard::issue(*identity_, ServerCard::Service::eServerService,
         Key::fromPublicDer(nodeSealing->publicDer()));
     accountOptions.tlsCertificate = credential.certificate.string();
     accountOptions.tlsKey = credential.key.string();
@@ -135,7 +135,7 @@ void ServerSide::start()
 {
     nodePort_ = accounts_->bind(host_, 0);
     if (nodePort_ <= 0) {
-        throw std::runtime_error("the account node cannot take a port on " + host_);
+        throw std::runtime_error("the server service cannot take a port on " + host_);
     }
 
     const tls::Credential credential = tls::selfSigned(stateDir_ / "server");
@@ -173,7 +173,7 @@ void ServerSide::start()
 
     facade::FacadeOptions facadeOptions;
     facadeOptions.messaging = {host_, mailboxPort_, credential.pin};
-    facadeOptions.serviceNode = {host_, nodePort_, credential.pin};
+    facadeOptions.serverService = {host_, nodePort_, credential.pin};
     facadeOptions.version = kBuildVersion;
     facade_ = std::make_unique<facade::Facade>(facadeOptions);
     facadePort_ = facade_->bind(host_, 0);

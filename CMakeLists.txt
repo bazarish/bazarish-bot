@@ -17,7 +17,7 @@ if(NOT TARGET bazarish_common)
     add_subdirectory(${BAZARISH_COMMON_DIR} bazarish-common)
 endif()
 add_subdirectory(${BAZARISH_SERVER_DIR}/server-core bazarish-server-core)
-add_subdirectory(${BAZARISH_SERVER_DIR}/service-node bazarish-service-node)
+add_subdirectory(${BAZARISH_SERVER_DIR}/server-service bazarish-server-service)
 add_subdirectory(${BAZARISH_SERVER_DIR}/facade-http bazarish-facade-http)
 
 find_package(Threads REQUIRED)
