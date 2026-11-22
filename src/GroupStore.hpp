@@ -123,6 +123,7 @@ public:
     void updatePost(const Post& post);
     std::vector<Post> recentPosts(std::int64_t limit) const;
     void dropMediaBefore(std::int64_t seq);
+    void dropSpentBefore(std::int64_t seq);
 
     std::int64_t appendLog(LogKind kind, const std::string& postId);
     std::vector<LogEntry> logAfter(std::int64_t seq, std::int64_t limit) const;

@@ -23,11 +23,12 @@
 namespace bazarish::bot {
 
 inline constexpr std::int64_t kMemberCountPeriodMs = 60 * 60 * 1000;
-inline constexpr std::int64_t kMediaSweepMs = 30 * 1000;
+inline constexpr std::int64_t kSweepMs = 30 * 1000;
 inline constexpr std::int64_t kDeadAfterDays = 30;
 inline constexpr std::int64_t kMsPerDay = 24 * 60 * 60 * 1000;
 inline constexpr std::int64_t kDeadAfterMs = kDeadAfterDays * kMsPerDay;
 inline constexpr std::int64_t kContactAskEveryMs = kMsPerDay;
+inline constexpr std::int64_t kLeastPostsKept = 10;
 inline constexpr std::size_t kMaxRelaysInFlight = 16;
 
 struct GroupLink {
@@ -71,6 +72,7 @@ public:
 
     GroupConfig config() const;
     void setConfig(const GroupConfig& config);
+    void setKeepsHistory(bool keeps);
     std::vector<Member> members() const;
     void setAdmin(const std::string& fingerprint, bool admin);
     void setContactable(const std::string& fingerprint, bool contactable);
@@ -86,11 +88,10 @@ public:
 
     void pumpOnce();
     void refreshMemberCount();
+    void dropSpent();
 
 private:
     using Actions = std::vector<std::function<void()>>;
-
-    void dropSpentMedia();
 
     struct Prefetched {
         std::optional<Bytes> media;
@@ -163,7 +164,8 @@ private:
     std::int64_t countedAt_ = 0;
     std::int64_t sweptAt_ = 0;
     bool countStale_ = false;
-    bool mediaStale_ = false;
+    bool sweepStale_ = false;
+    bool keepsHistory_ = true;
 
     mutable std::mutex mutex_;
     std::condition_variable wake_;

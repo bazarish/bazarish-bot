@@ -1247,7 +1247,7 @@ async function viewAccount() {
     }
     view.append(keys);
 
-    view.append(storageCard(), exportCard(account));
+    view.append(storageCard(account), exportCard(account));
     view.append(switchOffCard(), removeCard());
     return view;
 }
@@ -1481,11 +1481,38 @@ function exportCard(account) {
     return move;
 }
 
-function storageCard() {
+function storageCard(account) {
     const card = node("article", "panel-box");
     card.append(node("p", "block-title", t("Database")));
     const size = node("p", "hint");
     const said = node("p", "hint");
+    const keeping = node("label", "check check-lead");
+    const keeps = node("input");
+    keeps.type = "checkbox";
+    keeps.checked = account.history;
+    keeping.append(keeps, node("span", null, t("Keep the history")));
+    const without = node("p", "hint");
+    const describe = () => {
+        without.textContent = keeps.checked ? "" : (account.kind === "group"
+            ? t("The group will keep only a buffer of the latest posts, without keeping history for good")
+            : t("The bot will not keep chats"));
+    };
+    describe();
+    keeps.onchange = async () => {
+        if (!keeps.checked && !window.confirm(t("Stored history is deleted. Continue?"))) {
+            keeps.checked = true;
+            return;
+        }
+        said.textContent = "";
+        try {
+            await call("POST", base(), {action: "history", keeps: keeps.checked});
+        } catch (error) {
+            keeps.checked = !keeps.checked;
+            showError(said, error);
+        }
+        describe();
+    };
+    card.append(keeping, without);
     const show = (storage) => {
         size.textContent = bytesText(storage.fileBytes);
     };

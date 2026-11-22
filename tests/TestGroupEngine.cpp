@@ -67,6 +67,7 @@ struct Fake {
     // Members whose relays fail on this device before they leave it.
     std::set<std::string> broken;
     std::size_t batchCap = std::numeric_limits<std::size_t>::max();
+    std::optional<Bytes> mediaBytes;
     int told = 0;
 
     client::OutboundCourier::Outcome outcomeFor(const std::string& peer) const
@@ -166,7 +167,7 @@ GroupLink linkFor(Fake& fake)
         }
         return count;
     };
-    link.media = [](const std::string&, const std::string&) { return std::optional<Bytes>(); };
+    link.media = [&fake](const std::string&, const std::string&) { return fake.mediaBytes; };
     return link;
 }
 
@@ -869,6 +870,89 @@ try {
         pump(engine);
         CHECK(stateIn(gus) == MemberState::eMember);
         CHECK(!dead.take("relay", gus).empty());
+    }
+
+    {
+        Fake kept;
+        GroupEngine engine(dir / "kept.db", linkFor(kept), [&now]() { return now; });
+        const std::string host = member();
+        join(engine, kept, host, "Hal");
+        const std::string late = member();
+        join(engine, kept, late, "Lea");
+        GroupConfig narrow = engine.config();
+        narrow.historySize = 2;
+        engine.setConfig(narrow);
+        const auto shot = [&host](const std::string& id) {
+            client::IncomingMessage picture = incoming(host, client::kTypeImage);
+            picture.e2eId = id;
+            picture.attachmentName = id + ".jpg";
+            picture.attachmentMime = "image/jpeg";
+            return picture;
+        };
+        const auto postIds = [&engine]() {
+            std::vector<std::string> ids;
+            for (const Post& post : engine.posts(2 * kLeastPostsKept)) {
+                ids.push_back(post.id);
+            }
+            return ids;
+        };
+        const auto mediaOf = [&engine](const std::string& id) {
+            for (const Post& post : engine.posts(2 * kLeastPostsKept)) {
+                if (post.id == id) {
+                    return post.media;
+                }
+            }
+            return Bytes();
+        };
+        kept.mediaBytes = Bytes{'j', 'p', 'g'};
+        kept.away = {late};
+        engine.onIncoming(shot("p0"));
+        for (int number = 1; number <= 10; ++number) {
+            const std::string id = "p" + std::to_string(number);
+            engine.onIncoming(textFrom(host, id, id));
+        }
+        engine.onIncoming(shot("p11"));
+        pump(engine);
+        CHECK(kept.parked.count(late) == 1);
+
+        engine.setKeepsHistory(false);
+        engine.dropSpent();
+        CHECK(postIds().size() == 12);
+        CHECK(!mediaOf("p0").empty());
+
+        kept.away.erase(late);
+        kept.parked.at(late).onOutcome(kept.outcomeFor(late));
+        kept.parked.erase(late);
+        pump(engine);
+        engine.dropSpent();
+        CHECK(postIds().size() == static_cast<std::size_t>(kLeastPostsKept));
+        CHECK(postIds().front() == "p11" && postIds().back() == "p2");
+        CHECK(!mediaOf("p11").empty());
+        CHECK(mediaOf("p9").empty());
+
+        GroupConfig none = engine.config();
+        none.historySize = 0;
+        engine.setConfig(none);
+        engine.onIncoming(shot("p12"));
+        pump(engine);
+        engine.dropSpent();
+        CHECK(postIds().size() == static_cast<std::size_t>(kLeastPostsKept));
+        CHECK(postIds().front() == "p12" && postIds().back() == "p3");
+        CHECK(mediaOf("p12").empty());
+
+        const std::string fresh = member();
+        join(engine, kept, fresh, "Fay");
+        kept.forget();
+        pump(engine);
+        CHECK(kept.take("relay", fresh).empty());
+
+        engine.setKeepsHistory(true);
+        for (const char* const id : {"p13", "p14"}) {
+            engine.onIncoming(textFrom(host, id, id));
+        }
+        pump(engine);
+        engine.dropSpent();
+        CHECK(postIds().size() == static_cast<std::size_t>(kLeastPostsKept) + 2);
     }
 
     {

@@ -383,6 +383,12 @@ bool Transcript::noted(const std::string& peer, const std::string& messageId) co
     return query.step();
 }
 
+void Transcript::setKeepsHistory(const bool keeps)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    keepsHistory_ = keeps;
+}
+
 std::int64_t Transcript::append(const Line& line)
 {
     const std::lock_guard<std::mutex> lock(mutex_);

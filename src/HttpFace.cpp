@@ -455,6 +455,7 @@ nlohmann::json accountJson(Account& account, Settings& settings)
         {"id", account.id()},
         {"kind", accountKindName(account.kind())},
         {"acceptsContacts", settings.acceptsContacts(account.id())},
+        {"history", settings.keepsHistory(account.id())},
         {"fingerprint", running ? account.fingerprint() : settings.fingerprintOf(account.id())},
         {"name", account.displayName()},
         {"destination", account.destination()},
@@ -787,6 +788,7 @@ void HttpFace::apiRoutes()
             {"name", account.displayName()},
             {"kind", accountKindName(account.kind())},
             {"enabled", runtime_.settings().enabled(account.id())},
+            {"history", runtime_.settings().keepsHistory(account.id())},
             {"status", account.status()},
             {"destination", account.destination()},
             {"lastEventId", account.lastEventId()},
@@ -803,10 +805,19 @@ void HttpFace::apiRoutes()
     server_->post(kStatusPath, [this, guarded, statusOf](const http::Request& request) {
         return guarded(request, [this, statusOf](Account& account, const http::Request& call) {
             const nlohmann::json body = bazarish::parseJson(call.body);
-            if (!body.contains("enabled") || !body.at("enabled").is_boolean()) {
-                return failure(400, "\"enabled\" is true or false");
+            const bool switching = body.contains("enabled") && body.at("enabled").is_boolean();
+            const bool keeping = body.contains("history") && body.at("history").is_boolean();
+            if (!switching && !keeping) {
+                return failure(400, "\"enabled\" or \"history\" is true or false");
             }
-            runtime_.setEnabled(account.id(), body.at("enabled").get<bool>());
+            if (keeping) {
+                const bool keeps = body.at("history").get<bool>();
+                runtime_.settings().setKeepsHistory(account.id(), keeps);
+                account.setKeepsHistory(keeps);
+            }
+            if (switching) {
+                runtime_.setEnabled(account.id(), body.at("enabled").get<bool>());
+            }
             return statusOf(account);
         });
     });
@@ -1351,13 +1362,20 @@ void HttpFace::accountRoutes()
                 account.retryRouting(body.value("peer", std::string()));
                 return http::jsonResponse({{"sending", true}});
             }
+            if (action == "history") {
+                const bool keeps = body.at("keeps").get<bool>();
+                runtime_.settings().setKeepsHistory(account.id(), keeps);
+                account.setKeepsHistory(keeps);
+                return http::jsonResponse({{"history", keeps}});
+            }
             if (action == "accept-contacts" && account.kind() == Settings::AccountKind::eBot) {
                 const bool accepts = body.at("accepts").get<bool>();
                 runtime_.settings().setAcceptsContacts(account.id(), accepts);
                 return http::jsonResponse({{"acceptsContacts", accepts}});
             }
             return failure(400,
-                "the action is open, rename, new-address, retry-routing or accept-contacts");
+                "the action is open, rename, new-address, retry-routing, history"
+                " or accept-contacts");
         });
     });
 

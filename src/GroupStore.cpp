@@ -300,6 +300,23 @@ void GroupStore::dropMediaBefore(const std::int64_t seq)
     (void)update.step();
 }
 
+void GroupStore::dropSpentBefore(const std::int64_t seq)
+{
+    Statement log(database_, "DELETE FROM hosted_log WHERE seq <= ?");
+    log.bind(1, seq);
+    (void)log.step();
+    Statement roster(database_, "DELETE FROM hosted_roster WHERE seq <= ?");
+    roster.bind(1, seq);
+    (void)roster.step();
+    Statement posts(database_, "DELETE FROM hosted_posts WHERE seq <= ?"
+                              " AND id NOT IN (SELECT postId FROM hosted_log)");
+    posts.bind(1, seq);
+    (void)posts.step();
+    Statement reactions(
+        database_, "DELETE FROM hosted_reactions WHERE postId NOT IN (SELECT id FROM hosted_posts)");
+    (void)reactions.step();
+}
+
 std::int64_t GroupStore::appendLog(const LogKind kind, const std::string& postId)
 {
     Statement insert(database_, "INSERT INTO hosted_log (kind, postId) VALUES (?, ?)");

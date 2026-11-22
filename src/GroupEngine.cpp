@@ -59,7 +59,7 @@ GroupEngine::GroupEngine(const std::filesystem::path& file, GroupLink link, Cloc
     const std::int64_t now = clock_();
     countedAt_ = now;
     sweptAt_ = now;
-    mediaStale_ = true;
+    sweepStale_ = true;
     memberCount_ = static_cast<std::int64_t>(std::count_if(members_.begin(), members_.end(),
         [](const auto& entry) { return entry.second.state == MemberState::eMember; }));
 }
@@ -104,13 +104,13 @@ void GroupEngine::loop()
         nudged_ = false;
         const std::int64_t now = clock_();
         const bool countDue = countStale_ && now - countedAt_ >= kMemberCountPeriodMs;
-        const bool sweepDue = mediaStale_ && now - sweptAt_ >= kMediaSweepMs;
+        const bool sweepDue = sweepStale_ && now - sweptAt_ >= kSweepMs;
         lock.unlock();
         if (countDue) {
             refreshMemberCount();
         }
         if (sweepDue) {
-            dropSpentMedia();
+            dropSpent();
         }
         pumpOnce();
         lock.lock();
@@ -134,8 +134,8 @@ std::optional<std::int64_t> GroupEngine::untilDueLocked() const
     if (countStale_) {
         sooner(countedAt_ + kMemberCountPeriodMs);
     }
-    if (mediaStale_) {
-        sooner(sweptAt_ + kMediaSweepMs);
+    if (sweepStale_) {
+        sooner(sweptAt_ + kSweepMs);
     }
     if (!dueAt.has_value()) {
         return std::nullopt;
@@ -240,7 +240,7 @@ void GroupEngine::queueListLocked(const std::string& peer)
 void GroupEngine::markStaleLocked(const bool members)
 {
     countStale_ = countStale_ || members;
-    mediaStale_ = true;
+    sweepStale_ = true;
     nudged_ = true;
     wake_.notify_all();
 }
@@ -1105,18 +1105,25 @@ void GroupEngine::refusedLocked(const std::string& fingerprint)
     log::info("group: {}'s server refused delivery, so they left", log::redact(fingerprint));
 }
 
-void GroupEngine::dropSpentMedia()
+void GroupEngine::dropSpent()
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     sweptAt_ = clock_();
-    mediaStale_ = false;
-    std::int64_t oldest = store_.seqBeforeLastPosts(config_.historySize);
+    sweepStale_ = false;
+    std::int64_t behind = std::numeric_limits<std::int64_t>::max();
     for (const auto& [fingerprint, member] : members_) {
         if (member.state == MemberState::eMember) {
-            oldest = std::min(oldest, member.cursor);
+            behind = std::min(behind, member.cursor);
         }
     }
-    store_.dropMediaBefore(oldest);
+    const std::int64_t shown = std::min(store_.seqBeforeLastPosts(config_.historySize), behind);
+    store_.dropMediaBefore(shown);
+    if (keepsHistory_) {
+        return;
+    }
+    const std::int64_t kept = std::min(
+        store_.seqBeforeLastPosts(std::max(config_.historySize, kLeastPostsKept)), behind);
+    store_.dropSpentBefore(kept);
 }
 
 void GroupEngine::refreshMemberCount()
@@ -1162,6 +1169,13 @@ void GroupEngine::setConfig(const GroupConfig& config)
         }
     }
     run(actions);
+}
+
+void GroupEngine::setKeepsHistory(const bool keeps)
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    keepsHistory_ = keeps;
+    markStaleLocked(false);
 }
 
 std::vector<Member> GroupEngine::members() const

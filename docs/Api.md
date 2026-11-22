@@ -42,8 +42,8 @@ Every refusal is `{"error": "<what was wrong>"}` under one of these codes:
 
 | Route | What it does | Answer |
 |---|---|---|
-| `GET /v1/status` | the account's `fingerprint`, `name`, `kind` (`bot` or `group`), `enabled`, `status`, `destination`, the id of the last event, `lastEventId`, and the `link` to I2P | the account |
-| `POST /v1/status` | `{"enabled": false}` switches the account off, `{"enabled": true}` on | like `GET /v1/status` |
+| `GET /v1/status` | the account's `fingerprint`, `name`, `kind` (`bot` or `group`), `enabled`, `history`, `status`, `destination`, the id of the last event, `lastEventId`, and the `link` to I2P | the account |
+| `POST /v1/status` | `{"enabled": false}` switches the account off, `{"enabled": true}` on; `{"history": false}` stops keeping history, `{"history": true}` keeps it (*An account without history*) | like `GET /v1/status` |
 | `GET /v1/invite` | the invite URI to hand out to be added as a contact | `{"invite": "..."}` |
 | `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted, `accepting` while the acceptance is on its way, and `writable` for whether this account holds the pass that admits it to their mailbox | `[{"fingerprint", "name", "pending", "accepting", "writable"}]` |
 | `POST /v1/contacts` | `{"invite": "...", "text": "..."}` or `{"alias": "!name", "text": "..."}` adds one, `text` optional; `{"accept": "<fingerprint>"}` accepts a request | `{"fingerprint": "..."}`; for `accept`, `{"accepted": "<fingerprint>"}` |
@@ -86,7 +86,7 @@ curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/
 
 ```json
 {"fingerprint": "o2n663nl...", "name": "probe", "kind": "bot", "enabled": false,
- "status": "closed", "destination": "", "lastEventId": 0,
+ "history": true, "status": "closed", "destination": "", "lastEventId": 0,
  "link": {"transport": "embedded", "running": true, "online": true}}
 ```
 
@@ -353,7 +353,7 @@ The settings:
 |---|---|
 | `kind` | `group`: every member posts; `channel`: only admins post |
 | `joinMode` | `open`: anyone who adds the group joins; `approval`: an admin lets each applicant in |
-| `historySize` | how many recent posts a newcomer receives, `0` or more |
+| `historySize` | how many recent posts a newcomer receives, `0` or more; with history off it also sets the buffer the group keeps, which is never shorter than ten posts (*An account without history*) |
 | `contactRequests` | `true` lets members ask each other to be contacts |
 | `language` | the language of the texts the group sends its members: `en`, `ru`, `es`, `zh` or `ar` |
 
@@ -510,15 +510,30 @@ the peer's own timer.
 
 ## An account without history
 
-An account keeps its conversations unless its entry in `settings.json`, in the
-daemon's state directory, says `"history": false`; the daemon reads it when it
-starts. Such an account keeps a line only until its event is in the feed:
+An account keeps its conversations unless history is off for it: `POST /v1/status`
+with `{"history": false}`, the switch on its page in the web interface, or
+`"history": false` in its entry in `settings.json`, in the daemon's state
+directory. It takes effect without a restart and deletes what is already stored.
+
+A bot without history keeps a line only until its event is in the feed:
 `GET /v1/messages` and `GET /v1/chats` answer nothing, and the routes that find a
 message by its `messageId` - an edit, a delete, a forward, a download - do not
 find it. A bot that edits its own messages needs history. The callback's
 `replyTo` is on its line, so this account does not learn which message a press
 was on. The feed is kept for a day, and a message that
 arrives twice is recognised by it.
+
+A group without history keeps a buffer of posts: the ones a newcomer receives
+(`historySize`), everything a member whose cursor is behind them has not taken
+yet, and the last ten posts in any case - by them the group tells a post it has
+already taken in from a new one, so `historySize` below ten, `0` included, takes
+nothing away from that memory. What falls behind all three is deleted. A member
+who takes no delivery for 30 days leaves, so a silent member holds the buffer
+open for 30 days at most.
+
+A picture or a voice note is kept as long as the post is shown: within
+`historySize` or still owed to a member. The ten posts held past that are text
+and ids alone.
 
 ## Trimming the history
 

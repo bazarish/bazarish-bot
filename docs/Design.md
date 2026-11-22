@@ -65,6 +65,12 @@ one-id-one-row rule would not hold.
   so a channel needs no member account behind it.
 - **History is a cursor.** A newcomer's cursor starts N posts back, so the last
   N arrive as ordinary relays, built from each post's current state.
+- **What the log holds.** A picture or a voice note is dropped once it is behind
+  both the newcomer's N and every member's cursor. With no history for the
+  account the posts themselves go the same way, so the log is a buffer: the
+  newcomer's N, whatever the member furthest behind has not taken, and the last
+  ten posts in any case. Those ten are how a post already taken in is told from a
+  new one, so they stay with N below ten and with N at zero.
 - **Posts go out packed.** The pump takes every consecutive post waiting for a
   member, asks the session how many of them one envelope holds
   (`relayFitter`), and sends that many as one array; the member's cursor moves
@@ -206,9 +212,12 @@ through the client core's store, so deleting a message or clearing a chat takes
 its pictures and voice notes with it. The bot adds two tables of its own: the
 event feed of the API and the menus it gave out.
 
-An account can keep no history (`"history": false` in its entry in
-`settings.json`). A line then lives only until its event is in the feed, together
-with its picture or voice note. The feed is kept for a day, and a message that
+An account can keep no history: the switch on its page in the web interface,
+`POST /v1/status`, or `"history": false` in its entry in `settings.json`.
+Switching it off deletes what is already stored and needs no restart. A line then
+lives only until its event is in the feed, together with its picture or voice
+note, and a group's log keeps only the buffer its members still need
+(`Design.md`, The group host). The feed is kept for a day, and a message that
 arrives twice is recognised by it. A deleted row leaves free pages
 behind; compacting the database hands them back to the disk through SQLite's
 incremental vacuum (`client-qt/docs/AccountStorage.md`, Compacting).

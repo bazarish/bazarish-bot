@@ -145,10 +145,19 @@ try {
         CHECK(says(call(port, "POST", base + "/reactions", cookie, R"({"peer":"p"})"),
             kBadRequest, "a reaction is"));
         CHECK(call(port, "GET", base + "/messages?peer=p", cookie).status != kUnauthorized);
+        CHECK(nlohmann::json::parse(call(port, "GET", base, cookie).body).at("history") == true);
+        runtime.settings().rememberAccount(
+            id, "fp-face", bazarish::bot::Settings::AccountKind::eBot);
+        CHECK(call(port, "POST", base, cookie, R"({"action":"history","keeps":false})").status
+            == kOk);
+        CHECK(!runtime.settings().keepsHistory(id));
+        CHECK(says(call(port, "POST", base, cookie, R"({"action":"nothing"})"), kBadRequest,
+            "history"));
         CHECK(call(port, "POST", "/ui/logout", cookie).status == kOk);
         CHECK(call(port, "GET", base + "/messages?peer=p", cookie).status == kUnauthorized);
 
         face.stop();
+        runtime.stop();
     }
     return 0;
 } catch (...) {

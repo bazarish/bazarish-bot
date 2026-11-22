@@ -77,6 +77,7 @@ public:
     };
     Taken takeIn(const client::IncomingMessage& message);
 
+    void setKeepsHistory(bool keeps);
     std::int64_t append(const Line& line);
     bool applyEdit(const std::string& peer, const std::string& messageId,
         const std::string& text, const std::string& keyboard, bool outgoing);
@@ -123,7 +124,7 @@ private:
     class Relay;
 
     std::string own_;
-    const bool keepsHistory_;
+    bool keepsHistory_;
     client::TranscriptStore store_;
     Database ledger_;
     std::unique_ptr<Relay> relay_;

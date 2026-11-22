@@ -178,6 +178,9 @@ void Account::bringUp()
 
     auto transcript
         = std::make_shared<Transcript>(accountFile_, fingerprint, settings_.keepsHistory(id_));
+    if (!settings_.keepsHistory(id_)) {
+        (void)transcript->trimEveryChat(0);
+    }
     auto transfers = std::make_shared<Transfers>();
     session->setFileSource(files_);
     session->setTransferHandler(transferHandler(transfers, transcript, wakeup_));
@@ -196,6 +199,7 @@ void Account::bringUp()
                 }
                 return held->blockFor(peer);
             });
+        group->setKeepsHistory(settings_.keepsHistory(id_));
     }
 
     lastAliasErrandMs_ = 0;
@@ -433,6 +437,21 @@ void Account::rename(const std::string& name)
     }
     const std::lock_guard<std::mutex> lock(stateMutex_);
     name_ = name;
+}
+
+void Account::setKeepsHistory(const bool keeps)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    if (transcript_ == nullptr) {
+        return;
+    }
+    transcript_->setKeepsHistory(keeps);
+    if (!keeps) {
+        (void)transcript_->trimEveryChat(0);
+    }
+    if (group_ != nullptr) {
+        group_->setKeepsHistory(keeps);
+    }
 }
 
 void Account::setAvatar(const Bytes& data, const std::string& mime)

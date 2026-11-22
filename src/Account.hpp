@@ -69,6 +69,7 @@ public:
 
     void rename(const std::string& name);
     void newAddress();
+    void setKeepsHistory(bool keeps);
 
     struct Avatar {
         Bytes data;
