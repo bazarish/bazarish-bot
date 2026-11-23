@@ -162,8 +162,15 @@ void ServerSide::start()
         [cards = nodeCards_](const std::string& fingerprint) { return cards->card(fingerprint); },
         std::function<void()>{});
     destinations_->reloadPersisted(nowSeconds());
-    options.accountDevices
-        = [cards = nodeCards_](const std::string& user) { return cards->devices(user); };
+    options.accountRevocation
+        = [cards = nodeCards_](const std::string& user) { return cards->revocation(user); };
+    options.accountCard = [cards = nodeCards_](const std::string& user) -> std::optional<Bytes> {
+        const std::optional<server::HeldCard> held = cards->card(user);
+        if (!held.has_value()) {
+            return std::nullopt;
+        }
+        return held->der;
+    };
     api_ = std::make_unique<server::HttpApi>(*storage_, *gate_, options);
     destinations_->watchUsers(api_->overviewChanged());
     mailboxPort_ = api_->bind(host_, 0);

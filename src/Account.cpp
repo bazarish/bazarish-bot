@@ -641,7 +641,7 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
             }
             waiting = client::Session::waitForMail(*waiter,
                 answered ? client::Client::MailWait::eHeld : client::Client::MailWait::eAtOnce,
-                *context.keptMail);
+                *context.keptMail, *context.devices);
             answered = true;
             mailGate_.answered();
             if (serverWasDown) {
