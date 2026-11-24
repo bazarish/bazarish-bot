@@ -76,6 +76,8 @@ public:
         std::string mime;
     };
     void setAvatar(const Bytes& data, const std::string& mime);
+    void setStatusText(const std::string& text);
+    std::string statusText() const;
     Avatar avatar() const;
 
     std::string destination() const;

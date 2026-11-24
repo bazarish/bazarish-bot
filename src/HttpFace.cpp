@@ -14,6 +14,7 @@
 #include <bazarish/HttpResponses.hpp>
 #include <bazarish/JsonRead.hpp>
 #include <bazarish/Log.hpp>
+#include <bazarish/Limits.hpp>
 #include <bazarish/Portal.hpp>
 
 #include <nlohmann/json.hpp>
@@ -463,6 +464,8 @@ nlohmann::json accountJson(Account& account, Settings& settings)
         {"running", running},
         {"enabled", settings.enabled(account.id())},
         {"status", account.status()},
+        {"statusText", running ? account.statusText() : std::string()},
+        {"statusMaxChars", bazarish::kStatusMaxChars},
         {"pendingRouting", owed.contacts},
         {"pendingRegistry", owed.registry},
         {"tokens", tokens},
@@ -1353,6 +1356,10 @@ void HttpFace::accountRoutes()
             if (action == "rename") {
                 account.rename(body.value("name", std::string()));
                 return http::jsonResponse({{"name", body.value("name", std::string())}});
+            }
+            if (action == "set-status") {
+                account.setStatusText(body.value("status", std::string()));
+                return http::jsonResponse({{"statusText", account.statusText()}});
             }
             if (action == "new-address") {
                 account.newAddress();

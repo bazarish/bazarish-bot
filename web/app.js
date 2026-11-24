@@ -1194,6 +1194,7 @@ async function viewAccount() {
     nameFooter.append(saveName);
     identity.append(nameFooter, renamed);
     identity.append(avatarBlock(account));
+    identity.append(statusBlock(account));
     view.append(identity);
 
     const keys = node("article", "panel-box");
@@ -1437,6 +1438,38 @@ function avatarBlock(account) {
     reload();
     row.append(shown, empty, choose, drop, pick);
     block.append(row, said);
+    return block;
+}
+
+function statusBlock(account) {
+    const block = node("div", "block");
+    block.append(node("p", "block-title", t("Status")));
+    const words = node("textarea", "field");
+    words.value = account.statusText || "";
+    words.placeholder = t("Seen by the contacts");
+    const count = node("p", "hint");
+    const said = node("p", "hint");
+    const countChars = () => {
+        count.textContent = Array.from(words.value.trim()).length + "/" + account.statusMaxChars;
+    };
+    words.oninput = countChars;
+    countChars();
+    const footer = node("p", "form-footer");
+    const save = node("button", "btn", t("Save"));
+    save.type = "button";
+    save.onclick = async () => {
+        said.textContent = "";
+        try {
+            const answer = await call("POST", base(), {action: "set-status", status: words.value.trim()});
+            words.value = answer.statusText;
+            countChars();
+            said.textContent = t("Saved");
+        } catch (error) {
+            showError(said, error);
+        }
+    };
+    footer.append(save);
+    block.append(words, count, footer, said);
     return block;
 }
 

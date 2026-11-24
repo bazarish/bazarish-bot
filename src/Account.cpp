@@ -460,6 +460,18 @@ void Account::setAvatar(const Bytes& data, const std::string& mime)
     openSession().setAvatar(data, mime);
 }
 
+void Account::setStatusText(const std::string& text)
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    openSession().setStatus(text);
+}
+
+std::string Account::statusText() const
+{
+    const std::lock_guard<std::mutex> lock(sessionMutex_);
+    return openSession().status();
+}
+
 Account::Avatar Account::avatar() const
 {
     const std::lock_guard<std::mutex> lock(sessionMutex_);
