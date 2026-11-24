@@ -49,6 +49,7 @@
     --bz-touch: 2.75rem;
     --bz-radius: 10px;
     --bz-radius-sm: 6px;
+    --bz-label-gap: 0.6rem;
     --bz-font: "Roboto Mono", ui-monospace, "DejaVu Sans Mono", SFMono-Regular, Menlo, monospace;
 }
 
@@ -691,6 +692,10 @@ body.centred {
     text-transform: uppercase;
     color: var(--bz-ink-faint);
 }
+
+.block-title + :is(.field, .avatar-row, .segmented) {
+    margin-top: var(--bz-label-gap);
+}
 .unit {
     color: var(--bz-ink-faint);
     font-size: 0.72rem;
@@ -778,7 +783,7 @@ a.btn {
 
 .field-label {
     display: block;
-    margin: 1rem 0 0.35rem;
+    margin: 1rem 0 var(--bz-label-gap);
     font-size: 0.68rem;
     letter-spacing: 0.16em;
     text-transform: uppercase;
