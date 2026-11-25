@@ -1786,6 +1786,14 @@ code.markup-code[title] {
     font-size: 0.78rem;
 }
 
+.step-note.is-warning {
+    padding: 0.6rem 0.75rem;
+    border: 1px solid var(--bz-warn-line);
+    border-radius: var(--bz-radius-sm);
+    background: var(--bz-warn-bg);
+    color: var(--bz-warn);
+}
+
 @media (max-width: 60rem) {
     .shell {
         flex-direction: column;
