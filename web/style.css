@@ -693,7 +693,7 @@ body.centred {
     color: var(--bz-ink-faint);
 }
 
-.block-title + :is(.field, .avatar-row, .segmented) {
+.block-title + :is(.field, .avatar-row, .segmented, .check) {
     margin-top: var(--bz-label-gap);
 }
 .unit {
