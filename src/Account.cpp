@@ -675,13 +675,13 @@ void Account::waitForEvents(const client::Session::ContactFetchContext& context)
             const client::MailWaitCause cause = serverDown
                 ? mailGate_.awaitServer()
                 : mailGate_.awaitCause(
-                    [&waiter]() { return waiter != nullptr && waiter->facadePublishedAnew(); });
+                    waiter != nullptr ? waiter->facadeLookups() : client::FacadeLookups{});
             if (cause == client::MailWaitCause::eStopped) {
                 return;
             }
             log::info("account {}: asking for mail again: {}", id_,
                 client::mailWaitCauseName(cause));
-            if (waiter != nullptr && cause != client::MailWaitCause::eStaleLeaseSet) {
+            if (waiter != nullptr) {
                 waiter->liftStandOff();
             }
             continue;
