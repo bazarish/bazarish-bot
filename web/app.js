@@ -409,11 +409,6 @@ async function viewAdd() {
     const view = node("section", "view");
     view.append(node("h1", "view-title", t("Add account")));
 
-    const common = node("article", "panel-box");
-    const kind = kindPicker("bot");
-    common.append(node("label", "field-label", t("Kind")), kind, kindHint());
-    view.append(common);
-
     const opened = async (id) => {
         await drawSidebar();
         go(id, "overview");
@@ -421,6 +416,8 @@ async function viewAdd() {
 
     const create = node("article", "panel-box");
     create.append(node("p", "block-title", t("Create")));
+    const kind = kindPicker("bot");
+    create.append(node("label", "field-label", t("Kind")), kind, kindHint());
     const name = node("input", "field");
     name.type = "text";
     name.placeholder = t("account name");
@@ -441,7 +438,7 @@ async function viewAdd() {
     create.append(createFooter, created);
 
     const restore = node("article", "panel-box");
-    restore.append(node("p", "block-title", t("Restore a backup")));
+    restore.append(node("p", "block-title", t("Restore")));
     const bundle = node("input", "field");
     bundle.type = "file";
     bundle.accept = ".bazarish";
@@ -460,8 +457,7 @@ async function viewAdd() {
         }
         try {
             const answer = await call("POST", "/ui/accounts", {action: "import",
-                bundle: await base64Of(file), bundlePassphrase: bundlePassword.value,
-                kind: kind.value});
+                bundle: await base64Of(file), bundlePassphrase: bundlePassword.value});
             await opened(answer.id);
         } catch (error) {
             showError(restored, error);

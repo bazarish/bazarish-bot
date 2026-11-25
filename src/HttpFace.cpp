@@ -1244,7 +1244,7 @@ void HttpFace::operatorRoutes()
             if (action == "import") {
                 return http::jsonResponse({{"id",
                     runtime_.importAccount(fromBase64(body.value("bundle", std::string())),
-                        body.value("bundlePassphrase", std::string()), kindParam(body))}});
+                        body.value("bundlePassphrase", std::string()))}});
             }
             return failure(400, "the action is create or import");
         });

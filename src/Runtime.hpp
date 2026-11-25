@@ -46,8 +46,7 @@ public:
     std::shared_ptr<Account> accountForToken(const std::string& secret);
 
     std::string createAccount(const std::string& name, Settings::AccountKind kind);
-    std::string importAccount(
-        const Bytes& bundle, const std::string& bundlePassphrase, Settings::AccountKind kind);
+    std::string importAccount(const Bytes& bundle, const std::string& bundlePassphrase);
     void removeAccount(const std::string& id);
 
     void openAll();

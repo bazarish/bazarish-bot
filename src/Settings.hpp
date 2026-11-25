@@ -85,5 +85,6 @@ private:
 std::string accountKindName(Settings::AccountKind kind);
 std::optional<Settings::AccountKind> accountKindFromName(const std::string& name);
 bazarish::AccountKind storedAccountKind(Settings::AccountKind kind);
+Settings::AccountKind hostedAccountKind(bazarish::AccountKind stored);
 
 }  // namespace bazarish::bot

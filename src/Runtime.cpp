@@ -136,12 +136,10 @@ std::string Runtime::createAccount(const std::string& name, const Settings::Acco
     return adopt(manager_.create(name, storedAccountKind(kind)), kind);
 }
 
-std::string Runtime::importAccount(
-    const Bytes& bundle, const std::string& bundlePassphrase, const Settings::AccountKind kind)
+std::string Runtime::importAccount(const Bytes& bundle, const std::string& bundlePassphrase)
 {
-    if (client::Session::bundleKind(bundle, bundlePassphrase) != storedAccountKind(kind)) {
-        throw std::runtime_error("this account was created as another kind of account");
-    }
+    const Settings::AccountKind kind =
+        hostedAccountKind(client::Session::bundleKind(bundle, bundlePassphrase));
     return adopt(manager_.import(std::string(), bundle, bundlePassphrase), kind);
 }
 

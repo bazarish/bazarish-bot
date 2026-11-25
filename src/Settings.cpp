@@ -40,6 +40,19 @@ bazarish::AccountKind storedAccountKind(const Settings::AccountKind kind)
                                                  : bazarish::AccountKind::eBot;
 }
 
+Settings::AccountKind hostedAccountKind(const bazarish::AccountKind stored)
+{
+    switch (stored) {
+    case bazarish::AccountKind::eBot:
+        return Settings::AccountKind::eBot;
+    case bazarish::AccountKind::eChat:
+        return Settings::AccountKind::eGroup;
+    case bazarish::AccountKind::eUser:
+        break;
+    }
+    throw std::runtime_error("this backup is a person's account, not a bot or a group");
+}
+
 std::optional<Settings::AccountKind> accountKindFromName(const std::string& name)
 {
     if (name == "bot") {
