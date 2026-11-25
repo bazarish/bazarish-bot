@@ -15,8 +15,8 @@ async function start() {
     el("challenge").textContent = challenge;
     el("unclaimed").hidden = state.claimed;
     el("signNote").hidden = !state.claimed;
-    el("title").textContent = state.claimed ? t("Sign in") : t("Claim this host");
-    el("signIn").textContent = state.claimed ? t("Sign in") : t("Claim");
+    el("title").textContent = state.claimed ? t("Sign in") : t("First sign-in");
+    el("signIn").textContent = state.claimed ? t("Sign in") : t("Sign in");
 }
 
 el("signIn").onclick = async () => {
