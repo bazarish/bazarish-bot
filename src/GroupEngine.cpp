@@ -359,6 +359,7 @@ void GroupEngine::onIncoming(const client::IncomingMessage& message)
         sizing.id = message.e2eId;
         sizing.text = message.text;
         sizing.replyTo = message.replyTo;
+        sizing.after = std::string(kMaxMessageIdBytes, 'x');
         sizing.media = prefetched.media.value_or(Bytes());
         sizing.mediaName = message.attachmentName;
         sizing.mime = message.attachmentMime;
@@ -840,6 +841,7 @@ client::RelayedPost GroupEngine::relayedLocked(const Post& post) const
     relayed.sentAt = post.sentAt;
     relayed.text = post.text;
     relayed.replyTo = post.replyTo;
+    relayed.after = store_.postBefore(post.seq);
     relayed.media = post.media;
     relayed.mediaName = post.mediaName;
     relayed.mime = post.mime;
@@ -1294,6 +1296,7 @@ void GroupEngine::hostPost(const std::string& id, const std::string& text)
     sizing.type = kTypeText;
     sizing.id = id;
     sizing.text = text;
+    sizing.after = std::string(kMaxMessageIdBytes, 'x');
     sizing.fromHost = true;
     sizing.sentAt = std::numeric_limits<std::int64_t>::max();
     if (link_.fitting({sizing}) != 1) {

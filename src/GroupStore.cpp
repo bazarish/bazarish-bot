@@ -249,6 +249,17 @@ std::optional<Post> GroupStore::post(const std::string& id) const
     return readPost(query);
 }
 
+std::string GroupStore::postBefore(const std::int64_t seq) const
+{
+    Statement query(database_,
+        "SELECT id FROM hosted_posts WHERE deleted = 0 AND seq < ? ORDER BY seq DESC LIMIT 1");
+    query.bind(1, seq);
+    if (!query.step()) {
+        return {};
+    }
+    return query.text(0);
+}
+
 std::int64_t GroupStore::addPost(Post post)
 {
     post.seq = appendLog(LogKind::ePost, post.id);

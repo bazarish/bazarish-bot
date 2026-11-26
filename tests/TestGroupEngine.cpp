@@ -50,6 +50,7 @@ struct Sent {
     client::InlineKeyboard keyboard;
     nlohmann::json reactions;
     bool fromHost = false;
+    std::string after;
 };
 
 struct Fake {
@@ -102,13 +103,13 @@ GroupLink linkFor(Fake& fake)
     link.tell = [&fake](const std::string& peer, const std::string& text,
                     const client::InlineKeyboard& keyboard, const GroupLink::Outcome& done) {
         const std::string id = "told-" + std::to_string(++fake.told);
-        fake.sent.push_back({"tell", peer, id, text, {}, keyboard, {}, false});
+        fake.sent.push_back({"tell", peer, id, text, {}, keyboard, {}, false, {}});
         done(fake.outcomeFor(peer));
         return id;
     };
     link.retell = [&fake](const std::string& peer, const std::string& id, const std::string& text,
                       const client::InlineKeyboard& keyboard) {
-        fake.sent.push_back({"retell", peer, id, text, {}, keyboard, {}, false});
+        fake.sent.push_back({"retell", peer, id, text, {}, keyboard, {}, false, {}});
     };
     link.relay = [&fake](const std::string& peer, const std::vector<client::RelayedPost>& posts,
                      const client::DeliveryWatch& watch) {
@@ -119,21 +120,21 @@ GroupLink linkFor(Fake& fake)
         for (const client::RelayedPost& post : posts) {
             switch (post.kind) {
             case client::RelayKind::ePost:
-                fake.sent.push_back(
-                    {"relay", peer, post.id, post.text, post.author, {}, {}, post.fromHost});
+                fake.sent.push_back({"relay", peer, post.id, post.text, post.author, {}, {},
+                    post.fromHost, post.after});
                 break;
             case client::RelayKind::eEdit:
-                fake.sent.push_back({"edit", peer, post.ref, post.text, {}, {}, {}, false});
+                fake.sent.push_back({"edit", peer, post.ref, post.text, {}, {}, {}, false, {}});
                 break;
             case client::RelayKind::eDelete:
-                fake.sent.push_back({"delete", peer, post.ref, {}, {}, {}, {}, false});
+                fake.sent.push_back({"delete", peer, post.ref, {}, {}, {}, {}, false, {}});
                 break;
             case client::RelayKind::eReactions:
-                fake.sent.push_back({"reactions", peer, {}, {}, {}, {}, post.reactions, false});
+                fake.sent.push_back({"reactions", peer, {}, {}, {}, {}, post.reactions, false, {}});
                 break;
             case client::RelayKind::eMembers:
                 fake.sent.push_back({"members", peer, {}, {}, {}, {},
-                    client::memberListToJson(post.members), false});
+                    client::memberListToJson(post.members), false, {}});
                 break;
             }
         }
@@ -149,7 +150,7 @@ GroupLink linkFor(Fake& fake)
         done(fake.outcomeFor(peer));
     };
     link.receipt = [&fake](const std::string& peer, const std::string& id) {
-        fake.sent.push_back({"receipt", peer, id, {}, {}, {}, {}, false});
+        fake.sent.push_back({"receipt", peer, id, {}, {}, {}, {}, false, {}});
     };
     link.descriptor = [](const std::string& peer) {
         return encodeDescriptor(Descriptor{peer, kDest, newLinkKey(), "theirs"});
@@ -285,6 +286,10 @@ void checkMemberList(const fs::path& dir)
     pump(engine);
     const std::vector<Sent> relayed = fake.take("relay", bea);
     CHECK(relayed.size() == 1 && relayed[0].text == "@Bea look");
+    engine.onIncoming(textFrom(ann, "and this", "m2"));
+    pump(engine);
+    const std::vector<Sent> next = fake.take("relay", bea);
+    CHECK(next.size() == 1 && next[0].after == "m1");
     fake.forget();
 
     engine.onIncoming(incoming(ann, "group.members.ask"));
