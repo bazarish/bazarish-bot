@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include <functional>
+#include <limits>
 #include <algorithm>
 #include <stdexcept>
 #include <utility>
@@ -69,7 +70,7 @@ client::StoredMessage rowOf(const Line& line)
     row.keyboard = line.keyboard;
     row.replyTo = line.replyTo;
     row.ts = line.sentAt;
-    row.orderKey = line.sentAt;
+    row.orderKey = line.orderKey;
     row.status = line.outgoing ? stateOf(line.status) : static_cast<int>(DeliveryState::eReceived);
     if (line.file.has_value()) {
         row.attName = line.file->name;
@@ -283,6 +284,7 @@ void Transcript::setTimer(const std::string& peer, const std::int64_t seconds)
         note.type = client::kTypeSystem;
         note.text = relay_->chatTimer(seconds, true, peer);
         note.sentAt = now;
+        note.orderKey = now;
         require(store_.append(rowOf(note)) != 0);
     }
     (void)noteLocked("timer", peer, {}, std::to_string(seconds), {}, now);
@@ -387,6 +389,15 @@ void Transcript::setKeepsHistory(const bool keeps)
 {
     const std::lock_guard<std::mutex> lock(mutex_);
     keepsHistory_ = keeps;
+}
+
+Transcript::Placement Transcript::placeOutgoing(
+    const std::string& peer, const std::int64_t nowMs) const
+{
+    const std::lock_guard<std::mutex> lock(mutex_);
+    const std::int64_t orderKey = std::max(nowMs, store_.newestOrderKey(peer) + 1);
+    return {orderKey,
+        store_.idPlacedBefore(peer, orderKey, std::numeric_limits<std::int64_t>::max())};
 }
 
 std::int64_t Transcript::append(const Line& line)

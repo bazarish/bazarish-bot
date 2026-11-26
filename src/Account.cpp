@@ -881,8 +881,9 @@ std::string Account::sendText(const std::string& peer, const std::string& text,
     line.text = text;
     line.replyTo = replyTo;
     return sendLine(std::move(line),
-        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch) {
-            session.sendMessage(peer, text, id, watch, replyTo, forwarded);
+        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch,
+            const std::string& after) {
+            session.sendMessage(peer, text, id, watch, replyTo, forwarded, after);
         });
 }
 
@@ -914,8 +915,9 @@ std::string Account::sendKeyboard(
     line.text = text;
     line.keyboard = client::inlineKeyboardJson(keyboard);
     return sendLine(std::move(line),
-        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch) {
-            session.sendInteractive(peer, text, keyboard, id, watch);
+        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch,
+            const std::string& after) {
+            session.sendInteractive(peer, text, keyboard, id, watch, after);
         });
 }
 
@@ -928,8 +930,9 @@ std::string Account::sendPicture(const std::string& peer, const Bytes& bytes,
     line.text = name;
     line.replyTo = replyTo;
     return sendLine(std::move(line),
-        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch) {
-            session.sendPicture(peer, bytes, name, mime, id, watch, replyTo);
+        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch,
+            const std::string& after) {
+            session.sendPicture(peer, bytes, name, mime, id, watch, replyTo, false, after);
         });
 }
 
@@ -943,8 +946,9 @@ std::string Account::sendFile(
     line.file = FileInfo{line.text, std::filesystem::file_size(pathFromUtf8(path)), {}, {}, path};
     line.replyTo = replyTo;
     return sendLine(std::move(line),
-        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch) {
-            session.sendFile(peer, path, id, watch, replyTo);
+        [&](client::Session& session, const std::string& id, const client::DeliveryWatch& watch,
+            const std::string& after) {
+            session.sendFile(peer, path, id, watch, replyTo, false, after);
         });
 }
 
@@ -957,8 +961,10 @@ std::string Account::sendLine(Line line, const SendFn& send)
     {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
         client::Session& session = openSession();
-        send(session, line.e2eId, statusWatch(line.peer, line.e2eId));
         line.sentAt = nowMillis();
+        const Transcript::Placement placed = transcript_->placeOutgoing(line.peer, line.sentAt);
+        line.orderKey = placed.orderKey;
+        send(session, line.e2eId, statusWatch(line.peer, line.e2eId), placed.after);
         transcript_->append(line);
     }
     wakeup_->wake();

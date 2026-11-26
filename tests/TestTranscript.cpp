@@ -26,6 +26,7 @@ Line lineFor(const std::string& peer, const std::string& text, const std::string
     line.e2eId = e2eId;
     line.text = text;
     line.sentAt = sentAt;
+    line.orderKey = sentAt;
     return line;
 }
 
@@ -49,6 +50,16 @@ try {
         CHECK(transcript.append(lineFor("bob", "hey", "m3", false, 30)) > 0);
 
         CHECK(transcript.append(lineFor("alice", "hello", "m1", false, 10)) == 0);
+
+        const Transcript::Placement behind = transcript.placeOutgoing("alice", 5);
+        CHECK(behind.orderKey == 21);
+        CHECK(behind.after == "m2");
+        const Transcript::Placement ahead = transcript.placeOutgoing("alice", 100);
+        CHECK(ahead.orderKey == 100);
+        CHECK(ahead.after == "m2");
+        const Transcript::Placement opening = transcript.placeOutgoing("nobody", 7);
+        CHECK(opening.orderKey == 7);
+        CHECK(opening.after.empty());
 
         const std::vector<Line> withAlice = transcript.conversation("alice", 0, 50);
         CHECK(withAlice.size() == 2);

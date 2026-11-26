@@ -41,6 +41,7 @@ struct Line {
     std::string keyboard;
     std::string replyTo;
     std::int64_t sentAt = 0;
+    std::int64_t orderKey = 0;
     bool edited = false;
     std::vector<Reaction> reactions;
     std::string status;
@@ -78,6 +79,11 @@ public:
     Taken takeIn(const client::IncomingMessage& message);
 
     void setKeepsHistory(bool keeps);
+    struct Placement {
+        std::int64_t orderKey = 0;
+        std::string after;
+    };
+    Placement placeOutgoing(const std::string& peer, std::int64_t nowMs) const;
     std::int64_t append(const Line& line);
     bool applyEdit(const std::string& peer, const std::string& messageId,
         const std::string& text, const std::string& keyboard, bool outgoing);

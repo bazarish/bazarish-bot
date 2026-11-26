@@ -176,8 +176,8 @@ private:
     client::Session& openSession() const;
     void applyKind(client::Session& session) const;
     // Called under sessionMutex_; the watch itself never takes it.
-    using SendFn = std::function<void(
-        client::Session& session, const std::string& id, const client::DeliveryWatch& watch)>;
+    using SendFn = std::function<void(client::Session& session, const std::string& id,
+        const client::DeliveryWatch& watch, const std::string& after)>;
     std::string sendLine(Line line, const SendFn& send);
     client::DeliveryWatch statusWatch(const std::string& peer, const std::string& messageId);
     GroupLink groupLink(client::RelayFitter fitting);
