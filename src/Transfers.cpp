@@ -27,6 +27,8 @@ const char* transferStageName(const client::TransferStage stage)
         return "";
     case client::TransferStage::eAsking:
         return "asking";
+    case client::TransferStage::eAwaitingAnswer:
+        return "awaiting-answer";
     case client::TransferStage::eEncrypting:
         return "encrypting";
     case client::TransferStage::eMakingAddress:

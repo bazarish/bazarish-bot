@@ -476,6 +476,23 @@ try {
         engine.onIncoming(textFrom(bob, "huge", "p-huge"));
         CHECK(fake.take("tell", bob).back().text == "Too large to relay.");
 
+        client::IncomingMessage carried = incoming(bob, client::kTypeFile);
+        carried.e2eId = "p-file";
+        carried.attachmentName = "notes.txt";
+        fake.mediaBytes = Bytes{'t', 'x', 't'};
+        engine.onIncoming(carried);
+        pump(engine);
+        CHECK(fake.take("relay", ann).size() == 1);
+        CHECK(fake.take("relay", cid).size() == 1);
+        client::IncomingMessage announced = carried;
+        announced.e2eId = "p-announced";
+        fake.mediaBytes.reset();
+        engine.onIncoming(announced);
+        pump(engine);
+        CHECK(fake.take("tell", bob).back().text == "Too large to relay.");
+        CHECK(fake.take("relay", ann).empty());
+        CHECK(fake.take("relay", cid).empty());
+
         engine.hostPost("h1", "from the group");
         pump(engine);
         for (const std::string& member : {ann, bob, cid}) {

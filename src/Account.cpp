@@ -366,7 +366,14 @@ GroupLink Account::groupLink(client::RelayFitter fitting)
     link.fitting = std::move(fitting);
     link.media = [this](const std::string& id, const std::string& type) {
         const std::lock_guard<std::mutex> lock(sessionMutex_);
-        return type == "image" ? openSession().picture(id) : openSession().voice(id);
+        client::Session& session = openSession();
+        if (type == client::kTypeImage) {
+            return session.picture(id);
+        }
+        if (type == client::kTypeFile) {
+            return session.fileBytes(id);
+        }
+        return session.voice(id);
     };
     return link;
 }

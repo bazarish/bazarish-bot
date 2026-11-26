@@ -29,11 +29,12 @@ constexpr const char* kRenameCommand = "rename";
 constexpr const char* kTypeText = "text";
 constexpr const char* kTypeImage = "image";
 constexpr const char* kTypeAudio = "audio";
+constexpr const char* kTypeFile = "file";
 constexpr const char* kTypeMembersAsk = "group.members.ask";
 
 bool isPost(const std::string& type)
 {
-    return type == kTypeText || type == kTypeImage || type == kTypeAudio;
+    return type == kTypeText || type == kTypeImage || type == kTypeAudio || type == kTypeFile;
 }
 
 std::pair<std::string, std::string> splitCommand(const std::string& line)
@@ -366,7 +367,8 @@ void GroupEngine::onIncoming(const client::IncomingMessage& message)
         sizing.durationMs = message.attachmentDurationMs;
         sizing.author = std::string(kMaxNameCodepoints * kMaxUtf8Bytes, 'x');
         sizing.sentAt = std::numeric_limits<std::int64_t>::max();
-        prefetched.fits = link_.fitting({sizing}) == 1;
+        prefetched.fits = (message.contentType == kTypeText || prefetched.media.has_value())
+            && link_.fitting({sizing}) == 1;
     }
     Actions actions;
     {
