@@ -595,21 +595,21 @@ try {
         pump(engine);
         CHECK(fake.take("delete", cid).empty());
 
-        engine.onIncoming(commandFrom(bob, "contact", "p2"));
+        engine.onIncoming(commandFrom(bob, "contact", "Bob"));
         CHECK(fake.take("tell", bob).empty());
-        engine.onIncoming(commandFrom(ann, "contact", "p2"));
+        engine.onIncoming(commandFrom(ann, "contact", "Bob"));
         const std::vector<Sent> asked = fake.take("tell", bob);
         CHECK(asked.size() == 1);
         CHECK(asked[0].text.find("Ann asks you to write.") == 0);
         CHECK(asked[0].text.find("https://bazari.sh/#invite?") != std::string::npos);
         CHECK(fake.take("tell", ann).back().text == "Your contact request was sent to Bob.");
-        engine.onIncoming(commandFrom(ann, "contact", "p2"));
+        engine.onIncoming(commandFrom(ann, "contact", "Bob"));
         CHECK(fake.take("tell", bob).empty());
         now += kContactAskEveryMs - 1;
-        engine.onIncoming(commandFrom(ann, "contact", "p2"));
+        engine.onIncoming(commandFrom(ann, "contact", "Bob"));
         CHECK(fake.take("tell", bob).empty());
         now += 1;
-        engine.onIncoming(commandFrom(ann, "contact", "p2"));
+        engine.onIncoming(commandFrom(ann, "contact", "Bob"));
         const std::vector<Sent> askedAgain = fake.take("tell", bob);
         CHECK(askedAgain.size() == 1);
         CHECK(askedAgain[0].text.find("Ann asks you to write.") == 0);
@@ -620,8 +620,13 @@ try {
         pump(engine);
         fake.forget();
         engine.onIncoming(commandFrom(cid, "contactable", "off"));
+        pump(engine);
+        const std::vector<Sent> closed = fake.take("members", ann);
+        CHECK(!closed.empty() && closed.back().reactions.at("op") == "changed"
+            && closed.back().reactions.at("names") == nlohmann::json::array({"Ace"})
+            && closed.back().reactions.at("contactableNames").empty());
         fake.forget();
-        engine.onIncoming(commandFrom(ann, "contact", "p5"));
+        engine.onIncoming(commandFrom(ann, "contact", "Ace"));
         CHECK(fake.take("tell", cid).empty());
         const std::vector<Sent> notAccepting = fake.take("tell", ann);
         CHECK(notAccepting.size() == 1
@@ -637,11 +642,15 @@ try {
         CHECK(!contactableOf(cid));
         engine.setContactable(cid, true);
         CHECK(contactableOf(cid));
+        pump(engine);
+        const std::vector<Sent> opened = fake.take("members", ann);
+        CHECK(!opened.empty() && opened.back().reactions.at("op") == "changed"
+            && opened.back().reactions.at("contactableNames") == nlohmann::json::array({"Ace"}));
         engine.setContactable(cid, false);
         CHECK(!contactableOf(cid));
         CHECK_THROWS(engine.setContactable(Identity::generate().fingerprint(), false));
         fake.forget();
-        engine.onIncoming(commandFrom(ann, "contact", "p5"));
+        engine.onIncoming(commandFrom(ann, "contact", "Ace"));
         CHECK(fake.take("tell", cid).empty());
         const std::vector<Sent> refusedByHost = fake.take("tell", ann);
         CHECK(refusedByHost.size() == 1

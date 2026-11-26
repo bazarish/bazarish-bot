@@ -378,7 +378,7 @@ std::int64_t GroupStore::appendRoster(const RosterChange& change)
     Statement insert(database_,
         "INSERT INTO hosted_roster (seq, added, name, fingerprint, total) VALUES (?, ?, ?, ?, ?)");
     insert.bind(1, seq);
-    insert.bind(2, flag(change.added));
+    insert.bind(2, static_cast<std::int64_t>(change.kind));
     insert.bind(3, change.name);
     insert.bind(4, change.fingerprint);
     insert.bind(5, change.total);
@@ -394,7 +394,8 @@ std::optional<RosterChange> GroupStore::roster(const std::int64_t seq) const
     if (!query.step()) {
         return std::nullopt;
     }
-    return RosterChange{query.number(0) != 0, query.text(1), query.text(2), query.number(3)};
+    return RosterChange{
+        static_cast<RosterKind>(query.number(0)), query.text(1), query.text(2), query.number(3)};
 }
 
 void GroupStore::setReaction(

@@ -170,6 +170,12 @@ void GroupEngine::saveLocked(const Member& member)
     markStaleLocked(true);
 }
 
+bool GroupEngine::contactableLocked(const std::string& fingerprint) const
+{
+    const auto found = members_.find(fingerprint);
+    return config_.contactRequests && found != members_.end() && found->second.contactable;
+}
+
 std::int64_t GroupEngine::memberTotalLocked() const
 {
     return static_cast<std::int64_t>(std::count_if(members_.begin(), members_.end(),
@@ -183,15 +189,19 @@ void GroupEngine::noteRosterLocked(const Member& before, const Member& after)
     }
     const bool was = before.state == MemberState::eMember;
     const bool is = after.state == MemberState::eMember;
+    const std::int64_t total = memberTotalLocked();
     if (was && is && before.name == after.name) {
+        if (before.contactable != after.contactable) {
+            (void)store_.appendRoster({RosterKind::eChanged, after.name, after.fingerprint, total});
+        }
         return;
     }
-    const std::int64_t total = memberTotalLocked();
     if (was) {
-        (void)store_.appendRoster({false, before.name, before.fingerprint, is ? total - 1 : total});
+        (void)store_.appendRoster(
+            {RosterKind::eRemoved, before.name, before.fingerprint, is ? total - 1 : total});
     }
     if (is) {
-        (void)store_.appendRoster({true, after.name, after.fingerprint, total});
+        (void)store_.appendRoster({RosterKind::eAdded, after.name, after.fingerprint, total});
     }
 }
 
@@ -208,10 +218,15 @@ void GroupEngine::queueListLocked(const std::string& peer)
     if (config_.kind != client::GroupKind::eGroup) {
         letters.push_back(letter({}));
     } else {
-        std::vector<std::pair<std::string, bool>> in;
+        struct Listed {
+            std::string name;
+            bool you = false;
+            bool contactable = false;
+        };
+        std::vector<Listed> in;
         for (const auto& [fingerprint, member] : members_) {
             if (member.state == MemberState::eMember) {
-                in.emplace_back(member.name, fingerprint == peer);
+                in.push_back({member.name, fingerprint == peer, contactableLocked(fingerprint)});
             }
         }
         const std::size_t perPart = client::kMaxMemberNamesPerLetter;
@@ -225,9 +240,12 @@ void GroupEngine::queueListLocked(const std::string& peer)
             full.total = static_cast<std::int64_t>(in.size());
             const std::size_t from = static_cast<std::size_t>(part) * perPart;
             for (std::size_t at = from; at < in.size() && at < from + perPart; ++at) {
-                full.names.push_back(in[at].first);
-                if (in[at].second) {
-                    full.you = in[at].first;
+                full.names.push_back(in[at].name);
+                if (in[at].contactable) {
+                    full.contactable.push_back(in[at].name);
+                }
+                if (in[at].you) {
+                    full.you = in[at].name;
                 }
             }
             letters.push_back(letter(std::move(full)));
@@ -664,13 +682,12 @@ void GroupEngine::commandLocked(Member& member, const std::string& line, Actions
         return;
     }
     if (command == "contact") {
-        const std::optional<Post> post = store_.post(argument);
-        if (!post || post->deleted || post->author == member.fingerprint
+        const std::string key = checkName(argument).key;
+        const auto author = std::find_if(members_.begin(), members_.end(), [&key](const auto& entry) {
+            return entry.second.state == MemberState::eMember && entry.second.nameKey == key;
+        });
+        if (author == members_.end() || author->first == member.fingerprint
             || !config_.contactRequests) {
-            return;
-        }
-        const auto author = members_.find(post->author);
-        if (author == members_.end() || author->second.state != MemberState::eMember) {
             return;
         }
         if (!author->second.contactable) {
@@ -679,12 +696,12 @@ void GroupEngine::commandLocked(Member& member, const std::string& line, Actions
         }
         const std::int64_t now = clock_();
         const std::optional<std::int64_t> asked
-            = store_.contactAskAt(member.fingerprint, post->author);
+            = store_.contactAskAt(member.fingerprint, author->first);
         if (asked.has_value() && now - *asked < kContactAskEveryMs) {
             return;
         }
-        store_.noteContactAsk(member.fingerprint, post->author, now);
-        actions.push_back([this, author = post->author, requester = member]() {
+        store_.noteContactAsk(member.fingerprint, author->first, now);
+        actions.push_back([this, author = author->first, requester = member]() {
             const std::string words = copyText(config().language, Copy::eAsksYou,
                 {requester.name, chatDescriptor(requester)});
             (void)link_.tell(author, words, {}, watchRefusal(author));
@@ -922,11 +939,15 @@ std::optional<std::function<void()>> GroupEngine::nextRelayLocked(Member& member
             return;
         }
         client::RelayedPost letter = about(client::RelayKind::eMembers, {});
-        letter.members.op
-            = change->added ? client::MemberListOp::eAdded : client::MemberListOp::eRemoved;
+        letter.members.op = change->kind == RosterKind::eAdded ? client::MemberListOp::eAdded
+            : change->kind == RosterKind::eChanged             ? client::MemberListOp::eChanged
+                                                               : client::MemberListOp::eRemoved;
         letter.members.names = {change->name};
         letter.members.total = change->total;
-        if (change->added && change->fingerprint == peer) {
+        if (change->kind != RosterKind::eRemoved && contactableLocked(change->fingerprint)) {
+            letter.members.contactable = {change->name};
+        }
+        if (change->kind == RosterKind::eAdded && change->fingerprint == peer) {
             letter.members.you = change->name;
         }
         add(std::move(letter), entry.seq);
@@ -1155,15 +1176,18 @@ void GroupEngine::setConfig(const GroupConfig& config)
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         const bool kindChanged = config.kind != config_.kind;
+        const bool listChanged = kindChanged || config.contactRequests != config_.contactRequests;
         store_.setConfig(config);
         config_ = config;
         markStaleLocked(false);
-        if (kindChanged) {
+        if (listChanged) {
             for (const auto& [fingerprint, member] : members_) {
                 if (member.state == MemberState::eMember) {
                     queueListLocked(fingerprint);
                 }
             }
+        }
+        if (kindChanged) {
             for (const auto& [fingerprint, member] : members_) {
                 if (member.state == MemberState::eMember && !member.admin) {
                     actions.push_back(

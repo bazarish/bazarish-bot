@@ -135,6 +135,7 @@ private:
     void goneLocked(const std::string& fingerprint);
     void noteRosterLocked(const Member& before, const Member& after);
     std::int64_t memberTotalLocked() const;
+    bool contactableLocked(const std::string& fingerprint) const;
     void queueListLocked(const std::string& peer);
     std::optional<std::function<void()>> nextRelayLocked(Member& member);
     client::RelayedPost relayedLocked(const Post& post) const;

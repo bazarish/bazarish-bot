@@ -83,8 +83,10 @@ struct LogEntry {
     std::string postId;
 };
 
+enum class RosterKind { eRemoved, eAdded, eChanged };
+
 struct RosterChange {
-    bool added = false;
+    RosterKind kind = RosterKind::eRemoved;
     std::string name;
     std::string fingerprint;
     std::int64_t total = 0;
