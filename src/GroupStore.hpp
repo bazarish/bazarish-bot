@@ -119,7 +119,6 @@ public:
     void putMember(const Member& member);
 
     std::optional<Post> post(const std::string& id) const;
-    // The id of the newest live post logged before seq; empty when none.
     std::string postBefore(std::int64_t seq) const;
     std::int64_t addPost(Post post);
     void updatePost(const Post& post);
