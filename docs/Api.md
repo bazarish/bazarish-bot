@@ -44,6 +44,11 @@ Every refusal is `{"error": "<what was wrong>"}` under one of these codes:
 |---|---|---|
 | `GET /v1/status` | the account's `fingerprint`, `name`, `kind` (`bot` or `group`), `enabled`, `history`, `status`, `destination`, the id of the last event, `lastEventId`, and the `link` to I2P | the account |
 | `POST /v1/status` | `{"enabled": false}` switches the account off, `{"enabled": true}` on; `{"history": false}` stops keeping history, `{"history": true}` keeps it (*An account without history*) | like `GET /v1/status` |
+| `GET /v1/profile` | what contacts see of the account: its `name`, its text status `statusText`, and whether it has an `avatar` | `{"name": "...", "statusText": "...", "avatar": true}` |
+| `POST /v1/profile` | `{"statusText": "..."}` sets the text status, `{"statusText": ""}` clears it | like `GET /v1/profile` |
+| `GET /v1/profile/avatar` | the avatar picture, `404` without one | the picture's bytes |
+| `POST /v1/profile/avatar` | `{"data": "<base64>"}` sets the avatar, a PNG or JPEG picture | `{"avatar": true}` |
+| `DELETE /v1/profile/avatar` | removes the avatar | `{"avatar": false}` |
 | `GET /v1/invite` | the invite URI to hand out to be added as a contact | `{"invite": "..."}` |
 | `GET /v1/contacts` | the contacts, each with `pending` for a request not yet accepted, `accepting` while the acceptance is on its way, and `writable` for whether this account holds the pass that admits it to their mailbox | `[{"fingerprint", "name", "pending", "accepting", "writable"}]` |
 | `POST /v1/contacts` | `{"invite": "...", "text": "..."}` or `{"alias": "!name", "text": "..."}` adds one, `text` optional; `{"accept": "<fingerprint>"}` accepts a request | `{"fingerprint": "..."}`; for `accept`, `{"accepted": "<fingerprint>"}` |
@@ -72,8 +77,8 @@ Every refusal is `{"error": "<what was wrong>"}` under one of these codes:
 | `POST /v1/storage/trim` | `{"keep": 100}` does the same in every conversation | `{"removed": <lines deleted in all>}` |
 | `GET /v1/events?since=&wait=` | everything that happened after `since`, waiting up to `wait` seconds | `{"events": [...], "lastEventId": ...}` |
 
-A group account answers `/v1/status`, the `/v1/storage` routes and the
-`/v1/group` routes (*Groups*), and refuses every other route with `409`: its
+A group account answers `/v1/status`, the `/v1/profile` routes, the `/v1/storage`
+routes and the `/v1/group` routes (*Groups*), and refuses every other route with `409`: its
 members' posts it relays itself. A bot account refuses the `/v1/group` routes
 with `409`.
 

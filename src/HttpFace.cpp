@@ -49,6 +49,7 @@ constexpr const char* kStoragePath = "/v1/storage";
 constexpr const char* kGroupPath = "/v1/group";
 constexpr const char* kAvatarName = "avatar";
 constexpr const char* kStatusPath = "/v1/status";
+constexpr const char* kProfilePath = "/v1/profile";
 constexpr const char* kTimerEvent = "timer";
 constexpr std::uint64_t kMebibyte = 1024 * 1024;
 constexpr std::uint64_t kMaxBackupBytes = 512 * kMebibyte;
@@ -95,6 +96,30 @@ std::string backupFileName(const std::string& displayName)
 http::Response failure(const int status, const std::string& message)
 {
     return http::jsonResponse({{"error", message}}, status);
+}
+
+http::Response avatarResponse(const Account& account)
+{
+    const Account::Avatar avatar = account.avatar();
+    if (avatar.data.empty()) {
+        return failure(404, "the account has no avatar");
+    }
+    http::Response response;
+    response.body.assign(avatar.data.begin(), avatar.data.end());
+    response.contentType = avatar.mime;
+    response.headers["Cache-Control"] = "no-store";
+    return response;
+}
+
+http::Response storeAvatar(Account& account, const http::Request& call, const nlohmann::json& answer)
+{
+    const nlohmann::json body = bazarish::parseJson(call.body);
+    const PictureCheck picture = checkPicture(body.value("data", std::string()), kAvatarName);
+    if (!picture.accepted) {
+        return failure(picture.refusal, picture.problem);
+    }
+    account.setAvatar(picture.bytes, picture.mime);
+    return http::jsonResponse(answer);
 }
 
 http::Response tokenRefused(const http::Request& request)
@@ -767,8 +792,10 @@ void HttpFace::apiRoutes()
         }
         const bool groupPath = request.path.starts_with(kGroupPath);
         if (account->kind() == Settings::AccountKind::eGroup && request.path != kStatusPath
-            && !groupPath && !request.path.starts_with(kStoragePath)) {
-            return failure(409, "a group answers /v1/status, /v1/storage and /v1/group only");
+            && !groupPath && !request.path.starts_with(kStoragePath)
+            && !request.path.starts_with(kProfilePath)) {
+            return failure(
+                409, "a group answers /v1/status, /v1/profile, /v1/storage and /v1/group only");
         }
         if (account->kind() != Settings::AccountKind::eGroup && groupPath) {
             return failure(409, "only a group account has /v1/group");
@@ -822,6 +849,50 @@ void HttpFace::apiRoutes()
                 runtime_.setEnabled(account.id(), body.at("enabled").get<bool>());
             }
             return statusOf(account);
+        });
+    });
+
+    const auto profileOf = [](Account& account) {
+        return http::jsonResponse({
+            {"name", account.displayName()},
+            {"statusText", account.statusText()},
+            {"avatar", !account.avatar().data.empty()},
+        });
+    };
+
+    server_->get(kProfilePath, [guarded, profileOf](const http::Request& request) {
+        return guarded(request, [profileOf](Account& account, const http::Request&) {
+            return profileOf(account);
+        });
+    });
+
+    server_->post(kProfilePath, [guarded, profileOf](const http::Request& request) {
+        return guarded(request, [profileOf](Account& account, const http::Request& call) {
+            const nlohmann::json body = bazarish::parseJson(call.body);
+            if (!body.contains("statusText") || !body.at("statusText").is_string()) {
+                return failure(400, "\"statusText\" is a string; an empty one clears it");
+            }
+            account.setStatusText(body.at("statusText").get<std::string>());
+            return profileOf(account);
+        });
+    });
+
+    server_->get(std::string(kProfilePath) + "/avatar", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request&) {
+            return avatarResponse(account);
+        });
+    });
+
+    server_->post(std::string(kProfilePath) + "/avatar", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request& call) {
+            return storeAvatar(account, call, {{"avatar", true}});
+        });
+    });
+
+    server_->del(std::string(kProfilePath) + "/avatar", [guarded](const http::Request& request) {
+        return guarded(request, [](Account& account, const http::Request&) {
+            account.setAvatar({}, {});
+            return http::jsonResponse({{"avatar", false}});
         });
     });
 
@@ -1293,28 +1364,13 @@ void HttpFace::accountRoutes()
 
     server_->get(base + "/avatar", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request&) {
-            const Account::Avatar avatar = account.avatar();
-            if (avatar.data.empty()) {
-                return failure(404, "the account has no avatar");
-            }
-            http::Response response;
-            response.body.assign(avatar.data.begin(), avatar.data.end());
-            response.contentType = avatar.mime;
-            response.headers["Cache-Control"] = "no-store";
-            return response;
+            return avatarResponse(account);
         });
     });
 
     server_->post(base + "/avatar", [forAccount](const http::Request& request) {
         return forAccount(request, [](Account& account, const http::Request& call) {
-            const nlohmann::json body = bazarish::parseJson(call.body);
-            const PictureCheck picture
-                = checkPicture(body.value("data", std::string()), kAvatarName);
-            if (!picture.accepted) {
-                return failure(picture.refusal, picture.problem);
-            }
-            account.setAvatar(picture.bytes, picture.mime);
-            return http::jsonResponse({{"ok", true}});
+            return storeAvatar(account, call, {{"ok", true}});
         });
     });
 

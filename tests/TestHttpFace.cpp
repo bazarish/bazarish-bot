@@ -96,6 +96,16 @@ try {
         CHECK(says(call(port, "DELETE", std::string("/v1/messages/") + kMessageId, bearer),
             kUnavailable, "not open"));
 
+        CHECK(call(port, "GET", "/v1/profile").status == kUnauthorized);
+        for (const auto& [verb, path, body] : std::vector<std::tuple<std::string, std::string,
+                 std::string>>{{"GET", "/v1/profile", ""},
+                 {"POST", "/v1/profile", R"({"statusText":"busy"})"},
+                 {"GET", "/v1/profile/avatar", ""},
+                 {"POST", "/v1/profile/avatar", R"({"data":""})"},
+                 {"DELETE", "/v1/profile/avatar", ""}}) {
+            CHECK(says(call(port, verb, path, bearer, body), kUnavailable, "not open"));
+        }
+
         CHECK(says(call(port, "GET", "/v1/group", bearer), kConflict, "only a group account"));
         CHECK(says(call(port, "POST", "/v1/group/posts", bearer, R"({"text":"hi"})"), kConflict,
             "only a group account"));
@@ -115,7 +125,10 @@ try {
                  {"POST", "/v1/group/requests", R"({"number":1,"allow":true})"},
                  {"GET", "/v1/group/posts", ""},
                  {"POST", "/v1/group/posts", R"({"text":"hi"})"},
-                 {"DELETE", "/v1/group/posts/p", ""}}) {
+                 {"DELETE", "/v1/group/posts/p", ""},
+                 {"GET", "/v1/profile", ""},
+                 {"POST", "/v1/profile", R"({"statusText":"open"})"},
+                 {"POST", "/v1/profile/avatar", R"({"data":""})"}}) {
             CHECK(says(call(port, verb, path, groupBearer, body), kUnavailable, "not open"));
         }
         CHECK(call(port, "POST", "/v1/posts", groupBearer, R"({"text":"hi"})").status
